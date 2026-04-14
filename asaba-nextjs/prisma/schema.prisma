@@ -1,0 +1,439 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "mysql"
+  url      = env("DATABASE_URL")
+}
+
+// =============================================
+// AUTH & USER
+// =============================================
+
+model User {
+  id_user   Int     @id @default(autoincrement())
+  nama      String  @db.VarChar(100)
+  username  String  @unique @db.VarChar(30)
+  password  String  @db.VarChar(255)
+  level_user String @db.VarChar(20)
+  alamat    String  @db.Text
+  telp      String  @db.VarChar(25)
+  instansi  String? @db.VarChar(50)
+  latitude  String  @db.VarChar(225)
+  longitude String  @db.VarChar(225)
+  zoom      Int     @default(10)
+  bidang    String? @db.VarChar(100)
+
+  @@map("t_user")
+}
+
+model KodeAkses {
+  id              Int    @id @default(autoincrement())
+  id_user         Int
+  kode_akses      String @db.VarChar(255)
+  tanggal_mulai   DateTime @db.Date
+  tanggal_selesai DateTime @db.Date
+
+  @@map("kode_akses")
+}
+
+// =============================================
+// LOGGER & LOKASI
+// =============================================
+
+model Logger {
+  id            Int    @id @default(autoincrement())
+  id_logger     String @db.VarChar(10)
+  nama_logger   String @db.VarChar(30)
+  lokasi_logger String @db.VarChar(30)
+  kategori_log  String @db.VarChar(10)
+  tabel         String @db.VarChar(10)
+
+  @@map("t_logger")
+}
+
+model Lokasi {
+  idlokasi    Int    @id @default(autoincrement())
+  nama_lokasi String @db.VarChar(40)
+  latitude    String @db.VarChar(20)
+  longitude   String @db.VarChar(20)
+
+  @@map("t_lokasi")
+}
+
+model KategoriLogger {
+  id_katlogger   Int    @id @default(autoincrement())
+  nama_kategori  String @db.VarChar(30)
+  controller     String @db.VarChar(20)
+  tabel          String @db.VarChar(20)
+  kepanjangan    String @db.Text
+  temp_data      String @db.VarChar(20)
+  icon_app       String @db.VarChar(25)
+  view           Int    @default(1)
+
+  @@map("kategori_logger")
+}
+
+model Informasi {
+  id_inf        Int    @id @default(autoincrement())
+  logger_id     String @db.VarChar(10)
+  seri          String @db.Text
+  sensor        String @db.Text
+  serial_number String @db.VarChar(25)
+  elevasi       String @db.VarChar(10)
+  nosell        String @db.VarChar(15)
+  nama_pic      String @db.VarChar(25)
+  no_pic        String @db.VarChar(15)
+  tgl_aktif     String @db.VarChar(10)
+  garansi       String @db.VarChar(10)
+  tgl_kontrak   String @db.VarChar(10)
+  imei          String @db.VarChar(20)
+  masa_aktif    DateTime @db.Date
+
+  @@map("t_informasi")
+}
+
+// =============================================
+// PRISMA (TARGET POINTS)
+// =============================================
+
+model PrismaTarget {
+  id                Int    @id @default(autoincrement())
+  id_prisma         String @db.VarChar(11)
+  id_logger         Int
+  nama_prisma       String @db.VarChar(255)
+  status_controller String @db.VarChar(25)
+  target_height     Float  @default(0)
+  HA                String? @default("0") @db.VarChar(200)
+  VA                String? @default("0") @db.VarChar(200)
+  SlopDis           Float?  @default(0)
+
+  @@map("t_prisma")
+}
+
+model TempPrisma {
+  id_prisma    String @id @db.VarChar(25)
+  code_logger  String @db.VarChar(10)
+  sensor1      String @db.VarChar(200)
+  sensor2      String @db.VarChar(200)
+  sensor3      String @db.VarChar(200)
+  sensor4      String @db.VarChar(200)
+  sensor5      String @db.VarChar(200)
+  sensor6      String @db.VarChar(200)
+  sensor7      String @db.VarChar(200)
+  sensor8      String @db.VarChar(200)
+  sensor9      String @db.VarChar(200)
+  nama         String @db.VarChar(200)
+  status_get   Int    @default(0)
+
+  @@map("temp_prisma")
+}
+
+model ParameterPrisma {
+  id_param     Int    @id @default(autoincrement())
+  id_prisma    String @db.VarChar(11)
+  nama_param   String @db.VarChar(225)
+  kolom_sensor String @db.VarChar(25)
+  satuan       String @db.VarChar(25)
+  id_logger    String @db.VarChar(15)
+
+  @@map("parameter_prisma")
+}
+
+// =============================================
+// SENSOR DATA TABLES
+// =============================================
+
+model Awlr {
+  id          Int      @id @default(autoincrement())
+  user_id     String   @db.VarChar(10)
+  code_logger String   @db.VarChar(10)
+  waktu       DateTime
+  sensor1     Float    @default(0)
+  sensor2     Float    @default(0)
+  sensor3     Float    @default(0)
+  sensor4     Float    @default(0)
+  sensor5     Float    @default(0)
+  sensor6     Float    @default(0)
+  sensor7     Float    @default(0)
+  sensor8     Float    @default(0)
+  sensor9     Float    @default(0)
+  sensor10    Float    @default(0)
+  sensor11    Float    @default(0)
+  sensor12    Float    @default(0)
+  sensor13    Float    @default(0)
+  sensor14    Float    @default(0)
+  sensor15    Float    @default(0)
+  sensor16    Float    @default(0)
+  sensor17    Float?   @default(0)
+  sensor18    Float?   @default(0)
+  sensor19    Float    @default(0)
+  sensor20    Float    @default(0)
+  sensor21    Float    @default(0)
+  sensor22    Float    @default(0)
+  sensor23    Float    @default(0)
+
+  @@map("awlr")
+}
+
+model Ews {
+  id          Int      @id @default(autoincrement())
+  user_id     String   @db.VarChar(10)
+  code_logger String   @db.VarChar(10)
+  waktu       DateTime
+  sensor1     Float    @default(0)
+  sensor2     Float    @default(0)
+  sensor3     Float    @default(0)
+  sensor4     Float    @default(0)
+  sensor5     Float    @default(0)
+  sensor6     Float    @default(0)
+  sensor7     Float    @default(0)
+  sensor8     Float    @default(0)
+  sensor9     Float    @default(0)
+  sensor10    Float    @default(0)
+  sensor11    Float    @default(0)
+  sensor12    Float    @default(0)
+  sensor13    Float    @default(0)
+  sensor14    Float    @default(0)
+  sensor15    Float    @default(0)
+  sensor16    Float    @default(0)
+
+  @@map("ews")
+}
+
+model Rts {
+  id          Int      @id @default(autoincrement())
+  id_kontrol  String   @db.VarChar(20)
+  user_id     String   @db.VarChar(10)
+  code_logger String   @db.VarChar(10)
+  waktu       DateTime
+  sensor1     String   @db.VarChar(200)
+  sensor2     String   @db.VarChar(200)
+  sensor3     String   @db.VarChar(200)
+  sensor4     String   @db.VarChar(200)
+  sensor5     String   @db.VarChar(200)
+  sensor6     String   @db.VarChar(200)
+  sensor7     String   @db.VarChar(200)
+  sensor8     String   @db.VarChar(200)
+  sensor9     String   @db.VarChar(200)
+  sensor10    String   @db.VarChar(200)
+  sensor11    String   @db.VarChar(200)
+  sensor12    String   @db.VarChar(200)
+  sensor13    String   @db.VarChar(200)
+  sensor14    String   @db.VarChar(200)
+  sensor15    String   @db.VarChar(200)
+  sensor16    String   @db.VarChar(200)
+
+  @@map("rts")
+}
+
+// =============================================
+// TEMP DATA (LATEST READINGS)
+// =============================================
+
+model TempAwlr {
+  id          Int      @id @default(autoincrement())
+  code_logger String   @db.VarChar(10)
+  waktu       DateTime
+  sensor1     Float    @default(0)
+  sensor2     Float    @default(0)
+  sensor3     Float    @default(0)
+  sensor4     Float    @default(0)
+  sensor5     Float    @default(0)
+  sensor6     Float    @default(0)
+  sensor7     Float    @default(0)
+  sensor8     Float    @default(0)
+  sensor9     Float    @default(0)
+  sensor10    Float    @default(0)
+  sensor11    Float    @default(0)
+  sensor12    Float    @default(0)
+  sensor13    Float    @default(0)
+  sensor14    Float    @default(0)
+  sensor15    Float    @default(0)
+  sensor16    Float    @default(0)
+  sensor17    Float?   @default(0)
+  sensor18    Float?   @default(0)
+  sensor19    Float    @default(0)
+  sensor20    Float    @default(0)
+  sensor21    Float    @default(0)
+  sensor22    Float    @default(0)
+  sensor23    Float    @default(0)
+
+  @@map("temp_awlr")
+}
+
+model TempEws {
+  id          Int      @id @default(autoincrement())
+  code_logger String   @db.VarChar(10)
+  waktu       DateTime
+  sensor1     Float    @default(0)
+  sensor2     Float    @default(0)
+  sensor3     Float    @default(0)
+  sensor4     Float    @default(0)
+  sensor5     Float    @default(0)
+  sensor6     Float    @default(0)
+  sensor7     Float    @default(0)
+  sensor8     Float    @default(0)
+  sensor9     Float    @default(0)
+  sensor10    Float    @default(0)
+  sensor11    Float    @default(0)
+  sensor12    Float    @default(0)
+  sensor13    Float    @default(0)
+  sensor14    Float    @default(0)
+  sensor15    Float    @default(0)
+  sensor16    Float    @default(0)
+
+  @@map("temp_ews")
+}
+
+model TempRts {
+  id          Int      @id @default(autoincrement())
+  code_logger String   @db.VarChar(10)
+  waktu       DateTime
+  sensor1     String   @db.VarChar(200)
+  sensor2     String   @db.VarChar(200)
+  sensor3     String   @db.VarChar(200)
+  sensor4     String   @db.VarChar(200)
+  sensor5     String   @db.VarChar(200)
+  sensor6     String   @db.VarChar(200)
+  sensor7     String   @db.VarChar(200)
+  sensor8     String   @db.VarChar(200)
+  sensor9     String   @db.VarChar(200)
+  sensor10    String   @db.VarChar(200)
+  sensor11    String   @db.VarChar(200)
+  sensor12    String   @db.VarChar(200)
+  sensor13    String   @db.VarChar(200)
+  sensor14    String   @db.VarChar(200)
+  sensor15    String   @db.VarChar(200)
+  sensor16    String   @db.VarChar(200)
+  sensor17    String?  @db.VarChar(200)
+  sensor18    String?  @db.VarChar(200)
+  sensor19    String?  @db.VarChar(200)
+  sensor20    String?  @db.VarChar(200)
+  sensor21    String?  @db.VarChar(200)
+  sensor22    String?  @db.VarChar(200)
+  sensor23    String?  @db.VarChar(200)
+
+  @@map("temp_rts")
+}
+
+// =============================================
+// CONTROL & MONITORING
+// =============================================
+
+model LogKontrol {
+  id_log    String   @id @db.VarChar(20)
+  id_logger String   @db.VarChar(15)
+  prisma    String   @db.VarChar(20)
+  datetime  DateTime
+  r0        Int      @default(0)
+  site      String?  @default("ccp") @db.VarChar(225)
+
+  @@map("log_kontrol")
+}
+
+model StatusKontrol {
+  id              Int    @id @default(autoincrement())
+  id_logger       String @db.VarChar(15)
+  status_kontrol  String @db.VarChar(5)
+  session_id      String @db.VarChar(200)
+
+  @@map("status_kontrol")
+}
+
+model SetTempkontrol {
+  id             Int      @id @default(autoincrement())
+  id_logger      String   @db.VarChar(15)
+  set_value      String   @db.VarChar(10)
+  status         String   @db.VarChar(5)
+  status_manual  String   @db.VarChar(5)
+  datetime       DateTime?
+
+  @@map("set_tempkontrol")
+}
+
+model LogSiaga {
+  id        Int    @id @default(autoincrement())
+  id_logger String @db.VarChar(15)
+  nilai     Float
+  status    String @db.VarChar(20)
+  waktu     String @db.VarChar(100)
+
+  @@map("log_siaga")
+}
+
+// =============================================
+// CONFIGURATION
+// =============================================
+
+model ConfigAdr {
+  id          Int    @id @default(autoincrement())
+  id_logger   Int
+  job_name    String @db.VarChar(225)
+  prisma_cons Float
+  ts_high     Float
+  coor_x      Float
+  coor_y      Float
+  coor_z      Float
+  step_record Int
+  retries     Int
+  cycle_time  Int
+
+  @@map("config_adr")
+}
+
+model Filter {
+  id           Int    @id @default(autoincrement())
+  id_kategori  Int
+  nama_filter  String @db.VarChar(225)
+  icon         String @db.VarChar(225)
+
+  @@map("filter")
+}
+
+model ParameterSensor {
+  id_param     Int    @id @default(autoincrement())
+  logger_id    String @db.VarChar(15)
+  nama_param   String @db.VarChar(225)
+  kolom_sensor String @db.VarChar(25)
+  satuan       String @db.VarChar(25)
+  warna        String @db.VarChar(25)
+
+  @@map("parameter_sensor")
+}
+
+model SetEws {
+  id        Int    @id @default(autoincrement())
+  id_logger String @db.VarChar(15)
+  status1   String @db.VarChar(20)
+  siaga1    Float
+  siaga2    Float
+  siaga3    Float
+
+  @@map("set_ews")
+}
+
+model SchedulingTask {
+  id        Int      @id @default(autoincrement())
+  id_logger String   @db.VarChar(15)
+  days      String   @db.VarChar(5)
+  time      String   @db.VarChar(10)
+  status    String   @db.VarChar(5)
+  site      String?  @db.VarChar(225)
+  datetime  DateTime?
+
+  @@map("scheduling_task")
+}
+
+model Perbaikan {
+  id_perbaikan  Int    @id @default(autoincrement())
+  id_logger     String @db.VarChar(15)
+  data_terakhir String @db.Text
+  tabel         String @db.VarChar(15)
+
+  @@map("t_perbaikan")
+}
