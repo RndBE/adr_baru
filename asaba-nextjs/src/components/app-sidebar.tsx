@@ -105,7 +105,7 @@ export function AppSidebar() {
               ))}
 
               {/* Pengaturan with sub-menu */}
-              <Collapsible
+              {/* <Collapsible
                 defaultOpen={pathname.startsWith("/pengaturan")}
                 className="group/collapsible"
               >
@@ -135,7 +135,7 @@ export function AppSidebar() {
                     </SidebarMenuSub>
                   </CollapsibleContent>
                 </SidebarMenuItem>
-              </Collapsible>
+              </Collapsible> */}
             </SidebarMenu>
           </SidebarGroupContent>
         </SidebarGroup>
