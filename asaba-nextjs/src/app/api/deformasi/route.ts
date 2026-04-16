@@ -1,12 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { nfloat, fmt, rotateEN, arah8ID, utm2ll } from "@/lib/coordinates";
-import { getRtsBySite, statusPergeseran, statusKecepatan } from "@/lib/deformasi";
+import { nfloat, fmt, rotateEN, arah8ID } from "@/lib/coordinates";
+import { getRtsBySite } from "@/lib/deformasi";
 
 /**
  * GET /api/deformasi?id_log=XXXX
  * Calculate deformation data for a specific log_kontrol entry.
- * Replaces CI3 Beranda::get_deformasi_json().
  */
 export async function GET(request: NextRequest) {
   try {
@@ -48,7 +47,7 @@ export async function GET(request: NextRequest) {
     }
     const firstLogId = logFirst?.id_log || idLog;
 
-    // Get all prisms across loggers
+    // Get all distinct logger IDs from t_prisma
     const rtsLoggerIds = await prisma.$queryRaw<Array<{ id_logger: number }>>`
       SELECT DISTINCT id_logger FROM t_prisma
     `;
@@ -56,14 +55,12 @@ export async function GET(request: NextRequest) {
     const dataPengukuran: Array<Record<string, unknown>> = [];
 
     for (const lg of rtsLoggerIds) {
-      const idLogger = lg.id_logger;
+      const idLogger = Number(lg.id_logger);
 
-      // Get prisms with temp data
+      // Get prisms — select only from t_prisma (no JOIN to temp_prisma)
       const prisms = await prisma.$queryRaw<Array<Record<string, unknown>>>`
-        SELECT p.*, tp.sensor1 as tp_s1, tp.sensor2 as tp_s2,
-               tp.sensor3 as tp_s3, tp.nama as tp_nama
+        SELECT p.*
         FROM t_prisma p
-        LEFT JOIN temp_prisma tp ON tp.id_prisma = p.id_prisma
         WHERE p.id_logger = ${idLogger}
       `;
 
@@ -129,7 +126,6 @@ export async function GET(request: NextRequest) {
         const namaPrisma =
           (current.sensor3 as string) ||
           (p.nama_prisma as string) ||
-          (p.tp_nama as string) ||
           "";
 
         dataPengukuran.push({
@@ -170,9 +166,13 @@ export async function GET(request: NextRequest) {
       },
     });
   } catch (error) {
-    console.error("[GET /api/deformasi]", error);
+    console.error("[GET /api/deformasi] Detail error:", error);
     return NextResponse.json(
-      { success: false, error: "Failed to calculate deformation" },
+      {
+        success: false,
+        error: "Failed to calculate deformation",
+        detail: error instanceof Error ? error.message : String(error),
+      },
       { status: 500 }
     );
   }

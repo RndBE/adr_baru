@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useMemo } from "react";
+import { useRouter } from "next/navigation";
 import { PageHeader } from "@/components/page-header";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -31,7 +32,9 @@ import {
   ArrowRight,
   TrendingUp,
   Loader2,
-  Camera
+  Camera,
+  Check,
+  X
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useLoggers, useLogKontrol, useDeformasi, useLoggerDetail } from "@/hooks/use-api";
@@ -105,9 +108,11 @@ export function groupByCategory(loggers: LoggerRow[]) {
 
 // ─── RTS Detail Dashboard Component ────────────────────────────────
 function RtsDashboard({ logger }: { logger: any }) {
+  const router = useRouter();
   const { detail, isLoading: detailLoading } = useLoggerDetail(logger.id_logger);
   const { logs, isLoading: logsLoading } = useLogKontrol(undefined, 30);
   const [selectedLog, setSelectedLog] = useState<string | null>(null);
+  const [showInfo, setShowInfo] = useState(false);
 
   const activeLog = selectedLog || (logs.length > 0 ? logs[0].id_log : null);
   const { deformasi, isLoading: defLoading } = useDeformasi(activeLog);
@@ -134,21 +139,58 @@ function RtsDashboard({ logger }: { logger: any }) {
   return (
     <div className="space-y-4">
       {/* ─── TOP SEC: OVERVIEW CARDS ─── */}
-      <div className="grid grid-cols-1 xl:grid-cols-12 gap-4">
+      <div className="grid grid-cols-1 xl:grid-cols-12 gap-5">
         {/* Pos RTS Site Map */}
-        <Card className="col-span-1 xl:col-span-3 rounded-lg shadow-sm border-[#EAEAEA]">
-          <CardContent className="p-5 flex flex-col h-full justify-center">
+        <Card className="col-span-1 xl:col-span-3 rounded-[6px] shadow-sm border-[#EAEAEA] overflow-visible">
+          <CardContent className="p-4 lg:p-4.5 flex flex-col h-full justify-center">
             <div className="mb-4">
-              <div className="flex items-center gap-2 mb-1.5">
+              <div className="flex items-center gap-2 mb-1.5 relative w-max">
                 <h3 className="font-extrabold text-gray-900 text-[17px]">Pos RTS Site Map</h3>
-                <div className="w-4 h-4 bg-[#2B3270] rounded-full flex items-center justify-center text-white text-[10px] font-bold">i</div>
+                <button 
+                  onClick={() => setShowInfo(!showInfo)}
+                  className="w-5 h-5 bg-[#2B3270] rounded-full flex items-center justify-center text-white text-[12px] font-bold hover:bg-[#1a1e4a] transition-colors cursor-pointer"
+                >
+                  i
+                </button>
+
+                {showInfo && (
+                  <>
+                    <div className="fixed inset-0 z-40" onClick={() => setShowInfo(false)} />
+                    <div className="absolute top-[120%] left-[150px] mt-1 z-50 w-[280px] bg-white rounded-lg shadow-xl border border-gray-200 py-1">
+                      <div className="px-4 py-3 flex justify-between items-center border-b border-gray-200">
+                        <span className="text-[13px] text-black font-semibold">ID Logger</span>
+                        <span className="text-[13px] text-gray-800">{logger.id_logger || "10005"}</span>
+                      </div>
+                      <div className="px-4 py-3 flex justify-between items-center border-b border-gray-200">
+                        <span className="text-[13px] text-black font-semibold">Status Logger</span>
+                        <div className="flex items-center gap-2">
+                          <span className="text-[13px] text-gray-800">{isConnected ? "Koneksi Terhubung" : "Koneksi Terputus"}</span>
+                          {!isConnected && (
+                            <div className="w-3.5 h-3.5 rounded-full flex items-center justify-center flex-shrink-0 border border-red-200 text-red-500 bg-red-50">
+                              <X className="w-2.5 h-2.5 stroke-[3]" />
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                      <div className="px-4 py-3 flex justify-between items-center">
+                        <span className="text-[13px] text-black font-semibold">Status SD Card</span>
+                        <div className="flex items-center gap-1.5">
+                          <span className="text-[13px] text-gray-800">OK</span>
+                          <div className="w-[14px] h-[14px] rounded-full border border-green-500 text-green-500 flex items-center justify-center flex-shrink-0">
+                            <Check className="w-2.5 h-2.5 stroke-[3]" />
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  </>
+                )}
               </div>
               <div className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-gray-100/80 text-[11px] text-gray-700 font-medium border border-gray-200">
                 <div className="h-1.5 w-1.5 rounded-full bg-gray-600"></div>
                 {lastUpdateStr}
               </div>
             </div>
-            <Button className="w-full bg-[#2B3270] hover:bg-[#1a1e4a] text-white rounded-md h-[42px] flex items-center justify-center text-sm font-medium shadow-sm transition-colors">
+            <Button className="w-full bg-[#2B3270] hover:bg-[#1a1e4a] text-white rounded-md h-[42px] flex items-center justify-center text-sm font-medium shadow-sm transition-colors cursor-pointer">
               <Image src="/robot-arm.svg" width={18} height={18} alt="Robot Arm" className="mr-2 object-contain" />
               Kontrol ADR
             </Button>
@@ -156,9 +198,9 @@ function RtsDashboard({ logger }: { logger: any }) {
         </Card>
 
         {/* RTS Widgets Row */}
-        <div className="col-span-1 xl:col-span-9 grid grid-cols-2 md:grid-cols-[minmax(240px,2fr)_1fr_1fr_1fr_1fr] gap-4 items-stretch">
+        <div className="col-span-1 xl:col-span-9 grid grid-cols-2 md:grid-cols-[minmax(240px,2fr)_1fr_1fr_1fr_1fr] gap-5 items-stretch">
           {/* Status Main Card */}
-          <Card className="col-span-2 md:col-span-1 border-[#EAEAEA] shadow-sm rounded-lg flex flex-row items-center justify-start py-4 pr-4 pl-[115px] flex-nowrap relative overflow-hidden h-full">
+          <Card className="col-span-2 md:col-span-1 border-[#EAEAEA] shadow-sm rounded-[6px] flex flex-row items-center justify-start py-3.5 pr-4 pl-[115px] flex-nowrap relative overflow-hidden h-full">
             {/* Left Image positioned exactly at bottom */}
             <div className="absolute left-1 bottom-1 w-[150px] h-[110%] pointer-events-none flex items-end">
               <Image src="/sokkia.svg" width={140} height={150} alt="Sokkia Total Station" className="object-contain drop-shadow-sm translate-y-[2px]" />
@@ -177,7 +219,7 @@ function RtsDashboard({ logger }: { logger: any }) {
           </Card>
 
           {/* Metric Cards */}
-          <SmallMetricCard title="POWER RTS" value={powerRts} unit="Volt" iconBg="bg-[#FEF1D1]" imageSrc="/power_rts.svg" />
+          <SmallMetricCard title="POWER RTS" value={powerRts} unit="Volt" iconBg="bg-[#FEF1D1]" imageSrc="/power_rts.svg" onClick={() => router.push('/power-rts')} />
           <SmallMetricCard title="HUMIDITY LOGGER" value={humidity} unit="%" iconBg="bg-[#DEEBF5]" imageSrc="/humidity.svg"  />
           <SmallMetricCard title="BATTERY LOGGER" value={battery} unit="Volt" iconBg="bg-[#CDF2D3]" imageSrc="/battery.svg" />
           <SmallMetricCard title="TEMPERATURE LOGGER" value={temperature} unit="°C" iconBg="bg-[#FEF1D1]" imageSrc="/temperature.svg" />
@@ -185,7 +227,7 @@ function RtsDashboard({ logger }: { logger: any }) {
       </div>
 
       {/* ─── MIDDLE SEC: HISTORY & PRISMA DATA ─── */}
-      <div className="grid grid-cols-1 xl:grid-cols-12 gap-4">
+      <div className="grid grid-cols-1 xl:grid-cols-12 gap-5">
         {/* Riwayat Running Terbaru */}
         <Card className="col-span-1 xl:col-span-3 rounded-lg shadow-sm border-[#EAEAEA] h-[520px] flex flex-col pt-5 bg-white">
           <div className="px-5 flex items-center justify-between mb-4">
@@ -232,15 +274,15 @@ function RtsDashboard({ logger }: { logger: any }) {
             )}
           </div>
           <div className="border-t border-gray-100 p-3.5 flex justify-end">
-             <button className="text-[13px] text-[#2B3270] font-bold flex items-center gap-1.5 hover:underline">
+             <button className="text-[13px] text-[#2B3270] font-bold flex items-center gap-1.5 hover:underline cursor-pointer">
                Lihat Semua <ArrowRight className="h-3.5 w-3.5" />
              </button>
           </div>
         </Card>
 
         {/* Preview Data Prisma */}
-        <Card className="col-span-1 xl:col-span-9 rounded-lg shadow-sm border border-[#EAEAEA] overflow-hidden flex flex-col h-[520px] bg-white">
-          <div className="p-4 flex items-center justify-between">
+        <Card className="col-span-1 xl:col-span-9 rounded-lg shadow-sm border-[#EAEAEA] overflow-hidden flex flex-col h-[520px] bg-white">
+          <div className="px-4 pt-1 pb-1 flex items-center justify-between">
             <div>
               <h3 className="font-extrabold text-gray-900 text-lg mb-1.5">Preview Data Prisma</h3>
               <div className="flex items-center gap-4">
@@ -255,17 +297,17 @@ function RtsDashboard({ logger }: { logger: any }) {
               </div>
             </div>
             <div className="flex items-center gap-2.5">
-              <Button variant="outline" size="sm" className="h-[38px] border-[#2B3270] text-[#2B3270] bg-white hover:bg-[#2B3270] hover:text-white rounded-md font-semibold transition-colors px-4">
+              <Button variant="outline" size="sm" className="h-[38px] border-[#2B3270] text-[#2B3270] bg-white hover:bg-[#2B3270] hover:text-white rounded-md font-semibold transition-colors px-4 cursor-pointer">
                 <MapIcon className="mr-2 h-4 w-4" /> Buka Peta
               </Button>
-              <Button size="sm" className="h-[38px] bg-[#2B3270] hover:bg-[#1a1e4a] text-white rounded-md font-semibold shadow-sm px-4">
+              <Button size="sm" className="h-[38px] bg-[#2B3270] hover:bg-[#1a1e4a] text-white rounded-md font-semibold shadow-sm px-4 cursor-pointer">
                 <Box className="mr-2 h-4 w-4" /> Buka 3D
               </Button>
             </div>
           </div>
-          <div className="flex-1 overflow-auto bg-white border-t border-gray-100">
+          <div className="flex-1 overflow-auto bg-white border-t border-gray-200">
             <Table>
-              <TableHeader className="bg-white sticky top-0 z-10">
+              <TableHeader className="bg-gray-100 sticky top-0 z-10">
                 <TableRow className="border-b border-gray-200">
                   <TableHead className="text-center text-[12px] font-bold text-black py-4">Nomor Prisma</TableHead>
                   <TableHead className="text-center text-[12px] font-bold text-black py-4">Nama Prisma</TableHead>
@@ -313,7 +355,7 @@ function RtsDashboard({ logger }: { logger: any }) {
             </Table>
           </div>
           <div className="border-t border-gray-100 p-3.5 flex justify-end">
-            <button className="text-[13px] text-[#2B3270] font-bold flex items-center gap-1.5 hover:underline">
+            <button className="text-[13px] text-[#2B3270] font-bold flex items-center gap-1.5 hover:underline cursor-pointer">
               Lihat Semua <ArrowRight className="h-3.5 w-3.5" />
             </button>
           </div>
@@ -330,7 +372,9 @@ function RtsDashboard({ logger }: { logger: any }) {
           <CardContent className="p-4 2xl:p-5 grid grid-cols-2 gap-3 xl:gap-4">
              {/* Total Running */}
              <div className="flex gap-2.5 items-start">
-                <div className="min-w-[36px] w-9 h-9 rounded-lg bg-[#E5F5ED] flex items-center justify-center"><Activity className="h-[20px] w-[20px] text-[#2DB77B]"/></div>
+                <div className="min-w-[36px] w-9 h-9 rounded-lg bg-[#E5F5ED] flex items-center justify-center">
+                  <Image src="/riwayat.svg" alt="Total Running" width={20} height={20} className="object-contain" />
+                </div>
                 <div>
                    <p className="text-[8px] xl:text-[9px] text-gray-400 uppercase font-bold tracking-wider mb-0.5">Total Running</p>
                    <p className="font-extrabold text-lg xl:text-xl text-gray-900 leading-none">{totalRunning} <span className="text-[10px] font-medium text-gray-500">running</span></p>
@@ -338,7 +382,9 @@ function RtsDashboard({ logger }: { logger: any }) {
              </div>
              {/* Running Terakhir */}
              <div className="flex gap-2.5 items-start">
-                <div className="min-w-[36px] w-9 h-9 rounded-lg bg-[#EBF3FF] flex items-center justify-center"><Clock className="h-[20px] w-[20px] text-[#4B90EE]"/></div>
+                <div className="min-w-[36px] w-9 h-9 rounded-lg bg-[#EBF3FF] flex items-center justify-center">
+                  <Image src="/riwayat_running.svg" alt="Running Terakhir" width={20} height={20} className="object-contain" />
+                </div>
                 <div>
                    <p className="text-[8px] xl:text-[9px] text-gray-400 uppercase font-bold tracking-wider mb-0.5">Running Terakhir</p>
                    {/* mock time layout */}
@@ -347,7 +393,9 @@ function RtsDashboard({ logger }: { logger: any }) {
              </div>
              {/* Pergeseran Maks */}
              <div className="flex gap-2.5 items-start">
-                <div className="min-w-[36px] w-9 h-9 rounded-lg bg-[#FFF2DE] flex items-center justify-center"><TrendingUp className="h-[20px] w-[20px] text-[#F1A23A]"/></div>
+                <div className="min-w-[36px] w-9 h-9 rounded-lg bg-[#FFF2DE] flex items-center justify-center">
+                  <Image src="/pergeseran_maks.svg" alt="Pergeseran Maks" width={20} height={20} className="object-contain" />
+                </div>
                 <div>
                    <p className="text-[8px] xl:text-[9px] text-gray-400 uppercase font-bold tracking-wider mb-0.5">Pergeseran Maks.</p>
                    <p className="font-extrabold text-lg xl:text-xl text-gray-900 leading-none mb-1">{maxPergeseran} <span className="text-[10px] font-medium text-gray-500">mm</span></p>
@@ -356,7 +404,9 @@ function RtsDashboard({ logger }: { logger: any }) {
              </div>
              {/* Kecepatan Maks */}
              <div className="flex gap-2.5 items-start">
-                <div className="min-w-[36px] w-9 h-9 rounded-lg bg-[#E8EAFD] flex items-center justify-center"><RefreshCw className="h-[20px] w-[20px] text-[#6A78D1]"/></div>
+                <div className="min-w-[36px] w-9 h-9 rounded-lg bg-[#E8EAFD] flex items-center justify-center">
+                  <Image src="/kecepatan_maks.svg" alt="Kecepatan Maks" width={20} height={20} className="object-contain" />
+                </div>
                 <div>
                    <p className="text-[8px] xl:text-[9px] text-gray-400 uppercase font-bold tracking-wider mb-0.5">Kecepatan Maks.</p>
                    <p className="font-extrabold text-lg xl:text-xl text-gray-900 leading-none mb-1">{maxKecepatan} <span className="text-[10px] font-medium text-gray-500">mm/hari</span></p>
@@ -368,59 +418,42 @@ function RtsDashboard({ logger }: { logger: any }) {
 
         {/* Peta Prisma Preview */}
         <Card className="rounded-lg shadow-sm border-[#EAEAEA] bg-white lg:col-span-1 min-h-[160px] relative overflow-hidden flex flex-col">
-           <div className="p-4 2xl:p-5 flex-1 z-10 relative">
+           <div className="p-4 2xl:p-5 flex-1 z-10 relative w-[35%]">
               <h3 className="font-extrabold text-[15px] text-gray-900 mb-0.5">Peta Prisma</h3>
-              <p className="text-[11px] text-gray-500 font-medium leading-tight mb-4">Preview persebaran<br/>titik prisma</p>
+              <p className="text-[11px] text-gray-500 font-medium leading-tight mb-4 pr-1">Preview persebaran titik prisma</p>
               
               <div className="mt-auto absolute bottom-4 left-4 xl:left-5">
-                 <button className="text-[12px] text-[#2B3270] font-bold flex items-center gap-1.5 hover:underline">
+                 <button className="text-[12px] text-[#2B3270] font-bold flex items-center gap-1.5 hover:underline cursor-pointer whitespace-nowrap">
                    Lihat Peta <ArrowRight className="h-3 w-3" />
                  </button>
               </div>
            </div>
            
            {/* Map graphic mockup positioned exactly on the right */}
-           <div className="absolute right-3 top-0 bottom-0 w-[55%] flex items-center justify-center">
-              <div className="relative w-full h-[120px] bg-white border border-gray-200 rounded-lg overflow-hidden group">
-                  <div className="absolute inset-x-0 bottom-0 top-6 left-6 border-l border-t border-gray-300 rounded-tl-3xl"></div>
-                   {/* RTS marker */}
-                  <div className="absolute top-1/2 left-1/2 text-[9px] text-green-700 bg-white border border-green-200 px-1 py-0.5 rounded shadow-sm flex items-center gap-0.5 ml-2">
-                    <div className="w-1.5 h-1.5 rounded-full bg-green-500"></div> RTS
-                  </div>
-                  {/* points */}
-                  <div className="absolute top-1/2 left-8 flex gap-[2px] flex-wrap w-8 transform rotate-45">
-                    {Array.from({length: 8}).map((_,i) => <div key={i} className="w-1.5 h-1.5 bg-red-500 rounded-sm"></div>)}
-                  </div>
+           <div className="absolute right-3 top-3 bottom-3 w-[63%] pointer-events-none">
+              <div className="relative w-full h-full rounded-[10px] border border-[#EAEAEA] bg-white overflow-hidden flex items-center justify-center">
+                <Image src="/Peta_Preview.svg" fill alt="Peta Prisma Preview" className="object-cover object-center" />
               </div>
            </div>
         </Card>
 
         {/* Visualisasi 3D Preview */}
         <Card className="rounded-lg shadow-sm border-[#EAEAEA] bg-white lg:col-span-1 min-h-[160px] relative overflow-hidden flex flex-col">
-           <div className="p-4 2xl:p-5 flex-1 z-10 relative">
+           <div className="p-4 2xl:p-5 flex-1 z-10 relative w-[35%]">
               <h3 className="font-extrabold text-[15px] text-gray-900 mb-0.5">Visualisasi 3D</h3>
-              <p className="text-[11px] text-gray-500 font-medium leading-tight mb-4">Preview visualisasi<br/>deformasi prisma</p>
+              <p className="text-[11px] text-gray-500 font-medium leading-tight mb-4 pr-1">Preview visualisasi deformasi prisma</p>
               
               <div className="mt-auto absolute bottom-4 left-4 xl:left-5">
-                 <button className="text-[12px] text-[#2B3270] font-bold flex items-center gap-1.5 hover:underline">
+                 <button className="text-[12px] text-[#2B3270] font-bold flex items-center gap-1.5 hover:underline cursor-pointer whitespace-nowrap">
                    Lihat 3D <ArrowRight className="h-3 w-3" />
                  </button>
               </div>
            </div>
            
            {/* 3D graphic mockup positioned exactly on the right */}
-           <div className="absolute right-3 top-0 bottom-0 w-[55%] flex items-center justify-center">
-              <div className="relative w-full h-[120px] bg-white border border-gray-200 rounded-lg overflow-hidden flex items-center justify-center">
-                 <div className="w-full h-full relative" style={{perspective: '150px'}}>
-                    <div className="absolute top-1/2 left-1/2 w-[80%] h-[80%] border border-gray-300 rounded-[50%] -translate-x-1/2 -translate-y-1/2 transform rotate-x-[60deg] opacity-70"></div>
-                     <div className="absolute top-1/2 left-1/2 w-3 h-3 bg-gray-300 border border-gray-400 rotate-45 shadow-lg -translate-x-1/2 -translate-y-1/2"></div>
-                    {/* axis line */}
-                    <div className="absolute top-1/2 left-1/2 w-16 h-[1px] bg-red-400 -translate-x-1/2 -translate-y-1/2 rotate-45"></div>
-                    <div className="absolute top-1/2 left-1/2 w-16 h-[1px] bg-gray-400 -translate-x-1/2 -translate-y-1/2 -rotate-45"></div>
-                    {/* dots */}
-                    <div className="absolute top-1/4 left-1/4 w-1 h-1 bg-red-500 rounded-full"></div>
-                    <div className="absolute bottom-1/4 right-1/4 w-1 h-1 bg-red-500 rounded-full"></div>
-                 </div>
+           <div className="absolute right-3 top-3 bottom-3 w-[63%] pointer-events-none">
+              <div className="relative w-full h-full rounded-[10px] border border-[#EAEAEA] bg-white overflow-hidden flex items-center justify-center">
+                 <Image src="/visualisasi_3D.svg" fill alt="Visualisasi 3D Preview" className="object-cover object-center" />
               </div>
            </div>
         </Card>
@@ -431,20 +464,30 @@ function RtsDashboard({ logger }: { logger: any }) {
 }
 
 // ─── Small Metric Card Helper ───
-function SmallMetricCard({title, value, unit, iconBg, iconColor, Icon, imageSrc}: {title: string, value: string|number, unit: string, iconBg: string, iconColor?: string, Icon?: React.ElementType, imageSrc?: string}) {
+function SmallMetricCard({title, value, unit, iconBg, iconColor, Icon, imageSrc, onClick}: {title: string, value: string|number, unit: string, iconBg: string, iconColor?: string, Icon?: React.ElementType, imageSrc?: string, onClick?: () => void}) {
   return (
-    <Card className="col-span-1 rounded-lg shadow-sm border border-[#EAEAEA] flex flex-col justify-center items-start p-3 bg-white h-full">
-      <div className={cn("w-12 h-12 flex-shrink-0 rounded-[10px] flex items-center justify-center", iconBg)}>
-        {imageSrc ? (
-           <Image src={imageSrc} width={30} height={30} alt={title} className="object-contain" />
-        ) : Icon ? (
-           <Icon className={cn("h-6 w-6", iconColor)} strokeWidth={2.5} />
-        ) : null}
-      </div>
-      <p className="text-[12px] uppercase text-gray-950 font-semibold tracking-wider leading-tight w-full truncate">{title}</p>
-      <div className="flex items-baseline gap-1">
-        <span className="font-extrabold text-[24px] text-gray-950 leading-none">{value}</span>
-        <span className="text-[12px] font-medium text-gray-950">{unit}</span>
+    <Card 
+      onClick={onClick}
+      className={cn(
+        "col-span-1 border-[#EAEAEA] shadow-sm rounded-md relative overflow-hidden h-full transition-all duration-300",
+        onClick && "cursor-pointer hover:border-gray-400 hover:shadow-md active:scale-[0.98]"
+      )}
+    >
+      <div className="p-3 lg:p-4 h-full flex flex-col justify-center items-start gap-3">
+        <div className={cn("w-10 h-10 lg:w-11 lg:h-11 flex-shrink-0 rounded-[10px] flex items-center justify-center", iconBg)}>
+          {imageSrc ? (
+             <Image src={imageSrc} width={35} height={35} alt={title} className="object-contain w-5 h-5 lg:w-[30px] lg:h-[30px]" />
+          ) : Icon ? (
+             <Icon className={cn("h-5 w-5 lg:h-[22px] lg:w-[22px]", iconColor)} strokeWidth={2.5} />
+          ) : null}
+        </div>
+        <div className="flex flex-col gap-0.5">
+          <p className="text-[10px] lg:text-[11px] uppercase tracking-wider text-gray-700 font-bold w-full truncate">{title}</p>
+          <div className="flex items-baseline gap-1">
+            <span className="font-extrabold text-[22px] sm:text-2xl lg:text-[26px] xl:text-[28px] tracking-tight leading-none">{value}</span>
+            <span className="text-[11px] lg:text-[12px] font-medium text-gray-800">{unit}</span>
+          </div>
+        </div>
       </div>
     </Card>
   )
@@ -460,7 +503,6 @@ export default function BerandaPage() {
 
   return (
     <div className="space-y-6">
-      <PageHeader title="Dashboard" />
 
       {isLoading ? (
         <div className="space-y-6">
