@@ -11,6 +11,10 @@ const pageTitles: Record<string, string> = {
   "/monitoring": "Monitoring",
   "/masterdata": "Masterdata",
   "/pengaturan": "Pengaturan",
+  "/kontrol-adr": "Kontrol ADR",
+  "/prism-config": "Prism Configuration",
+  "/hasil-pengukuran": "Hasil Pengukuran",
+  "/visualisasi-3d": "Visualisasi 3D",
 };
 
 export default function DashboardLayout({
