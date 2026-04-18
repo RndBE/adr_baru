@@ -7,6 +7,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { signIn } from "next-auth/react";
+import Image from "next/image";
 
 export default function LoginPage() {
   const [showPassword, setShowPassword] = useState(false);
@@ -31,8 +32,11 @@ export default function LoginPage() {
 
       if (result?.error) {
         setError("Username atau kata sandi salah");
+      } else if (result?.ok) {
+        // Use relative redirect so it works on any host / IP
+        window.location.replace("/beranda");
       } else {
-        window.location.href = "/beranda";
+        setError("Login gagal, coba lagi");
       }
     } catch {
       setError("Terjadi kesalahan, coba lagi");
@@ -42,125 +46,148 @@ export default function LoginPage() {
   };
 
   return (
-    <div className="flex min-h-screen flex-col items-center justify-center bg-gradient-to-br from-[oklch(0.95_0.01_265)] via-[oklch(0.97_0.005_260)] to-[oklch(0.93_0.015_265)] px-4">
-      {/* Decorative background elements */}
-      <div className="pointer-events-none absolute inset-0 overflow-hidden">
-        <div className="absolute -top-40 -right-40 h-80 w-80 rounded-full bg-brand/5 blur-3xl" />
-        <div className="absolute -bottom-40 -left-40 h-80 w-80 rounded-full bg-brand-light/5 blur-3xl" />
-      </div>
-
-      <div className="relative z-10 w-full max-w-md">
-        {/* Logo */}
-        <div className="mb-8 text-center">
-          <div className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-2xl bg-brand shadow-lg shadow-brand/20">
-            <svg
-              xmlns="http://www.w3.org/2000/svg"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="white"
-              strokeWidth="1.5"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              className="h-8 w-8"
-            >
-              <path d="M12 2L2 7l10 5 10-5-10-5z" />
-              <path d="M2 17l10 5 10-5" />
-              <path d="M2 12l10 5 10-5" />
-            </svg>
-          </div>
-          <h1 className="text-2xl font-bold tracking-tight text-foreground">
-            ASABA Monitoring
+    <div className="flex min-h-screen bg-white">
+      {/* LEFT PANEL - Illustration & Welcome Text */}
+      <div className="hidden lg:flex w-[65%] flex-col justify-center px-16 xl:px-24 relative overflow-hidden">
+        <div className="relative z-10 space-y-4 max-w-[600px] mb-12">
+          <h1 className="text-4xl xl:text-5xl font-extrabold tracking-tight text-[#303481] whitespace-nowrap">
+            <span className="italic relative inline-block">
+              Precision
+              <span className="absolute bottom-1 left-0 w-full h-[4px] bg-[#E32636]"></span>
+            </span>{" "}
+            Deformation Monitoring
           </h1>
-          <p className="mt-1 text-sm text-muted-foreground">
-            Sistem Monitoring Bendungan
+          <p className="text-xl text-gray-800 whitespace-nowrap">
+            Pantau perubahan struktur secara{" "}
+            <span className="bg-[#FFE5B4] px-1 font-semibold rounded-md">presisi</span>,{" "}
+            <span className="bg-[#FFE5B4] px-1 font-semibold rounded-md">real-time</span>, dan{" "}
+            <span className="bg-[#FFE5B4] px-1 font-semibold rounded-md">terukur</span>.
           </p>
         </div>
 
-        {/* Login Card */}
-        <Card className="border-0 shadow-xl shadow-black/5">
-          <CardContent className="pt-8 pb-8">
-            <form onSubmit={handleSubmit} className="space-y-5">
-              {error && (
-                <div className="rounded-md bg-destructive/10 px-3 py-2 text-sm text-destructive">
-                  {error}
-                </div>
-              )}
+        <div className="relative z-10 w-full max-w-[600px] mx-auto aspect-square flex items-center justify-center">
+          {/* We use the generated illustration or you can swap with the real SVG later */}
+          <Image
+            src="/logo_login.svg" 
+            alt="Monitoring Illustration"
+            fill
+            className="object-contain"
+            priority
+          />
+        </div>
+        
+        {/* Copyright */}
+        <div className="absolute bottom-8 left-16 xl:left-24">
+          <p className="text-sm font-medium text-[#303481]">
+            © Beacon Engineering {new Date().getFullYear()}
+          </p>
+        </div>
+      </div>
 
-              <div className="space-y-2">
-                <Label htmlFor="username" className="text-sm font-medium">
-                  Nama Pengguna
-                </Label>
-                <div className="relative">
-                  <User className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-                  <Input
-                    id="username"
-                    name="username"
-                    type="text"
-                    placeholder="Masukkan username"
-                    className="h-11 pl-10"
-                    autoComplete="off"
-                    required
-                  />
-                </div>
+      {/* RIGHT PANEL - Login Form */}
+      <div className="w-full lg:w-[35%] flex flex-col justify-center bg-[#F3F4F6] relative">
+        <div className="w-full px-6 sm:px-12 lg:px-16 xl:px-20">
+          
+          <div className="mb-10 text-left">
+            <h2 className="text-3xl font-extrabold text-gray-900 mb-2">Masuk ke Akun Anda</h2>
+            <p className="text-gray-500 text-sm">
+              Masukkan detail akun Anda untuk melanjutkan.
+            </p>
+          </div>
+
+          <form onSubmit={handleSubmit} className="space-y-6">
+            {error && (
+              <div className="rounded-md bg-red-50 p-3 text-sm text-red-600 border border-red-200">
+                {error}
               </div>
+            )}
 
+            <div className="space-y-2">
+              <Label htmlFor="username" className="text-[13px] font-bold text-gray-700">
+                Nama Pengguna
+              </Label>
+              <Input
+                id="username"
+                name="username"
+                type="text"
+                placeholder="Masukkan nama pengguna"
+                className="h-12 bg-white border-white focus-visible:ring-1 focus-visible:ring-[#303481] shadow-sm text-sm"
+                autoComplete="off"
+                required
+              />
+            </div>
+
+            <div className="space-y-3">
               <div className="space-y-2">
-                <Label htmlFor="password" className="text-sm font-medium">
+                <Label htmlFor="password" className="text-[13px] font-bold text-gray-700">
                   Kata Sandi
                 </Label>
                 <div className="relative">
-                  <Lock className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
                   <Input
                     id="password"
                     name="password"
                     type={showPassword ? "text" : "password"}
                     placeholder="Masukkan kata sandi"
-                    className="h-11 pl-10 pr-10"
+                    className="h-12 bg-white border-white focus-visible:ring-1 focus-visible:ring-[#303481] shadow-sm text-sm"
                     autoComplete="off"
                     required
                   />
                   <button
                     type="button"
                     onClick={() => setShowPassword(!showPassword)}
-                    className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground transition-colors hover:text-foreground"
-                    title={
-                      showPassword
-                        ? "Sembunyikan kata sandi"
-                        : "Tampilkan kata sandi"
-                    }
+                    className="absolute right-4 top-1/2 -translate-y-1/2 text-gray-900 hover:text-gray-600 focus:outline-none"
+                    title={showPassword ? "Sembunyikan kata sandi" : "Tampilkan kata sandi"}
                   >
-                    {showPassword ? (
-                      <EyeOff className="h-4 w-4" />
-                    ) : (
-                      <Eye className="h-4 w-4" />
-                    )}
+                    {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
                   </button>
                 </div>
               </div>
 
-              <Button
-                type="submit"
-                className="h-11 w-full bg-brand text-white shadow-lg shadow-brand/25 transition-all hover:bg-brand-dark hover:shadow-brand/40"
-                disabled={isLoading}
-              >
-                {isLoading ? (
-                  <div className="flex items-center gap-2">
-                    <div className="h-4 w-4 animate-spin rounded-full border-2 border-white/30 border-t-white" />
-                    <span>Memproses...</span>
-                  </div>
-                ) : (
-                  "Masuk"
-                )}
-              </Button>
-            </form>
-          </CardContent>
-        </Card>
+              <div className="flex items-center justify-between">
+                <div className="flex items-center space-x-2">
+                  <input
+                    type="checkbox"
+                    id="remember"
+                    className="h-4 w-4 rounded border-gray-300 text-[#303481] focus:ring-[#303481]"
+                  />
+                  <label htmlFor="remember" className="text-[13px] font-medium text-gray-700 cursor-pointer">
+                    Ingat Saya
+                  </label>
+                </div>
+                <a href="#" className="text-[13px] font-bold text-[#303481] hover:underline">
+                  Lupa Kata Sandi?
+                </a>
+              </div>
+            </div>
 
-        {/* Footer */}
-        <p className="mt-6 text-center text-xs text-muted-foreground">
-          © {new Date().getFullYear()} Beacon Engineering · ASABA Monitoring
-          System
-        </p>
+            <Button
+              type="submit"
+              className="h-12 w-full bg-[#303481] hover:bg-[#252865] text-white font-bold text-[15px] rounded-lg transition-all shadow-md mt-4"
+              disabled={isLoading}
+            >
+              {isLoading ? (
+                <div className="flex items-center gap-2">
+                  <div className="h-5 w-5 animate-spin rounded-full border-2 border-white/30 border-t-white" />
+                  <span>Sedang Masuk...</span>
+                </div>
+              ) : (
+                "Masuk"
+              )}
+            </Button>
+          </form>
+
+        </div>
+
+        {/* Footer Logos */}
+        <div className="absolute bottom-8 left-0 w-full flex flex-col items-center justify-center gap-3">
+          <div className="flex items-center justify-center gap-4">
+            <Image src="/logo_be.png" alt="Beacon Engineering" width={80} height={30} className="object-contain" />
+            <Image src="/logostesy.png" alt="STESY" width={90} height={30} className="object-contain" />
+          </div>
+          <p className="text-[11px] font-bold text-gray-500">
+            © Beacon Engineering {new Date().getFullYear()}
+          </p>
+        </div>
       </div>
     </div>
   );

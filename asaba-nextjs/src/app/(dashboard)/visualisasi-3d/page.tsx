@@ -1,250 +1,449 @@
 "use client";
 
-import React, { useState } from "react";
-import { 
-  History, 
-  Target, 
-  Sliders, 
-  Crosshair, 
-  Play, 
-  ChevronDown, 
-  Maximize,
-  Camera,
-  ZoomIn,
-  Move,
-  RefreshCw,
-  Home,
-  Save
-} from "lucide-react";
+import React, { useState, useEffect, useRef, useCallback } from "react";
+import { History, Target, Sliders, Crosshair, Play, ChevronDown, Loader2, Maximize } from "lucide-react";
 import { Input } from "@/components/ui/input";
-import { Button } from "@/components/ui/button";
 
+// ─── Plotly loaded via CDN (same as legacy) ──────────────────────────────────
+declare global {
+  interface Window { Plotly: any }
+}
+
+// ─── Helpers (ported 1:1 from deformasi.php) ────────────────────────────────
+function toNum(v: any): number {
+  if (v === null || v === undefined) return NaN;
+  if (typeof v === "number") return v;
+  const s = String(v).trim();
+  if (!s) return NaN;
+  const n = Number(s.replace(/,/g, ".").replace(/[^0-9.\-]/g, ""));
+  return Number.isFinite(n) ? n : NaN;
+}
+
+function isZeroish(a: number) {
+  return Number.isFinite(a) && Math.abs(a) < 1e-12;
+}
+
+function isTripletAllZero(a: number, b: number, c: number) {
+  return isZeroish(a) && isZeroish(b) && isZeroish(c);
+}
+
+function getRTSFromPayload(p: any) {
+  const r = p?.posisi_rts ?? null;
+  if (!r) return null;
+  const E = toNum(r.E);
+  const N = toNum(r.N);
+  const Z = Number.isFinite(toNum(r.Z)) ? toNum(r.Z) : 0;
+  if (Number.isFinite(E) && Number.isFinite(N)) return { e: E, n: N, z: Z };
+  const n = toNum(r.x), e = toNum(r.y);
+  if (!Number.isFinite(e) || !Number.isFinite(n)) return null;
+  return { e, n, z: 0 };
+}
+
+function extractPoints(p: any) {
+  const arr = p?.data_pengukuran ?? [];
+  const out: any[] = [];
+  for (const row of arr) {
+    const t = row?.temp_tembak ?? row;
+    if (!t) continue;
+    const id = String(row.id_prisma ?? row.nama_prisma ?? "");
+    const name = String(row.nama_prisma ?? t.nama_prisma ?? "");
+
+    const e0 = toNum(t.E0), n0 = toNum(t.N0), z0 = toNum(t.Z0);
+    if (![e0, n0, z0].every(Number.isFinite)) continue;
+
+    let e1 = toNum(t.E1), n1 = toNum(t.N1), z1 = toNum(t.Z1);
+    const has1 = [e1, n1, z1].every(Number.isFinite) && !isTripletAllZero(e1, n1, z1);
+
+    let de = toNum(t.DE), dn = toNum(t.DN), dz = toNum(t.DZ);
+    if (has1) {
+      if (!Number.isFinite(de)) de = e1 - e0;
+      if (!Number.isFinite(dn)) dn = n1 - n0;
+      if (!Number.isFinite(dz)) dz = z1 - z0;
+    } else {
+      e1 = NaN; n1 = NaN; z1 = NaN;
+      de = NaN; dn = NaN; dz = NaN;
+    }
+
+    let lin = toNum(t.linear);
+    if (has1 && !Number.isFinite(lin)) lin = Math.sqrt(de * de + dn * dn + dz * dz);
+    else if (!has1) lin = NaN;
+
+    const dirText = t.arah_pergeseran ? String(t.arah_pergeseran) : "";
+    out.push({ id, name, e0, n0, z0, e1, n1, z1, de, dn, dz, lin, dirText, ok: has1 });
+  }
+  return out;
+}
+
+function finiteArr(a: number[]) { return a.filter(Number.isFinite); }
+
+// ─── Main Page ───────────────────────────────────────────────────────────────
 export default function Visualisasi3DPage() {
-  const [coneScale, setConeScale] = useState("0,2");
-  const [threshold, setThreshold] = useState("0,0008");
+  // Form state
+  const [rtsE, setRtsE] = useState("");
+  const [rtsN, setRtsN] = useState("");
+  const [rtsZ, setRtsZ] = useState("");
+  const [coneScale, setConeScale] = useState("0.2");
+  const [minLinear, setMinLinear] = useState("0");
+
+  // Log list
+  const [logs, setLogs] = useState<any[]>([]);
+  const [logsLoading, setLogsLoading] = useState(true);
+  const [selectedLogId, setSelectedLogId] = useState("");
+
+  // Render state
+  const [loading, setLoading] = useState(false);
+  const [logLines, setLogLines] = useState<string[]>([]);
+  const logRef = useRef<HTMLDivElement>(null);
+  const plotRef = useRef<HTMLDivElement>(null);
+  const fsTargetRef = useRef<HTMLDivElement>(null);
+  const [plotlyReady, setPlotlyReady] = useState(false);
+  const [isFullscreen, setIsFullscreen] = useState(false);
+
+  // Load Plotly CDN
+  useEffect(() => {
+    if (window.Plotly) { setPlotlyReady(true); return; }
+    const s = document.createElement("script");
+    s.src = "https://cdn.plot.ly/plotly-2.33.0.min.js";
+    s.onload = () => setPlotlyReady(true);
+    document.head.appendChild(s);
+  }, []);
+
+  // Fetch log list
+  useEffect(() => {
+    fetch("/api/log-kontrol?limit=200&with_prisma=false")
+      .then(r => r.json())
+      .then(json => {
+        if (json.success) {
+          setLogs(json.data);
+          if (json.data.length > 0) setSelectedLogId(json.data[0].id_log);
+        }
+      })
+      .catch(() => {})
+      .finally(() => setLogsLoading(false));
+  }, []);
+
+  // Fullscreen listener
+  useEffect(() => {
+    const handler = () => {
+      const fs = !!document.fullscreenElement;
+      setIsFullscreen(fs);
+      if (window.Plotly && plotRef.current) window.Plotly.Plots.resize(plotRef.current);
+    };
+    document.addEventListener("fullscreenchange", handler);
+    return () => document.removeEventListener("fullscreenchange", handler);
+  }, []);
+
+  function addLog(msg: string) {
+    setLogLines(prev => [...prev, msg]);
+    setTimeout(() => { if (logRef.current) logRef.current.scrollTop = logRef.current.scrollHeight; }, 50);
+  }
+
+  const render = useCallback((points: any[], meta: any) => {
+    if (!window.Plotly || !plotRef.current) return;
+
+    const E = Number(rtsE), N = Number(rtsN), Z = Number(rtsZ);
+    const scale = parseFloat(coneScale.replace(",", ".")) || 0.2;
+    const minLin = parseFloat(minLinear.replace(",", ".")) || 0;
+
+    const baseline = points;
+    const moved = points.filter((p: any) => p.ok && Number.isFinite(p.lin) && p.lin >= minLin);
+
+    addLog(`baseline prisms: ${baseline.length}`);
+    addLog(`valid shots: ${points.filter((p: any) => p.ok).length}`);
+    addLog(`render shots (threshold >= ${minLin}): ${moved.length}`);
+
+    if (baseline.length === 0) return;
+
+    const x0 = baseline.map((p: any) => p.e0);
+    const y0 = baseline.map((p: any) => p.n0);
+    const z0 = baseline.map((p: any) => p.z0);
+
+    const x1 = moved.map((p: any) => p.e1);
+    const y1 = moved.map((p: any) => p.n1);
+    const z1 = moved.map((p: any) => p.z1);
+
+    const u = moved.map((p: any) => p.de);
+    const v = moved.map((p: any) => p.dn);
+    const w = moved.map((p: any) => p.dz);
+    const lin = moved.map((p: any) => p.lin);
+    const maxLin = Math.max(...finiteArr(lin), 0);
+
+    const lineX: (number|null)[] = [], lineY: (number|null)[] = [], lineZ: (number|null)[] = [];
+    for (const p of moved) { lineX.push(p.e0, p.e1, null); lineY.push(p.n0, p.n1, null); lineZ.push(p.z0, p.z1, null); }
+
+    const hover0 = baseline.map((p: any) =>
+      `${p.name}<br>E0=${p.e0.toFixed(4)} N0=${p.n0.toFixed(4)} Z0=${p.z0.toFixed(4)}<br>${p.ok ? "Status=OK" : "Status=GAGAL"}`
+    );
+    const hover1 = moved.map((p: any) =>
+      `${p.name}<br>` +
+      `E0=${p.e0.toFixed(4)} N0=${p.n0.toFixed(4)} Z0=${p.z0.toFixed(4)}<br>` +
+      `E1=${p.e1.toFixed(4)} N1=${p.n1.toFixed(4)} Z1=${p.z1.toFixed(4)}<br>` +
+      `DE=${p.de.toFixed(6)} DN=${p.dn.toFixed(6)} DZ=${p.dz.toFixed(6)}<br>` +
+      `Linear=${p.lin.toFixed(6)}${p.dirText ? `<br>Arah=${p.dirText}` : ""}`
+    );
+
+    const traceBaseline = {
+      type: "scatter3d", mode: "markers", name: "Baseline",
+      x: x0, y: y0, z: z0,
+      marker: { size: 4, color: "rgba(15,23,42,.55)" },
+      text: hover0, hoverinfo: "text",
+    };
+
+    const traces: any[] = [traceBaseline];
+
+    if (moved.length > 0) {
+      traces.push(
+        // Displacement lines
+        { type: "scatter3d", mode: "lines", name: "Displacement",
+          x: lineX, y: lineY, z: lineZ,
+          line: { width: 3 }, opacity: 0.75, hoverinfo: "skip" },
+        // Deformed result points
+        { type: "scatter3d", mode: "markers", name: "Hasil",
+          x: x1, y: y1, z: z1,
+          marker: { size: 6, color: lin, colorscale: "Turbo", colorbar: { title: "Linear" } },
+          text: hover1, hoverinfo: "text" },
+        // Cone vectors (same as legacy)
+        { type: "cone", name: "Vector",
+          x: moved.map((p: any) => p.e0), y: moved.map((p: any) => p.n0), z: moved.map((p: any) => p.z0),
+          u, v, w,
+          anchor: "tail", sizemode: "absolute",
+          sizeref: Math.max(maxLin * scale, 0.01),
+          showscale: false, opacity: 0.85, hoverinfo: "skip" }
+      );
+    }
+
+    // RTS diamond marker
+    traces.push({
+      type: "scatter3d", mode: "markers+text", name: "RTS",
+      x: [E], y: [N], z: [Z],
+      marker: { size: 9, symbol: "diamond", color: "rgba(239,68,68,.95)" },
+      text: ["RTS"], textposition: "top center", hoverinfo: "skip",
+    });
+
+    // Compass N/E/S/W lines
+    const allX = finiteArr(x0.concat(x1)), allY = finiteArr(y0.concat(y1)), allZ = finiteArr(z0.concat(z1));
+    const cx = (Math.min(...allX) + Math.max(...allX)) / 2;
+    const cy = (Math.min(...allY) + Math.max(...allY)) / 2;
+    const cz = (Math.min(...allZ) + Math.max(...allZ)) / 2;
+    const diag = Math.sqrt((Math.max(...allX) - Math.min(...allX)) ** 2 + (Math.max(...allY) - Math.min(...allY)) ** 2 + (Math.max(...allZ) - Math.min(...allZ)) ** 2);
+    const L = Math.max(diag * 0.10, 1.0);
+
+    for (const [dx, dy, col] of [[0, L, "#B30000"], [L, 0, "#000"], [0, -L, "#000"], [-L, 0, "#000"]] as [number,number,string][]) {
+      traces.push({ type: "scatter3d", mode: "lines", showlegend: false,
+        x: [cx, cx + dx], y: [cy, cy + dy], z: [cz, cz],
+        line: { width: 5, color: col }, hoverinfo: "skip" });
+    }
+    traces.push({
+      type: "scatter3d", mode: "text", showlegend: false,
+      x: [cx + L * 1.12, cx, cx - L * 1.12, cx],
+      y: [cy, cy + L * 1.12, cy, cy - L * 1.12],
+      z: [cz, cz, cz, cz],
+      text: ["E", "N", "W", "S"],
+      textfont: { size: 16, color: "#0f172a" }, hoverinfo: "skip",
+    });
+
+    const title = meta?.tanggal ? `RTS Deformasi 3D — ${meta.tanggal}` : "RTS Deformasi 3D";
+
+    window.Plotly.newPlot(plotRef.current, traces, {
+      title: { text: title, font: { size: 16, color: "#0f172a" } },
+      paper_bgcolor: "rgba(255,255,255,1)",
+      plot_bgcolor: "rgba(255,255,255,1)",
+      scene: {
+        xaxis: { title: "Easting (E)", titlefont: { color: "#0f172a" }, tickfont: { color: "#0f172a" } },
+        yaxis: { title: "Northing (N/Y)", titlefont: { color: "#0f172a" }, tickfont: { color: "#0f172a" } },
+        zaxis: { title: "Elevation (Z)", titlefont: { color: "#0f172a" }, tickfont: { color: "#0f172a" } },
+        aspectmode: "data",
+        bgcolor: "rgba(255,255,255,1)",
+      },
+      margin: { l: 0, r: 0, t: 40, b: 0 },
+      legend: { orientation: "h", font: { color: "#0f172a" } },
+    }, { responsive: true });
+
+    window.Plotly.Plots.resize(plotRef.current);
+  }, [rtsE, rtsN, rtsZ, coneScale, minLinear]);
+
+  const handleLoad = useCallback(async () => {
+    if (!selectedLogId || !plotlyReady) return;
+    setLoading(true);
+    setLogLines([]);
+
+    try {
+      addLog("Loading...");
+      const res = await fetch(`/api/deformasi?id_log=${selectedLogId}`);
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const payload = await res.json();
+      if (!payload.success) throw new Error(payload.error || "Gagal memuat");
+
+      // Auto-fill RTS from posisi_rts
+      const rts = getRTSFromPayload(payload.data);
+      if (rts) {
+        setRtsE(String(rts.e));
+        setRtsN(String(rts.n));
+        setRtsZ(Number.isFinite(rts.z) ? String(rts.z) : "0");
+      }
+
+      const n = payload.data?.data_pengukuran?.length ?? 0;
+      addLog("Loaded JSON from server");
+      addLog(`tanggal: ${payload.data?.tanggal ?? "-"}`);
+      addLog(`rows: ${n}`);
+
+      const pts = extractPoints(payload.data);
+      addLog(`parsed prisms: ${pts.length}`);
+      addLog(`valid shots: ${pts.filter((x: any) => x.ok).length}`);
+      addLog(`failed shots: ${pts.filter((x: any) => !x.ok).length}`);
+
+      if (pts.length === 0) { addLog("Tidak ada prisma yang kebaca untuk id_log ini."); return; }
+
+      render(pts, payload.data);
+    } catch (e: any) {
+      addLog(String(e?.message ?? e));
+    } finally {
+      setLoading(false);
+    }
+  }, [selectedLogId, plotlyReady, render]);
+
+  // Auto-load when first log selected and Plotly ready
+  useEffect(() => {
+    if (plotlyReady && selectedLogId && logs.length > 0) handleLoad();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [plotlyReady, selectedLogId]);
+
+  const toggleFullscreen = () => {
+    if (!fsTargetRef.current) return;
+    if (!document.fullscreenElement) fsTargetRef.current.requestFullscreen?.().catch(() => {});
+    else document.exitFullscreen?.();
+  };
+
+  function formatLogDate(d: string) {
+    const dt = new Date(d);
+    return dt.toLocaleString("id-ID", { day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit", second: "2-digit" });
+  }
 
   return (
     <div className="flex flex-col gap-6 w-full pb-10">
-      
-      {/* Main Content Grid */}
       <div className="grid grid-cols-1 xl:grid-cols-[340px_1fr] gap-6 items-start">
-        
-        {/* Left Column: Form & Status */}
-        <div className="flex flex-col gap-6 w-full">
-          
-          {/* Card 1: Form Input */}
-          <div className="bg-white border border-[#EAEAEA] rounded-[8px] shadow-sm p-6 flex flex-col gap-6">
-            
-            {/* Waktu Pengukuran */}
-            <div className="flex flex-col gap-3">
-              <div className="flex items-center gap-2 text-[#303481]">
-                <History className="w-[15px] h-[15px]" strokeWidth={2.5} />
-                <h3 className="font-bold text-[12px] tracking-widest uppercase">WAKTU PENGUKURAN</h3>
-              </div>
-              <div className="relative cursor-pointer">
-                <select className="w-full appearance-none bg-white border border-gray-300 text-gray-800 text-[13.5px] rounded-md px-4 py-2.5 font-medium outline-none focus:border-[#303481] cursor-pointer">
-                  <option>21/11/2025 10:06:35 (CPP3)</option>
-                  <option>21/11/2025 09:00:00 (CPP2)</option>
-                </select>
-                <ChevronDown className="w-4 h-4 text-gray-500 absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none" />
-              </div>
-            </div>
 
-            {/* Referensi RTS */}
-            <div className="flex flex-col gap-3">
-              <div className="flex items-center gap-2 text-[#303481]">
-                <Target className="w-[15px] h-[15px]" strokeWidth={2.5} />
-                <h3 className="font-bold text-[12px] tracking-widest uppercase">REFERENSI RTS</h3>
-              </div>
-              <div className="flex flex-col gap-3">
-                <div className="flex flex-col gap-1.5">
-                  <label className="text-[12.5px] font-bold text-gray-800">Easting (E)</label>
-                  <Input 
-                    type="number" 
-                    defaultValue="525952" 
-                    className="h-[38px] text-[13px] font-medium"
-                  />
-                </div>
-                <div className="flex flex-col gap-1.5">
-                  <label className="text-[12.5px] font-bold text-gray-800">Northing (N)</label>
-                  <Input 
-                    type="number" 
-                    defaultValue="401320.988" 
-                    className="h-[38px] text-[13px] font-medium"
-                  />
-                </div>
-                <div className="flex flex-col gap-1.5">
-                  <label className="text-[12.5px] font-bold text-gray-800">Elevation (Z)</label>
-                  <Input 
-                    type="number" 
-                    defaultValue="62.559" 
-                    className="h-[38px] text-[13px] font-medium"
-                  />
-                </div>
-              </div>
-            </div>
-
-            {/* Pengaturan Visualisasi */}
-            <div className="flex flex-col gap-3">
-              <div className="flex items-center gap-2 text-[#303481]">
-                <Sliders className="w-[15px] h-[15px]" strokeWidth={2.5} />
-                <h3 className="font-bold text-[12px] tracking-widest uppercase">PENGATURAN VISUALISASI</h3>
-              </div>
-              <div className="grid grid-cols-2 gap-3">
-                <div className="flex flex-col gap-1.5">
-                  <label className="text-[12.5px] font-bold text-gray-800">Cone Scale</label>
-                  <Input 
-                    type="text" 
-                    value={coneScale} 
-                    onChange={(e) => setConeScale(e.target.value)}
-                    className="h-[38px] text-[13px] font-medium text-[#303481] bg-[#F8F9FA] border-gray-300"
-                  />
-                </div>
-                <div className="flex flex-col gap-1.5">
-                  <label className="text-[12.5px] font-bold text-gray-800">Threshold Linear</label>
-                  <Input 
-                    type="text" 
-                    value={threshold} 
-                    onChange={(e) => setThreshold(e.target.value)}
-                    className="h-[38px] text-[13px] font-medium"
-                  />
-                </div>
-              </div>
-            </div>
-
-            {/* Render Button */}
-            <Button className="w-full h-[42px] bg-[#303481] hover:bg-[#1f2259] text-white font-bold text-[13.5px] mt-1 shadow-sm rounded-lg flex items-center justify-center gap-2">
-              <Play className="w-[14px] h-[14px] fill-white" />
-              Load & Render 3D
-            </Button>
-            
+        {/* ─── LEFT PANEL ─── */}
+        <div className="bg-white border border-[#EAEAEA] rounded-[8px] shadow-sm p-5 flex flex-col gap-5">
+          <div className="flex items-center gap-2">
+            <h5 className="font-bold text-[15px] text-[#0f172a]">Deformasi RTS 3D</h5>
           </div>
 
-          {/* Card 2: Status Render */}
-          <div className="bg-white border border-[#EAEAEA] rounded-[8px] shadow-sm p-6 flex flex-col gap-4">
-            <div className="flex items-center gap-2 text-[#303481] mb-2">
-              <Crosshair className="w-[15px] h-[15px]" strokeWidth={2.5} />
-              <h3 className="font-bold text-[12px] tracking-widest uppercase">STATUS RENDER</h3>
+          {/* Pilih Tanggal */}
+          <div className="flex flex-col gap-2">
+            <label className="text-[12px] font-semibold text-[#334155]">Pilih Tanggal</label>
+            <div className="relative">
+              {logsLoading ? (
+                <div className="flex items-center gap-2 text-[13px] text-gray-400 py-2.5 px-3 bg-gray-50 rounded border border-gray-200">
+                  <Loader2 className="w-4 h-4 animate-spin" /> Memuat...
+                </div>
+              ) : (
+                <>
+                  <select
+                    value={selectedLogId}
+                    onChange={e => setSelectedLogId(e.target.value)}
+                    className="w-full appearance-none bg-white border border-gray-300 text-[#0f172a] text-[13px] rounded-md px-3 py-2.5 font-medium outline-none focus:border-[#303481] cursor-pointer pr-8"
+                  >
+                    {logs.map(log => (
+                      <option key={log.id_log} value={log.id_log}>
+                        {formatLogDate(log.datetime)} ({log.site === "ccp" ? "CPP3" : "VP"})
+                        {log.r0 === 1 ? " [R0]" : ""}
+                      </option>
+                    ))}
+                  </select>
+                  <ChevronDown className="w-4 h-4 text-gray-500 absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none" />
+                </>
+              )}
             </div>
-            
-            <div className="flex flex-col gap-3.5">
-              <div className="flex justify-between items-center text-[13px]">
-                <span className="font-semibold text-gray-600">Waktu Data</span>
-                <span className="font-bold text-gray-800">21-11-2025 10:06:35</span>
+          </div>
+
+          {/* RTS E/N/Z */}
+          <div className="flex flex-col gap-2">
+            <div className="flex items-center gap-2 text-[#303481]">
+              <Target className="w-[14px] h-[14px]" strokeWidth={2.5} />
+              <label className="text-[11px] font-bold tracking-widest uppercase">Referensi RTS</label>
+            </div>
+            <div className="grid grid-cols-3 gap-2">
+              {[["RTS E", rtsE, setRtsE], ["RTS N", rtsN, setRtsN], ["RTS Z", rtsZ, setRtsZ]].map(([label, val, setter]: any) => (
+                <div key={label} className="flex flex-col gap-1">
+                  <label className="text-[11px] font-semibold text-[#334155]">{label}</label>
+                  <Input type="number" step="0.001" value={val} onChange={e => setter(e.target.value)}
+                    className="h-[34px] text-[12px] font-medium" />
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {/* Cone Scale / Threshold */}
+          <div className="flex flex-col gap-2">
+            <div className="flex items-center gap-2 text-[#303481]">
+              <Sliders className="w-[14px] h-[14px]" strokeWidth={2.5} />
+              <label className="text-[11px] font-bold tracking-widest uppercase">Pengaturan Visualisasi</label>
+            </div>
+            <div className="grid grid-cols-2 gap-2">
+              <div className="flex flex-col gap-1">
+                <label className="text-[12px] font-semibold text-[#334155]">Cone Scale</label>
+                <Input type="number" step="0.1" value={coneScale} onChange={e => setConeScale(e.target.value)}
+                  className="h-[34px] text-[12px] font-medium" />
               </div>
-              <div className="flex justify-between items-center text-[13px]">
-                <span className="font-semibold text-gray-600">Prisma Terbaca</span>
-                <span className="font-bold text-gray-800">10</span>
-              </div>
-              <div className="flex justify-between items-center text-[13px]">
-                <span className="font-semibold text-gray-600">Shot Valid</span>
-                <span className="font-bold text-[#16A34A]">10 / 10</span>
-              </div>
-              <div className="flex justify-between items-center text-[13px]">
-                <span className="font-semibold text-gray-600">Shot Gagal</span>
-                <span className="font-bold text-gray-800">0</span>
-              </div>
-              <div className="flex justify-between items-center text-[13px] pt-2 border-t border-gray-100">
-                <span className="font-semibold text-gray-600">Status Render</span>
-                <span className="font-bold text-[#16A34A] flex items-center gap-1.5">
-                  <span className="w-1.5 h-1.5 rounded-full bg-[#16A34A]"></span>
-                  Berhasil
-                </span>
+              <div className="flex flex-col gap-1">
+                <label className="text-[12px] font-semibold text-[#334155]">Threshold Linear</label>
+                <Input type="number" step="0.0001" value={minLinear} onChange={e => setMinLinear(e.target.value)}
+                  className="h-[34px] text-[12px] font-medium" />
               </div>
             </div>
           </div>
 
+          {/* Load Button */}
+          <button
+            onClick={handleLoad}
+            disabled={loading || !plotlyReady || !selectedLogId}
+            className="w-full h-[40px] bg-[#303481] hover:bg-[#1f2259] disabled:opacity-60 text-white font-bold text-[13px] rounded-lg flex items-center justify-center gap-2 transition-colors cursor-pointer"
+          >
+            {loading ? <><Loader2 className="w-4 h-4 animate-spin" /> Loading...</> : <><Play className="w-3.5 h-3.5 fill-white" /> Load &amp; Render 3D</>}
+          </button>
+
+          {/* Log box */}
+          <div
+            ref={logRef}
+            className="font-mono text-[11px] border border-gray-200 rounded-lg p-2.5 bg-gray-50 max-h-[200px] overflow-auto whitespace-pre-wrap text-[#0f172a] leading-relaxed"
+            style={{ minHeight: 48 }}
+          >
+            {logLines.length === 0
+              ? <span className="text-gray-400">Log output akan muncul di sini...</span>
+              : logLines.join("\n")}
+          </div>
         </div>
 
-        {/* Right Column: 3D Visualization Area */}
-        <div className="bg-white border border-[#EAEAEA] rounded-[8px] shadow-sm flex flex-col w-full h-[850px] p-6 relative">
-          
-          {/* Header */}
-          <div className="flex flex-col gap-1 mb-6">
-            <h2 className="text-[20px] font-extrabold text-[#111827] tracking-tight">RTS Deformasi 3D</h2>
-            <p className="text-[13px] font-medium text-gray-500">
-              Pos RTS Site MIP <span className="mx-1.5">•</span> 21/11/2025 10:06:35
-            </p>
-          </div>
-
-          {/* Dummy 3D Canvas Area */}
-          <div className="flex-1 relative border border-gray-100 bg-[#FAFAFC] rounded-lg overflow-hidden flex items-center justify-center bg-[radial-gradient(#e5e7eb_1px,transparent_1px)] [background-size:16px_16px]">
-            
-            {/* Top Left Tool */}
-            <div className="absolute top-4 left-4 p-1.5 bg-white border border-gray-200 rounded-md shadow-sm cursor-pointer hover:bg-gray-50 transition-colors text-gray-600">
-              <Maximize className="w-4 h-4" />
+        {/* ─── RIGHT PANEL: 3D Plot ─── */}
+        <div className="bg-white border border-[#EAEAEA] rounded-[8px] shadow-sm overflow-hidden">
+          <div ref={fsTargetRef} className="relative bg-white" style={{ minHeight: 560 }}>
+            {/* Fullscreen button */}
+            <div className="absolute top-3 left-3 z-10">
+              <button
+                onClick={toggleFullscreen}
+                className="bg-white/90 backdrop-blur-sm border border-gray-200 text-[#0f172a] text-[12px] font-semibold px-3 py-1.5 rounded-md hover:bg-gray-50 transition-colors flex items-center gap-1.5 cursor-pointer shadow-sm"
+              >
+                <Maximize className="w-3.5 h-3.5" />
+                {isFullscreen ? "Exit Fullscreen" : "Fullscreen"}
+              </button>
             </div>
 
-            {/* Top Right Tools (Plotly-like) */}
-            <div className="absolute top-4 right-4 flex items-center bg-white border border-gray-200 rounded-md shadow-sm text-gray-500">
-              <div className="p-1.5 hover:bg-gray-50 border-r border-gray-200 cursor-pointer"><Camera className="w-4 h-4" /></div>
-              <div className="p-1.5 hover:bg-gray-50 border-r border-gray-200 cursor-pointer"><ZoomIn className="w-4 h-4" /></div>
-              <div className="p-1.5 hover:bg-gray-50 border-r border-gray-200 cursor-pointer"><Move className="w-4 h-4" /></div>
-              <div className="p-1.5 hover:bg-gray-50 border-r border-gray-200 cursor-pointer"><RefreshCw className="w-4 h-4" /></div>
-              <div className="p-1.5 hover:bg-gray-50 border-r border-gray-200 cursor-pointer"><Home className="w-4 h-4" /></div>
-              <div className="p-1.5 hover:bg-gray-50 cursor-pointer"><Save className="w-4 h-4" /></div>
-            </div>
-
-            {/* Scale Bar (Right side) */}
-            <div className="absolute right-8 top-1/2 -translate-y-1/2 flex flex-col items-center gap-1">
-              <span className="text-[11px] font-bold text-gray-600 mb-1">Linear</span>
-              <div className="flex items-start">
-                <div className="w-[18px] h-[300px] rounded-full border border-gray-300 bg-gradient-to-b from-[#7F1D1D] via-[#EA580C] to-[#FFF7ED]"></div>
-                <div className="flex flex-col justify-between h-[300px] py-1 pl-2 text-[10px] font-bold text-gray-600">
-                  <span>0.024</span>
-                  <span>0.022</span>
-                  <span>0.02</span>
-                  <span>0.018</span>
-                  <span>0.016</span>
-                  <span>0.014</span>
-                  <span>0.012</span>
-                  <span>0.01</span>
-                  <span>0.008</span>
+            {/* Plot container */}
+            <div
+              ref={plotRef}
+              style={{ width: "100%", height: isFullscreen ? "100vh" : "78vh", minHeight: 520 }}
+            >
+              {/* Placeholder jika belum di-render */}
+              {logLines.length === 0 && !loading && (
+                <div className="w-full h-full flex flex-col items-center justify-center gap-3 text-gray-400" style={{ minHeight: 520 }}>
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" className="w-12 h-12 opacity-30">
+                    <path d="M12 2L2 7l10 5 10-5-10-5z"/><path d="M2 17l10 5 10-5"/><path d="M2 12l10 5 10-5"/>
+                  </svg>
+                  <p className="font-semibold text-[14px]">Pilih tanggal dan klik Load &amp; Render 3D</p>
                 </div>
-              </div>
+              )}
             </div>
-
-            {/* Legend (Bottom Left) */}
-            <div className="absolute bottom-4 left-6 flex items-center gap-5 text-[11.5px] font-bold text-gray-600 bg-white/80 px-4 py-2 rounded-lg border border-gray-200 backdrop-blur-sm">
-              <div className="flex items-center gap-2">
-                <span className="w-2.5 h-2.5 rounded-full bg-gray-400"></span>
-                Baseline
-              </div>
-              <div className="flex items-center gap-2">
-                <span className="w-5 border-t-2 border-[#EA580C]"></span>
-                Displacement
-              </div>
-              <div className="flex items-center gap-2">
-                <span className="w-2.5 h-2.5 rounded-full bg-[#EA580C]"></span>
-                Hasil
-              </div>
-              <div className="flex items-center gap-2">
-                <span className="w-2.5 h-2.5 bg-[#DC2626] rotate-45"></span>
-                RTS
-              </div>
-            </div>
-
-            {/* Dummy Mockup Popup/Tooltip (Center) */}
-            <div className="absolute bottom-28 right-40 bg-[#FDBA74] text-slate-900 text-[10px] px-3 py-2 rounded shadow-lg border border-[#EA580C] w-[260px]">
-              <div className="font-extrabold text-[12px] mb-1.5 flex items-center gap-1.5">
-                <span className="w-0 h-0 border-l-[4px] border-r-[4px] border-b-[6px] border-l-transparent border-r-transparent border-b-black inline-block"></span>
-                BS_1
-              </div>
-              <div className="flex justify-between font-bold mb-1 border-b border-[#EA580C]/30 pb-1">
-                <div>LINIER <br/><span className="text-[13px] font-black">0.0128</span></div>
-                <div>ARAH <br/><span className="text-[12px] font-black">344°</span> (Utara)</div>
-              </div>
-              <div className="font-medium text-[9px] leading-tight opacity-90 mt-1.5">
-                <p>Awal &nbsp;&nbsp;E: 525919.3140 &nbsp;&nbsp;N: 401306.5140 &nbsp;&nbsp;Z: 63.8350</p>
-                <p>Hasil &nbsp;&nbsp;E: 525919.3106 &nbsp;&nbsp;N: 401306.5262 &nbsp;&nbsp;Z: 63.8273</p>
-                <p className="font-bold text-black mt-0.5">Delta &nbsp;&nbsp;ΔE: -0.0034 &nbsp;&nbsp;ΔN: -0.0122 &nbsp;&nbsp;ΔZ: 0.0023</p>
-              </div>
-              {/* Dummy Line linking popup to point */}
-              <div className="absolute -left-[18px] top-1/2 -mt-[8px] w-0 h-0 border-t-[8px] border-b-[8px] border-r-[18px] border-t-transparent border-b-transparent border-r-[#FDBA74] filter drop-shadow-md"></div>
-              <div className="absolute -left-[24px] top-1/2 w-2 h-2 rounded-full bg-[#DC2626] -translate-y-1/2"></div>
-            </div>
-
-            <p className="text-gray-400 font-bold tracking-widest uppercase opacity-40">3D Visualization Canvas</p>
           </div>
         </div>
 

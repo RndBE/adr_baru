@@ -15,26 +15,26 @@ datasource db {
 // =============================================
 
 model User {
-  id_user   Int     @id @default(autoincrement())
-  nama      String  @db.VarChar(100)
-  username  String  @unique @db.VarChar(30)
-  password  String  @db.VarChar(255)
-  level_user String @db.VarChar(20)
-  alamat    String  @db.Text
-  telp      String  @db.VarChar(25)
-  instansi  String? @db.VarChar(50)
-  latitude  String  @db.VarChar(225)
-  longitude String  @db.VarChar(225)
-  zoom      Int     @default(10)
-  bidang    String? @db.VarChar(100)
+  id_user    Int     @id @default(autoincrement())
+  nama       String  @db.VarChar(100)
+  username   String  @unique @db.VarChar(30)
+  password   String  @db.VarChar(255)
+  level_user String  @db.VarChar(20)
+  alamat     String  @db.Text
+  telp       String  @db.VarChar(25)
+  instansi   String? @db.VarChar(50)
+  latitude   String  @db.VarChar(225)
+  longitude  String  @db.VarChar(225)
+  zoom       Int     @default(10)
+  bidang     String? @db.VarChar(100)
 
   @@map("t_user")
 }
 
 model KodeAkses {
-  id              Int    @id @default(autoincrement())
+  id              Int      @id @default(autoincrement())
   id_user         Int
-  kode_akses      String @db.VarChar(255)
+  kode_akses      String   @db.VarChar(255)
   tanggal_mulai   DateTime @db.Date
   tanggal_selesai DateTime @db.Date
 
@@ -66,32 +66,32 @@ model Lokasi {
 }
 
 model KategoriLogger {
-  id_katlogger   Int    @id @default(autoincrement())
-  nama_kategori  String @db.VarChar(30)
-  controller     String @db.VarChar(20)
-  tabel          String @db.VarChar(20)
-  kepanjangan    String @db.Text
-  temp_data      String @db.VarChar(20)
-  icon_app       String @db.VarChar(25)
-  view           Int    @default(1)
+  id_katlogger  Int    @id @default(autoincrement())
+  nama_kategori String @db.VarChar(30)
+  controller    String @db.VarChar(20)
+  tabel         String @db.VarChar(20)
+  kepanjangan   String @db.Text
+  temp_data     String @db.VarChar(20)
+  icon_app      String @db.VarChar(25)
+  view          Int    @default(1)
 
   @@map("kategori_logger")
 }
 
 model Informasi {
-  id_inf        Int    @id @default(autoincrement())
-  logger_id     String @db.VarChar(10)
-  seri          String @db.Text
-  sensor        String @db.Text
-  serial_number String @db.VarChar(25)
-  elevasi       String @db.VarChar(10)
-  nosell        String @db.VarChar(15)
-  nama_pic      String @db.VarChar(25)
-  no_pic        String @db.VarChar(15)
-  tgl_aktif     String @db.VarChar(10)
-  garansi       String @db.VarChar(10)
-  tgl_kontrak   String @db.VarChar(10)
-  imei          String @db.VarChar(20)
+  id_inf        Int      @id @default(autoincrement())
+  logger_id     String   @db.VarChar(10)
+  seri          String   @db.Text
+  sensor        String   @db.Text
+  serial_number String   @db.VarChar(25)
+  elevasi       String   @db.VarChar(10)
+  nosell        String   @db.VarChar(15)
+  nama_pic      String   @db.VarChar(25)
+  no_pic        String   @db.VarChar(15)
+  tgl_aktif     String   @db.VarChar(10)
+  garansi       String   @db.VarChar(10)
+  tgl_kontrak   String   @db.VarChar(10)
+  imei          String   @db.VarChar(20)
   masa_aktif    DateTime @db.Date
 
   @@map("t_informasi")
@@ -102,12 +102,12 @@ model Informasi {
 // =============================================
 
 model PrismaTarget {
-  id                Int    @id @default(autoincrement())
-  id_prisma         String @db.VarChar(11)
+  id                Int     @id @default(autoincrement())
+  id_prisma         String  @db.VarChar(11)
   id_logger         Int
-  nama_prisma       String @db.VarChar(255)
-  status_controller String @db.VarChar(25)
-  target_height     Float  @default(0)
+  nama_prisma       String  @db.VarChar(255)
+  status_controller String  @db.VarChar(25)
+  target_height     Float   @default(0)
   HA                String? @default("0") @db.VarChar(200)
   VA                String? @default("0") @db.VarChar(200)
   SlopDis           Float?  @default(0)
@@ -116,19 +116,19 @@ model PrismaTarget {
 }
 
 model TempPrisma {
-  id_prisma    String @id @db.VarChar(25)
-  code_logger  String @db.VarChar(10)
-  sensor1      String @db.VarChar(200)
-  sensor2      String @db.VarChar(200)
-  sensor3      String @db.VarChar(200)
-  sensor4      String @db.VarChar(200)
-  sensor5      String @db.VarChar(200)
-  sensor6      String @db.VarChar(200)
-  sensor7      String @db.VarChar(200)
-  sensor8      String @db.VarChar(200)
-  sensor9      String @db.VarChar(200)
-  nama         String @db.VarChar(200)
-  status_get   Int    @default(0)
+  id_prisma   String @id @db.VarChar(25)
+  code_logger String @db.VarChar(10)
+  sensor1     String @db.VarChar(200)
+  sensor2     String @db.VarChar(200)
+  sensor3     String @db.VarChar(200)
+  sensor4     String @db.VarChar(200)
+  sensor5     String @db.VarChar(200)
+  sensor6     String @db.VarChar(200)
+  sensor7     String @db.VarChar(200)
+  sensor8     String @db.VarChar(200)
+  sensor9     String @db.VarChar(200)
+  nama        String @db.VarChar(200)
+  status_get  Int    @default(0)
 
   @@map("temp_prisma")
 }
@@ -337,21 +337,21 @@ model LogKontrol {
 }
 
 model StatusKontrol {
-  id              Int    @id @default(autoincrement())
-  id_logger       String @db.VarChar(15)
-  status_kontrol  String @db.VarChar(5)
-  session_id      String @db.VarChar(200)
+  id             Int    @id @default(autoincrement())
+  id_logger      String @db.VarChar(15)
+  status_kontrol String @db.VarChar(5)
+  session_id     String @db.VarChar(200)
 
   @@map("status_kontrol")
 }
 
 model SetTempkontrol {
-  id             Int      @id @default(autoincrement())
-  id_logger      String   @db.VarChar(15)
-  set_value      String   @db.VarChar(10)
-  status         String   @db.VarChar(5)
-  status_manual  String   @db.VarChar(5)
-  datetime       DateTime?
+  id            Int       @id @default(autoincrement())
+  id_logger     String    @db.VarChar(15)
+  set_value     String    @db.VarChar(10)
+  status        String    @db.VarChar(5)
+  status_manual String    @db.VarChar(5)
+  datetime      DateTime?
 
   @@map("set_tempkontrol")
 }
@@ -387,10 +387,10 @@ model ConfigAdr {
 }
 
 model Filter {
-  id           Int    @id @default(autoincrement())
-  id_kategori  Int
-  nama_filter  String @db.VarChar(225)
-  icon         String @db.VarChar(225)
+  id          Int    @id @default(autoincrement())
+  id_kategori Int
+  nama_filter String @db.VarChar(225)
+  icon        String @db.VarChar(225)
 
   @@map("filter")
 }
@@ -418,12 +418,12 @@ model SetEws {
 }
 
 model SchedulingTask {
-  id        Int      @id @default(autoincrement())
-  id_logger String   @db.VarChar(15)
-  days      String   @db.VarChar(5)
-  time      String   @db.VarChar(10)
-  status    String   @db.VarChar(5)
-  site      String?  @db.VarChar(225)
+  id        Int       @id @default(autoincrement())
+  id_logger String    @db.VarChar(15)
+  days      String    @db.VarChar(5)
+  time      String    @db.VarChar(10)
+  status    String    @db.VarChar(5)
+  site      String?   @db.VarChar(225)
   datetime  DateTime?
 
   @@map("scheduling_task")

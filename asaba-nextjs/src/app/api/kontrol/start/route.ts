@@ -12,7 +12,19 @@ import { sendRtsStartCommand } from "@/lib/mqtt";
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
-    const { kode_akses, id_logger = "30002" } = body;
+    const { kode_akses } = body;
+
+    // Ambil logger ID ADR secara dinamis dari DB
+    const loggers = await prisma.$queryRaw<Array<{ id_logger: string }>>`
+      SELECT id_logger FROM t_logger WHERE kategori_log = '1' LIMIT 1
+    `;
+    const id_logger = loggers?.[0]?.id_logger;
+    if (!id_logger) {
+      return NextResponse.json(
+        { success: false, error: "ADR logger not found in database" },
+        { status: 404 }
+      );
+    }
 
     // Verify access code
     if (kode_akses) {
@@ -92,7 +104,21 @@ export async function POST(request: NextRequest) {
 export async function GET(request: NextRequest) {
   try {
     const { searchParams } = new URL(request.url);
-    const idLogger = searchParams.get("id_logger") || "30002";
+
+    // Ambil id_logger dari query param, atau ambil dari DB jika tidak ada
+    let idLogger = searchParams.get("id_logger");
+    if (!idLogger) {
+      const loggers = await prisma.$queryRaw<Array<{ id_logger: string }>>`
+        SELECT id_logger FROM t_logger WHERE kategori_log = '1' LIMIT 1
+      `;
+      idLogger = loggers?.[0]?.id_logger ?? null;
+    }
+    if (!idLogger) {
+      return NextResponse.json(
+        { success: false, error: "ADR logger not found" },
+        { status: 404 }
+      );
+    }
 
     const status = await prisma.statusKontrol.findFirst({
       where: { id_logger: idLogger },
@@ -110,7 +136,7 @@ export async function GET(request: NextRequest) {
 
     return NextResponse.json({
       success: true,
-      data: { status_kontrol: statusKontrol },
+      data: { id_logger: idLogger, status_kontrol: statusKontrol },
     });
   } catch (error) {
     console.error("[GET /api/kontrol/start]", error);

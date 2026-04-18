@@ -190,7 +190,10 @@ function RtsDashboard({ logger }: { logger: any }) {
                 {lastUpdateStr}
               </div>
             </div>
-            <Button className="w-full bg-[#2B3270] hover:bg-[#1a1e4a] text-white rounded-md h-[42px] flex items-center justify-center text-sm font-medium shadow-sm transition-colors cursor-pointer">
+            <Button
+              onClick={() => router.push("/kontrol-adr")}
+              className="w-full bg-[#2B3270] hover:bg-[#1a1e4a] text-white rounded-md h-[42px] flex items-center justify-center text-sm font-medium shadow-sm transition-colors cursor-pointer"
+            >
               <Image src="/robot-arm.svg" width={18} height={18} alt="Robot Arm" className="mr-2 object-contain" />
               Kontrol ADR
             </Button>
@@ -252,6 +255,8 @@ function RtsDashboard({ logger }: { logger: any }) {
                   <button 
                     key={log.id_log}
                     onClick={() => setSelectedLog(log.id_log)}
+                    onDoubleClick={() => router.push(`/hasil-pengukuran?log=${log.id_log}&view=Tabel`)}
+                    title="Klik sekali untuk preview, klik dua kali untuk buka detail"
                     className={cn(
                       "w-full flex items-center gap-3 py-3.5 px-5 border-b border-gray-100 last:border-0 hover:bg-gray-50 transition-colors text-left",
                       activeClasses
@@ -274,7 +279,10 @@ function RtsDashboard({ logger }: { logger: any }) {
             )}
           </div>
           <div className="border-t border-gray-100 p-3.5 flex justify-end">
-             <button className="text-[13px] text-[#2B3270] font-bold flex items-center gap-1.5 hover:underline cursor-pointer">
+             <button
+               onClick={() => router.push(`/hasil-pengukuran?log=${activeLog ?? ""}&view=Tabel`)}
+               className="text-[13px] text-[#2B3270] font-bold flex items-center gap-1.5 hover:underline cursor-pointer"
+             >
                Lihat Semua <ArrowRight className="h-3.5 w-3.5" />
              </button>
           </div>
@@ -355,7 +363,10 @@ function RtsDashboard({ logger }: { logger: any }) {
             </Table>
           </div>
           <div className="border-t border-gray-100 p-3.5 flex justify-end">
-            <button className="text-[13px] text-[#2B3270] font-bold flex items-center gap-1.5 hover:underline cursor-pointer">
+            <button
+              onClick={() => router.push(`/hasil-pengukuran?log=${activeLog ?? ""}&view=Tabel`)}
+              className="text-[13px] text-[#2B3270] font-bold flex items-center gap-1.5 hover:underline cursor-pointer"
+            >
               Lihat Semua <ArrowRight className="h-3.5 w-3.5" />
             </button>
           </div>
@@ -423,7 +434,10 @@ function RtsDashboard({ logger }: { logger: any }) {
               <p className="text-[11px] text-gray-500 font-medium leading-tight mb-4 pr-1">Preview persebaran titik prisma</p>
               
               <div className="mt-auto absolute bottom-4 left-4 xl:left-5">
-                 <button className="text-[12px] text-[#2B3270] font-bold flex items-center gap-1.5 hover:underline cursor-pointer whitespace-nowrap">
+                 <button
+                   onClick={() => router.push(`/hasil-pengukuran?log=${activeLog ?? ""}&view=Peta`)}
+                   className="text-[12px] text-[#2B3270] font-bold flex items-center gap-1.5 hover:underline cursor-pointer whitespace-nowrap"
+                 >
                    Lihat Peta <ArrowRight className="h-3 w-3" />
                  </button>
               </div>
@@ -444,7 +458,10 @@ function RtsDashboard({ logger }: { logger: any }) {
               <p className="text-[11px] text-gray-500 font-medium leading-tight mb-4 pr-1">Preview visualisasi deformasi prisma</p>
               
               <div className="mt-auto absolute bottom-4 left-4 xl:left-5">
-                 <button className="text-[12px] text-[#2B3270] font-bold flex items-center gap-1.5 hover:underline cursor-pointer whitespace-nowrap">
+                 <button
+                   onClick={() => router.push("/visualisasi-3d")}
+                   className="text-[12px] text-[#2B3270] font-bold flex items-center gap-1.5 hover:underline cursor-pointer whitespace-nowrap"
+                 >
                    Lihat 3D <ArrowRight className="h-3 w-3" />
                  </button>
               </div>
@@ -453,7 +470,7 @@ function RtsDashboard({ logger }: { logger: any }) {
            {/* 3D graphic mockup positioned exactly on the right */}
            <div className="absolute right-3 top-3 bottom-3 w-[63%] pointer-events-none">
               <div className="relative w-full h-full rounded-[10px] border border-[#EAEAEA] bg-white overflow-hidden flex items-center justify-center">
-                 <Image src="/visualisasi_3D.svg" fill alt="Visualisasi 3D Preview" className="object-cover object-center" />
+                 <Image src="/visual_3D.svg" fill alt="Visualisasi 3D Preview" className="object-cover object-center" />
               </div>
            </div>
         </Card>

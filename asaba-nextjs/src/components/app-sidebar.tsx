@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import Image from "next/image";
 import {
   LayoutGrid,
   RadioTower,
@@ -40,19 +41,11 @@ export function AppSidebar() {
       <SidebarHeader className="border-b-0 pt-6 pb-4 px-4 group-data-[collapsible=icon]:px-0">
         <div className="flex items-center justify-between w-full h-8 group-data-[collapsible=icon]:justify-center">
           <div className="flex items-center gap-2 overflow-hidden group-data-[collapsible=icon]:hidden">
-            {/* Custom Logo Styling */}
-            <div className="relative flex-shrink-0 flex items-center justify-center font-black italic tracking-tighter text-[#2a3073] text-2xl">
-               <span className="text-yellow-400 font-extrabold mr-[-2px]">\</span>
-               <span className="font-extrabold">/</span>
-            </div>
-            <div className="flex flex-col overflow-hidden whitespace-nowrap">
-              <span className="text-[13px] font-black tracking-tighter text-[#2a3073] leading-none mb-[2px]">
-                PT.ASABA
-              </span>
-              <span className="text-[7px] font-bold text-[#2a3073] leading-none tracking-tight">
-                SURVEYING SOLUTIONS
-              </span>
-            </div>
+            <img 
+              src="/logo_be.png" 
+              alt="Beacon Engineering Logo" 
+              className="h-9 object-contain"
+            />
           </div>
           <SidebarTrigger className="h-6 w-6 rounded-md border border-gray-300 flex-shrink-0 text-gray-500 hover:text-gray-900" />
         </div>

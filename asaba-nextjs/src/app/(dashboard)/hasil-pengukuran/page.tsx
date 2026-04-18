@@ -1,46 +1,257 @@
 "use client";
 
-import React, { useState } from "react";
-import { 
-  History, 
-  ChevronLeft, 
-  ChevronRight, 
-  Download, 
-  Box as BoxIcon, 
-  Table as TableIcon, 
-  Map as MapIcon, 
-  Filter 
+import React, { useState, useEffect, useCallback } from "react";
+import { useSearchParams } from "next/navigation";
+import {
+  History,
+  ChevronLeft,
+  ChevronRight,
+  ChevronDown,
+  Download,
+  Box as BoxIcon,
+  Table as TableIcon,
+  Map as MapIcon,
+  Filter,
+  Loader2,
+  AlertCircle,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { useRouter } from "next/navigation";
+import dynamic from "next/dynamic";
+import type { PrismaMarkerData } from "@/components/PrismaMap";
 
-const dummyRuns = [
-  { id: 1, date: "30-03-2026 16:06", badge1: "CPP 3", badge1Color: "bg-[#4285F4]", badge2: "", active: true },
-  { id: 2, date: "30-03-2026 16:06", badge1: "CPP 3", badge1Color: "bg-[#4285F4]", badge2: "", active: false },
-  { id: 3, date: "30-03-2026 16:06", badge1: "CPP 3", badge1Color: "bg-[#4285F4]", badge2: "", active: false },
-  { id: 4, date: "30-03-2026 16:06", badge1: "CPP 3", badge1Color: "bg-[#4285F4]", badge2: "", active: false },
-  { id: 5, date: "30-03-2026 16:06", badge1: "CPP 3", badge1Color: "bg-[#4285F4]", badge2: "R0", badge2Color: "bg-[#6B7280]", active: false },
-  { id: 6, date: "30-03-2026 16:06", badge1: "VP", badge1Color: "bg-[#F97316]", badge2: "", active: false },
-  { id: 7, date: "30-03-2026 16:06", badge1: "VP", badge1Color: "bg-[#F97316]", badge2: "", active: false },
-  { id: 8, date: "30-03-2026 16:06", badge1: "VP", badge1Color: "bg-[#F97316]", badge2: "", active: false },
-  { id: 9, date: "30-03-2026 16:06", badge1: "VP", badge1Color: "bg-[#F97316]", badge2: "", active: false },
-];
+const PrismaMap = dynamic(() => import("@/components/PrismaMap"), { ssr: false });
 
-const dummyTableData = [
-  { id: "", y: "401306.514", z: "63.8350", ha: "359,59,35", va: "087,57,30", sd: "35.7696", dx: "0.012", dy: "0.012", dz: "0.012", lin: "0.01", arah: "344 (Utara)" },
-  ...Array(9).fill({ id: "436", y: "401324.75945021", z: "81.1777", ha: "353,57,16", va: "086,38,37", sd: "222.9413", dx: "-0.008", dy: "-0.008", dz: "-0.008", lin: "0.02", arah: "306 (Barat Laut)" })
-];
+// =================== TYPES ===================
+interface LogKontrol {
+  id_log: string;
+  id_logger: string;
+  datetime: string;
+  site: string | null;
+  r0: number;
+}
+
+interface TempTembak {
+  nama_prisma: string;
+  N0: number; E0: number; Z0: number;
+  HA0: string; VA0: string; SD0: string;
+  N1: number; E1: number; Z1: number;
+  HA1: string; VA1: string; SD1: string;
+  DN: string; DE: string; DZ: string;
+  linear: number;
+  arah_pergeseran: string;
+  raw_E0: number; raw_N0: number;
+  raw_E1: number; raw_N1: number;
+  map_lat0: number | null; map_lon0: number | null;
+  map_lat1: number | null; map_lon1: number | null;
+}
+
+interface DailyStatus {
+  label: string;
+  class: string;
+}
+
+interface DailySeries {
+  t: string;
+  mm: number;
+}
+
+interface DailyData {
+  count: number;
+  first_time: string | null;
+  last_time: string | null;
+  pergeseran_mm: number | null;
+  kecepatan_mmd: number | null;
+  status_pergeseran: DailyStatus | null;
+  status_kecepatan: DailyStatus | null;
+  series: DailySeries[];
+}
+
+interface DataPengukuran {
+  id_prisma: string;
+  nama_prisma: string;
+  id_logger: number;
+  waktu: string;
+  temp_tembak: TempTembak;
+  daily: DailyData;
+}
+
+function Sparkline({ data }: { data: DailySeries[] }) {
+  if (!data || data.length === 0) return <span className="text-gray-400 font-medium">-</span>;
+  const w = 150;
+  const h = 40;
+  const padding = 6;
+  const min = Math.min(...data.map(d => d.mm));
+  const max = Math.max(...data.map(d => d.mm));
+  const range = max - min === 0 ? 1 : max - min;
+  
+  const getX = (i: number) => data.length === 1 ? w / 2 : padding + (i / (data.length - 1)) * (w - padding * 2);
+  const getY = (val: number) => h - padding - ((val - min) / range) * (h - padding * 2);
+
+  const points = data.map((d, i) => `${getX(i)},${getY(d.mm)}`).join(" ");
+  const areaPoints = `${getX(0)},${h} ${points} ${getX(data.length - 1)},${h}`;
+
+  return (
+    <svg width={w} height={h} className="mx-auto overflow-visible block">
+      <defs>
+        <linearGradient id="sparkline-fill" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%" stopColor="#4338CA" stopOpacity="0.1" />
+          <stop offset="100%" stopColor="#4338CA" stopOpacity="0.0" />
+        </linearGradient>
+      </defs>
+      <polygon points={areaPoints} fill="url(#sparkline-fill)" />
+      <polyline points={points} fill="none" stroke="#4338CA" strokeWidth="1.5" />
+      {data.map((d, i) => (
+        <circle key={i} cx={getX(i)} cy={getY(d.mm)} r="2.5" fill="#10B981" stroke="#fff" strokeWidth="1" />
+      ))}
+    </svg>
+  );
+}
+
+interface DeformasiResponse {
+  success: boolean;
+  data?: {
+    tanggal: string;
+    posisi_rts: { E: number; N: number; Z: number };
+    data_pengukuran: DataPengukuran[];
+  };
+  error?: string;
+}
+
+// =================== HELPERS ===================
+function formatDate(dt: string) {
+  if (!dt) return "-";
+  const d = new Date(dt);
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${pad(d.getDate())}-${pad(d.getMonth() + 1)}-${d.getFullYear()} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+
+function siteBadge(site: string | null) {
+  if (!site) return { label: "?", color: "bg-gray-500" };
+  if (site.toLowerCase().includes("ccp")) return { label: "CPP 3", color: "bg-[#5B8DEF]" };
+  return { label: "VP", color: "bg-[#F3722C]" };
+}
+
+function fval(v: unknown): string {
+  if (v === null || v === undefined || v === "") return "-";
+  const n = Number(v);
+  if (isNaN(n)) return String(v);
+  return n.toFixed(4);
+}
+
+// =================== MAIN PAGE ===================
+const RUNS_PER_PAGE = 10;
 
 export default function HasilPengukuranPage() {
+  const router = useRouter();
+  const searchParams = useSearchParams();
   const [activeTab, setActiveTab] = useState("Event");
-  const [activeView, setActiveView] = useState("Tabel");
+  const [activeView, setActiveView] = useState(() => searchParams.get("view") ?? "Tabel");
+
+  // Log kontrol list (left panel)
+  const [runs, setRuns] = useState<LogKontrol[]>([]);
+  const [runsLoading, setRunsLoading] = useState(true);
+  const [runsError, setRunsError] = useState("");
+  const [currentPage, setCurrentPage] = useState(1);
+  const [totalRuns, setTotalRuns] = useState(0);
+  const [allRuns, setAllRuns] = useState<LogKontrol[]>([]);
+
+  // Modal R0 states
+  const [isR0ModalOpen, setIsR0ModalOpen] = useState(false);
+  const [r0SelectedDate, setR0SelectedDate] = useState("");
+  const [r0SelectedTime, setR0SelectedTime] = useState("");
+
+  // Selected run
+  const [selectedLog, setSelectedLog] = useState<LogKontrol | null>(null);
+
+  // Deformasi data (right panel)
+  const [deformasi, setDeformasi] = useState<DataPengukuran[]>([]);
+  const [deformasiLoading, setDeformasiLoading] = useState(false);
+  const [deformasiError, setDeformasiError] = useState("");
+  const [selectedDate, setSelectedDate] = useState("-");
+
+  // ── Fetch log kontrol ──
+  const fetchRuns = useCallback(async (page: number) => {
+    setRunsLoading(true);
+    setRunsError("");
+    try {
+      const limit = RUNS_PER_PAGE * 3; // ambil lebih banyak untuk paginasi client
+      const res = await fetch(`/api/log-kontrol?limit=100&with_prisma=false`);
+      const json = await res.json();
+      if (!json.success) throw new Error(json.error || "Gagal memuat riwayat");
+      setTotalRuns(json.data.length);
+      setAllRuns(json.data);
+      // Paginate client-side
+      const start = (page - 1) * RUNS_PER_PAGE;
+      const pageData = json.data.slice(start, start + RUNS_PER_PAGE);
+      setRuns(pageData);
+      // Auto-select first run on initial load
+      if (page === 1 && json.data.length > 0 && !selectedLog) {
+        setSelectedLog(json.data[0]);
+      }
+    } catch (e: unknown) {
+      setRunsError(e instanceof Error ? e.message : "Terjadi kesalahan");
+    } finally {
+      setRunsLoading(false);
+    }
+  }, [selectedLog]);
+
+  useEffect(() => { fetchRuns(currentPage); }, [currentPage]);
+
+  // ── Auto-select run dari query param ?log= ──
+  useEffect(() => {
+    const logId = searchParams.get("log");
+    if (logId && allRuns.length > 0) {
+      const found = allRuns.find((r) => r.id_log === logId);
+      if (found) setSelectedLog(found);
+    }
+  }, [searchParams, allRuns]);
+
+  // ── Fetch deformasi ketika selectedLog berubah ──
+  const fetchDeformasi = useCallback(async (idLog: string) => {
+    setDeformasiLoading(true);
+    setDeformasiError("");
+    setDeformasi([]);
+    try {
+      const res = await fetch(`/api/deformasi?id_log=${idLog}`);
+      const json: DeformasiResponse = await res.json();
+      if (!json.success || !json.data) throw new Error(json.error || "Gagal memuat data pengukuran");
+      setDeformasi(json.data.data_pengukuran);
+      setSelectedDate(formatDate(json.data.tanggal));
+    } catch (e: unknown) {
+      setDeformasiError(e instanceof Error ? e.message : "Terjadi kesalahan");
+    } finally {
+      setDeformasiLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (selectedLog?.id_log) fetchDeformasi(selectedLog.id_log);
+  }, [selectedLog, fetchDeformasi]);
+
+  const totalPages = Math.ceil(totalRuns / RUNS_PER_PAGE);
+
+  // ── R0 Modal Logic ──
+  const availableDates = Array.from(new Set(allRuns.map((r) => formatDate(r.datetime).split(" ")[0])));
+  
+  useEffect(() => {
+    if (isR0ModalOpen) {
+      if (!r0SelectedDate && availableDates.length > 0) {
+        setR0SelectedDate(availableDates[0]);
+      }
+      // set current ro to selectedTime maybe? No, let user pick
+    }
+  }, [isR0ModalOpen, availableDates, r0SelectedDate]);
+
+  const filteredRunsForR0 = allRuns.filter(r => formatDate(r.datetime).split(" ")[0] === r0SelectedDate);
 
   return (
     <div className="flex flex-col gap-6 w-full pb-10">
-      
-      {/* Sub Header Section */}
+
+      {/* Sub Header */}
       <div className="flex items-center gap-4">
         <div className="w-10 h-10 rounded-full border border-gray-200 bg-gray-100 flex items-center justify-center shadow-inner">
-          <div className="w-3.5 h-3.5 rounded-full bg-gray-800"></div>
+          <div className="w-3.5 h-3.5 rounded-full bg-gray-800" />
         </div>
         <div className="flex flex-col">
           <h2 className="font-extrabold text-[#1f2937] text-[18px] leading-tight">Pos RTS Site MIP</h2>
@@ -48,210 +259,569 @@ export default function HasilPengukuranPage() {
         </div>
       </div>
 
-      {/* Main Content Grid */}
+      {/* Main Grid */}
       <div className="grid grid-cols-1 xl:grid-cols-[300px_1fr] gap-6 items-start">
-        
-        {/* Left Column: Tanggal Running */}
-        <div className="bg-white border border-[#EAEAEA] rounded-xl shadow-sm overflow-hidden flex flex-col h-full">
-          {/* Header */}
-          <div className="px-5 py-4 border-b border-gray-100 flex items-center justify-between">
-            <h3 className="font-bold text-gray-900 text-[15px]">Tanggal Running</h3>
-            <History className="w-[18px] h-[18px] text-gray-500" />
+
+        {/* ── Left: Tanggal Running ── */}
+        <div className="bg-white border border-[#EAEAEA] rounded-xl shadow-sm overflow-hidden flex flex-col">
+          <div className="px-5 py-4 flex items-center justify-between border-b border-[#EAEAEA]">
+            <h3 className="font-extrabold text-gray-900 text-[15px]">Tanggal Running</h3>
+            <button 
+              onClick={() => setIsR0ModalOpen(true)}
+              className="flex items-center gap-1.5 px-3 py-1.5 bg-gray-50 hover:bg-gray-100 border border-gray-200 rounded-md text-[11px] font-bold text-gray-700 transition-colors cursor-pointer"
+            >
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M4 21v-7"/><path d="M4 10V3"/><path d="M12 21v-9"/><path d="M12 8V3"/><path d="M20 21v-5"/><path d="M20 12V3"/><path d="M1 14h6"/><path d="M9 8h6"/><path d="M17 16h6"/></svg>
+              Atur R0
+            </button>
           </div>
+
           {/* List */}
           <div className="flex flex-col">
-            {dummyRuns.map((run, idx) => (
-              <div 
-                key={run.id} 
-                className={`py-3.5 px-5 border-b border-gray-100 flex items-center gap-2 cursor-pointer transition-colors
-                  ${run.active ? 'bg-[#FAFBFF] border-l-4 border-l-[#4285F4]' : 'hover:bg-gray-50 border-l-4 border-l-transparent'}`}
-              >
-                <span className="text-[13px] text-gray-800 font-medium">{run.date}</span>
-                {run.badge1 && (
-                  <span className={`px-2 py-[2px] rounded text-white text-[10px] font-bold leading-tight ${run.badge1Color}`}>
-                    {run.badge1}
-                  </span>
-                )}
-                {run.badge2 && (
-                  <span className={`px-2 py-[2px] rounded text-white text-[10px] font-bold leading-tight ${run.badge2Color}`}>
-                    {run.badge2}
-                  </span>
-                )}
+            {runsLoading ? (
+              <div className="flex items-center justify-center py-14">
+                <Loader2 className="w-6 h-6 animate-spin text-[#303481]" />
               </div>
-            ))}
+            ) : runsError ? (
+              <div className="flex items-center gap-2 text-red-600 text-[13px] px-5 py-4">
+                <AlertCircle className="w-4 h-4 flex-shrink-0" />
+                {runsError}
+              </div>
+            ) : runs.length === 0 ? (
+              <p className="text-center text-gray-400 text-[13px] py-10">Tidak ada data</p>
+            ) : (
+              runs.map((run) => {
+                const badge = siteBadge(run.site);
+                const isActive = selectedLog?.id_log === run.id_log;
+                return (
+                  <div
+                    key={run.id_log}
+                    onClick={() => setSelectedLog(run)}
+                    className={`py-3.5 px-5 border-b border-gray-100 flex items-center gap-2.5 cursor-pointer transition-colors w-full
+                      ${isActive
+                        ? "bg-[#F7F8FF] border-l-[3px] border-l-[#303481]"
+                        : "hover:bg-gray-50 border-l-[3px] border-l-transparent bg-white"
+                      }`}
+                  >
+                    <span className="text-[12.5px] text-gray-800 font-medium flex-1 whitespace-nowrap overflow-hidden text-ellipsis">
+                      {formatDate(run.datetime)}
+                    </span>
+                    <span className={`px-2.5 py-[2px] rounded-full text-white text-[9.5px] font-bold tracking-wide shadow-sm flex-shrink-0 ${badge.color}`}>
+                      {badge.label}
+                    </span>
+                    {run.r0 === 1 && (
+                      <span className="px-2.5 py-[2px] rounded-full bg-[#64748B] text-white text-[9.5px] font-bold tracking-wide shadow-sm flex-shrink-0">
+                        R0
+                      </span>
+                    )}
+                  </div>
+                );
+              })
+            )}
           </div>
-          {/* Pagination Tanggal */}
+
+          {/* Pagination */}
           <div className="py-4 flex justify-center border-t border-gray-100">
             <div className="flex items-center gap-1.5">
-              <button className="w-7 h-7 flex items-center justify-center rounded border border-gray-200 text-gray-500 hover:bg-gray-50 transition-colors bg-white cursor-pointer group">
+              <button
+                onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
+                disabled={currentPage === 1}
+                className="w-7 h-7 flex items-center justify-center rounded border border-gray-200 text-gray-500 hover:bg-gray-50 transition-colors bg-white cursor-pointer group disabled:opacity-40 disabled:cursor-not-allowed"
+              >
                 <ChevronLeft className="w-4 h-4 group-hover:-translate-x-0.5 transition-transform" />
               </button>
-              <button className="w-7 h-7 flex items-center justify-center rounded bg-[#303481] text-white font-bold text-[12.5px] border-none cursor-pointer">
-                1
-              </button>
-              <button className="w-7 h-7 flex items-center justify-center rounded border border-gray-200 text-gray-700 font-bold text-[12.5px] hover:bg-gray-50 transition-colors bg-white cursor-pointer">
-                2
-              </button>
-              <button className="w-7 h-7 flex items-center justify-center rounded border border-gray-200 text-gray-700 font-bold text-[12.5px] hover:bg-gray-50 transition-colors bg-white cursor-pointer">
-                3
-              </button>
-              <button className="w-7 h-7 flex items-center justify-center rounded border border-gray-200 text-gray-500 hover:bg-gray-50 transition-colors bg-white cursor-pointer group">
+              {Array.from({ length: Math.min(totalPages, 5) }, (_, i) => (
+                <button
+                  key={i + 1}
+                  onClick={() => setCurrentPage(i + 1)}
+                  className={`w-7 h-7 flex items-center justify-center rounded text-[12.5px] font-bold transition-colors cursor-pointer ${
+                    currentPage === i + 1
+                      ? "bg-[#303481] text-white border-none"
+                      : "border border-gray-200 text-gray-700 hover:bg-gray-50 bg-white"
+                  }`}
+                >
+                  {i + 1}
+                </button>
+              ))}
+              <button
+                onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
+                disabled={currentPage >= totalPages}
+                className="w-7 h-7 flex items-center justify-center rounded border border-gray-200 text-gray-500 hover:bg-gray-50 transition-colors bg-white cursor-pointer group disabled:opacity-40 disabled:cursor-not-allowed"
+              >
                 <ChevronRight className="w-4 h-4 group-hover:translate-x-0.5 transition-transform" />
               </button>
             </div>
           </div>
         </div>
 
-        {/* Right Column: Data Prisma */}
+        {/* ── Right: Data Prisma ── */}
         <div className="bg-white border border-[#EAEAEA] rounded-xl shadow-sm overflow-hidden flex flex-col">
-          {/* Header Row */}
+          {/* Header */}
           <div className="px-6 py-5 flex items-center justify-between border-b border-gray-100">
             <h3 className="font-bold text-gray-900 text-[16px]">Data Prisma</h3>
             <div className="flex gap-3">
-              <Button variant="outline" className="h-[38px] px-5 border-[#2E7D32] text-[#2E7D32] font-semibold text-[13px] rounded-lg hover:bg-[#E8F5E9] hover:text-[#2E7D32]">
+              <Button
+                variant="outline"
+                className="h-[38px] px-5 border-[#2E7D32] text-[#2E7D32] font-semibold text-[13px] rounded-lg hover:bg-[#E8F5E9] hover:text-[#2E7D32] cursor-pointer"
+              >
                 <Download className="w-[15px] h-[15px] mr-1.5" strokeWidth={2.5} />
                 Download Excel
               </Button>
-              <Button className="h-[38px] px-5 bg-[#303481] hover:bg-[#1f2259] text-white font-semibold text-[13px] rounded-lg border-none">
+              <Button
+                onClick={() => router.push("/visualisasi-3d")}
+                className="h-[38px] px-5 bg-[#303481] hover:bg-[#1f2259] text-white font-semibold text-[13px] rounded-lg border-none cursor-pointer"
+              >
                 <BoxIcon className="w-[15px] h-[15px] mr-1.5" strokeWidth={2.5} />
                 Buka 3D
               </Button>
             </div>
           </div>
 
-          {/* Tabs Row */}
+          {/* Tabs */}
           <div className="px-6 pt-3 flex gap-8 border-b border-gray-200">
-            <button 
-              className={`pb-3 text-[14px] font-bold border-b-4 transition-colors ${activeTab === "Event" ? "border-[#303481] text-[#303481]" : "border-transparent text-gray-500 hover:text-gray-800"}`}
-              onClick={() => setActiveTab("Event")}
-            >
-              Event
-            </button>
-            <button 
-              className={`pb-3 text-[14px] font-bold border-b-4 transition-colors ${activeTab === "Harian" ? "border-[#303481] text-[#303481]" : "border-transparent text-gray-500 hover:text-gray-800"}`}
-              onClick={() => setActiveTab("Harian")}
-            >
-              Harian
-            </button>
+            {["Event", "Harian"].map((tab) => (
+              <button
+                key={tab}
+                onClick={() => setActiveTab(tab)}
+                className={`pb-3 text-[14px] font-bold border-b-4 transition-colors cursor-pointer ${
+                  activeTab === tab
+                    ? "border-[#303481] text-[#303481]"
+                    : "border-transparent text-gray-500 hover:text-gray-800"
+                }`}
+              >
+                {tab}
+              </button>
+            ))}
           </div>
 
-          {/* Toolbar Control */}
+          {/* Toolbar */}
           <div className="px-6 py-4 flex flex-wrap items-center gap-5">
-            {/* View Segmented Control */}
+            {/* View toggle */}
             <div className="flex rounded-lg overflow-hidden border border-[#EAEAEA] shadow-sm">
-              <button 
-                onClick={() => setActiveView("Tabel")}
-                className={`flex items-center gap-2 px-5 py-2 text-[13px] font-bold transition-colors ${activeView === "Tabel" ? "bg-[#303481] text-white" : "bg-white text-gray-600 hover:bg-gray-50"}`}
-              >
-                <TableIcon className="w-4 h-4" /> Tabel
-              </button>
-              <button 
-                onClick={() => setActiveView("Peta")}
-                className={`flex items-center gap-2 px-5 py-2 text-[13px] font-bold transition-colors ${activeView === "Peta" ? "bg-[#303481] text-white" : "bg-white text-gray-600 border-l border-[#EAEAEA] hover:bg-gray-50"}`}
-              >
-                <MapIcon className="w-4 h-4" /> Peta
-              </button>
+              {["Tabel", "Peta"].map((view, i) => (
+                <button
+                  key={view}
+                  onClick={() => setActiveView(view)}
+                  className={`flex items-center gap-2 px-5 py-2 text-[13px] font-bold transition-colors cursor-pointer ${
+                    activeView === view
+                      ? "bg-[#303481] text-white"
+                      : `bg-white text-gray-600 hover:bg-gray-50 ${i > 0 ? "border-l border-[#EAEAEA]" : ""}`
+                  }`}
+                >
+                  {view === "Tabel" ? <TableIcon className="w-4 h-4" /> : <MapIcon className="w-4 h-4" />}
+                  {view}
+                </button>
+              ))}
             </div>
-            
-            {/* Filter */}
-            <Button variant="outline" className="h-[38px] border-[#EAEAEA] text-gray-700 font-bold text-[13px] shadow-sm">
+            <Button variant="outline" className="h-[38px] border-[#EAEAEA] text-gray-700 font-bold text-[13px] shadow-sm cursor-pointer">
               <Filter className="w-4 h-4 mr-2" /> Filter
             </Button>
-
-            {/* Info Badges */}
-            <div className="flex items-center gap-4 ml-auto lg:ml-0">
+            {/* Info badges */}
+            <div className="flex items-center gap-4 ml-auto">
               <div className="flex items-center gap-2 text-[13px] font-semibold text-gray-700">
                 Date Selected
-                <span className="px-3 py-1 bg-[#303481] text-white rounded-md text-[11.5px] font-bold tracking-wider relative top-[0.5px]">
-                  30-03-2026 16:06
+                <span className="px-3 py-1 bg-[#303481] text-white rounded-md text-[11.5px] font-bold tracking-wider">
+                  {selectedDate}
                 </span>
               </div>
               <div className="flex items-center gap-2 text-[13px] font-semibold text-gray-700">
                 Total Prism :
                 <span className="w-[28px] h-[22px] flex items-center justify-center bg-[#303481] text-white rounded-full text-[11.5px] font-bold">
-                  10
+                  {deformasiLoading ? "…" : deformasi.length}
                 </span>
               </div>
             </div>
           </div>
 
-          {/* Table Container */}
+          {/* Error state */}
+          {deformasiError && (
+            <div className="flex items-center gap-3 mx-6 mb-4 text-red-600 bg-red-50 rounded-lg px-4 py-3 text-[13px]">
+              <AlertCircle className="w-4 h-4 flex-shrink-0" />
+              {deformasiError}
+            </div>
+          )}
+
+          {/* Peta View */}
+          {activeView === "Peta" && (
+            <div className="px-6 pb-6">
+              {deformasiLoading ? (
+                <div className="flex items-center justify-center h-[520px] text-gray-400">
+                  <div className="flex flex-col items-center gap-3">
+                    <Loader2 className="w-8 h-8 animate-spin text-[#303481]" />
+                    <span className="text-[13px] font-medium">Memuat peta...</span>
+                  </div>
+                </div>
+              ) : !selectedLog ? (
+                <div className="flex items-center justify-center h-[520px] text-gray-400 text-[13px]">
+                  Pilih tanggal running di panel kiri untuk melihat peta.
+                </div>
+              ) : (
+                <PrismaMap
+                  site={selectedLog.site}
+                  markers={deformasi.map(row => ({
+                    id_prisma: row.id_prisma,
+                    nama_prisma: row.nama_prisma,
+                    site: selectedLog.site,
+                    lat0: row.temp_tembak?.map_lat0 ?? null,
+                    lon0: row.temp_tembak?.map_lon0 ?? null,
+                    lat1: row.temp_tembak?.map_lat1 ?? null,
+                    lon1: row.temp_tembak?.map_lon1 ?? null,
+                    DN: row.temp_tembak?.DN ?? "-",
+                    DE: row.temp_tembak?.DE ?? "-",
+                    DZ: row.temp_tembak?.DZ ?? "-",
+                    linear: row.temp_tembak?.linear ?? 0,
+                    arah_pergeseran: row.temp_tembak?.arah_pergeseran ?? "-",
+                    SD1: String(row.temp_tembak?.SD1 ?? "-"),
+                    hasData: !!(row.temp_tembak?.map_lat1),
+                  } as PrismaMarkerData))}
+                />
+              )}
+            </div>
+          )}
+
+          {/* Table – only shown when Tabel view is active */}
+          {activeView === "Tabel" && (
           <div className="overflow-x-auto w-full">
-            <table className="w-full text-center border-collapse min-w-[1000px]">
-              <thead className="bg-[#FAFAFB]">
-                {/* Header Top Level */}
-                <tr>
-                  <th rowSpan={2} className="w-[50px] border-b border-gray-100"></th>
-                  <th colSpan={5} className="py-3 px-2 border-b border-gray-100 font-bold text-gray-600 text-[12.5px] tracking-wide">
-                    Hasil Pengukuran
-                  </th>
-                  <th colSpan={4} className="py-3 px-2 border-b border-l border-gray-100 font-bold text-gray-600 text-[12.5px] tracking-wide bg-[#F4F5F7]/30">
-                    Pergeseran
-                  </th>
-                  <th rowSpan={2} className="py-3 px-4 border-b border-l border-gray-100 font-bold text-gray-600 text-[12.5px] tracking-wide w-[180px]">
-                    Arah<br/>Pergeseran
-                  </th>
-                </tr>
-                {/* Header Second Level */}
-                <tr>
-                  <th className="py-2.5 px-3 border-b border-gray-100 font-bold text-gray-600 text-[12.5px]">Y</th>
-                  <th className="py-2.5 px-3 border-b border-gray-100 font-bold text-gray-600 text-[12.5px]">Z</th>
-                  <th className="py-2.5 px-3 border-b border-gray-100 font-bold text-gray-600 text-[12.5px]">HA</th>
-                  <th className="py-2.5 px-3 border-b border-gray-100 font-bold text-gray-600 text-[12.5px]">VA</th>
-                  <th className="py-2.5 px-3 border-b border-gray-100 font-bold text-gray-600 text-[12.5px]">Slope Distance</th>
-                  <th className="py-2.5 px-3 border-b border-l border-gray-100 font-bold text-gray-600 text-[12.5px] bg-[#F4F5F7]/30">ΔX</th>
-                  <th className="py-2.5 px-3 border-b border-gray-100 font-bold text-gray-600 text-[12.5px] bg-[#F4F5F7]/30">ΔY</th>
-                  <th className="py-2.5 px-3 border-b border-gray-100 font-bold text-gray-600 text-[12.5px] bg-[#F4F5F7]/30">ΔZ</th>
-                  <th className="py-2.5 px-3 border-b border-gray-100 font-bold text-gray-600 text-[12.5px] bg-[#F4F5F7]/30">Linier</th>
-                </tr>
-              </thead>
-              <tbody>
-                {dummyTableData.map((row, idx) => (
-                  <tr key={idx} className="border-b border-gray-100 last:border-0 hover:bg-gray-50/50 transition-colors">
-                    <td className="py-3.5 px-3 text-[13px] text-gray-600 font-medium">
-                      {row.id}
-                    </td>
-                    <td className="py-3.5 px-3 text-[13px] text-gray-700 font-medium">
-                      {row.y}
-                    </td>
-                    <td className="py-3.5 px-3 text-[13px] text-gray-700 font-medium">
-                      {row.z}
-                    </td>
-                    <td className="py-3.5 px-3 text-[13px] text-gray-700 font-medium">
-                      {row.ha}
-                    </td>
-                    <td className="py-3.5 px-3 text-[13px] text-gray-700 font-medium">
-                      {row.va}
-                    </td>
-                    <td className="py-3.5 px-3 text-[13px] text-gray-700 font-medium">
-                      {row.sd}
-                    </td>
-                    <td className="py-3.5 px-3 text-[13px] text-gray-700 font-medium border-l border-gray-100">
-                      {row.dx}
-                    </td>
-                    <td className="py-3.5 px-3 text-[13px] text-gray-700 font-medium">
-                      {row.dy}
-                    </td>
-                    <td className="py-3.5 px-3 text-[13px] text-gray-700 font-medium">
-                      {row.dz}
-                    </td>
-                    <td className="py-3.5 px-3 text-[13px] text-gray-700 font-medium">
-                      {row.lin}
-                    </td>
-                    <td className="py-3.5 px-4 text-[13px] text-gray-700 font-medium border-l border-gray-100">
-                      {row.arah}
-                    </td>
+            {activeTab === "Event" ? (
+              <table className="w-full text-center border-collapse min-w-[1100px]">
+                <thead className="bg-[#FAFAFB]">
+                  {/* Row 1 — Group headers */}
+                  <tr className="border-b border-gray-200">
+                    <th rowSpan={2} className="py-3 px-4 border-r border-gray-200 font-bold text-gray-700 text-[12px] text-left whitespace-nowrap align-middle">
+                      Nomor Prisma
+                    </th>
+                    <th rowSpan={2} className="py-3 px-4 border-r border-gray-200 font-bold text-gray-700 text-[12px] text-left whitespace-nowrap align-middle">
+                      Nama Prisma
+                    </th>
+                    {/* Awal Pengukuran */}
+                    <th colSpan={6} className="py-2.5 px-2 border-b border-r border-gray-200 font-bold text-gray-700 text-[12px] text-center">
+                      Awal Pengukuran
+                    </th>
+                    {/* Hasil Pengukuran */}
+                    <th colSpan={6} className="py-2.5 px-2 border-b border-r border-gray-200 font-bold text-gray-700 text-[12px] text-center">
+                      Hasil Pengukuran
+                    </th>
+                    {/* Pergeseran */}
+                    <th colSpan={4} className="py-2.5 px-2 border-b border-r border-gray-200 font-bold text-gray-700 text-[12px] text-center">
+                      Pergeseran
+                    </th>
+                    {/* Arah Pergeseran */}
+                    <th rowSpan={2} className="py-3 px-4 font-bold text-gray-700 text-[12px] text-center whitespace-nowrap align-middle">
+                      Arah<br />Pergeseran
+                    </th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
+                  {/* Row 2 — Sub-column headers */}
+                  <tr className="border-b border-gray-200">
+                    {/* Awal Pengukuran sub-cols */}
+                    <th className="py-2 px-3 font-semibold text-gray-500 text-[11px] text-center whitespace-nowrap border-r border-gray-100">X</th>
+                    <th className="py-2 px-3 font-semibold text-gray-500 text-[11px] text-center whitespace-nowrap border-r border-gray-100">Y</th>
+                    <th className="py-2 px-3 font-semibold text-gray-500 text-[11px] text-center whitespace-nowrap border-r border-gray-100">Z</th>
+                    <th className="py-2 px-3 font-semibold text-gray-500 text-[11px] text-center whitespace-nowrap border-r border-gray-100">HA</th>
+                    <th className="py-2 px-3 font-semibold text-gray-500 text-[11px] text-center whitespace-nowrap border-r border-gray-100">VA</th>
+                    <th className="py-2 px-3 font-semibold text-gray-500 text-[11px] text-center whitespace-nowrap border-r border-gray-200">Slope Distance</th>
+                    {/* Hasil Pengukuran sub-cols */}
+                    <th className="py-2 px-3 font-semibold text-gray-500 text-[11px] text-center whitespace-nowrap border-r border-gray-100">X</th>
+                    <th className="py-2 px-3 font-semibold text-gray-500 text-[11px] text-center whitespace-nowrap border-r border-gray-100">Y</th>
+                    <th className="py-2 px-3 font-semibold text-gray-500 text-[11px] text-center whitespace-nowrap border-r border-gray-100">Z</th>
+                    <th className="py-2 px-3 font-semibold text-gray-500 text-[11px] text-center whitespace-nowrap border-r border-gray-100">HA</th>
+                    <th className="py-2 px-3 font-semibold text-gray-500 text-[11px] text-center whitespace-nowrap border-r border-gray-100">VA</th>
+                    <th className="py-2 px-3 font-semibold text-gray-500 text-[11px] text-center whitespace-nowrap border-r border-gray-200">Slope Distance</th>
+                    {/* Pergeseran sub-cols */}
+                    <th className="py-2 px-3 font-semibold text-gray-500 text-[11px] text-center whitespace-nowrap border-r border-gray-100">ΔX</th>
+                    <th className="py-2 px-3 font-semibold text-gray-500 text-[11px] text-center whitespace-nowrap border-r border-gray-100">ΔY</th>
+                    <th className="py-2 px-3 font-semibold text-gray-500 text-[11px] text-center whitespace-nowrap border-r border-gray-100">ΔZ</th>
+                    <th className="py-2 px-3 font-semibold text-gray-500 text-[11px] text-center whitespace-nowrap border-r border-gray-200">Linier</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {deformasiLoading ? (
+                    <tr>
+                      <td colSpan={17} className="py-16 text-center">
+                        <div className="flex flex-col items-center gap-3 text-gray-400">
+                          <Loader2 className="w-7 h-7 animate-spin text-[#303481]" />
+                          <span className="text-[13px] font-medium">Memuat data pengukuran...</span>
+                        </div>
+                      </td>
+                    </tr>
+                  ) : !selectedLog ? (
+                    <tr>
+                      <td colSpan={17} className="py-16 text-center text-gray-400 text-[13px]">
+                        Pilih tanggal running di panel kiri untuk melihat data.
+                      </td>
+                    </tr>
+                  ) : deformasi.length === 0 ? (
+                    <tr>
+                      <td colSpan={17} className="py-16 text-center text-gray-400 text-[13px]">
+                        Tidak ada data pengukuran untuk sesi ini.
+                      </td>
+                    </tr>
+                  ) : (
+                    deformasi.map((row, idx) => {
+                      const t = row.temp_tembak;
+                      return (
+                        <tr
+                          key={row.id_prisma + idx}
+                          className="border-b border-gray-100 last:border-0 hover:bg-blue-50/30 transition-colors"
+                        >
+                          <td className="py-3.5 px-4 text-[12px] font-bold text-gray-700 border-r border-gray-100 whitespace-nowrap">
+                            <span className="inline-block bg-[#3B82F6] text-white px-2 py-[2px] rounded text-[10px] font-bold">
+                              {row.id_prisma}
+                            </span>
+                          </td>
+                          <td className="py-3.5 px-4 text-[12px] text-gray-700 font-medium border-r border-gray-200 whitespace-nowrap">
+                            {row.nama_prisma || "-"}
+                          </td>
+                          {/* Awal */}
+                          <td className="py-3.5 px-2 text-[12px] text-gray-600 font-mono">{fval(t?.E0)}</td>
+                          <td className="py-3.5 px-2 text-[12px] text-gray-600 font-mono">{fval(t?.N0)}</td>
+                          <td className="py-3.5 px-2 text-[12px] text-gray-600 font-mono">{fval(t?.Z0)}</td>
+                          <td className="py-3.5 px-2 text-[12px] text-gray-600 font-mono">{t?.HA0 || "-"}</td>
+                          <td className="py-3.5 px-2 text-[12px] text-gray-600 font-mono">{t?.VA0 || "-"}</td>
+                          <td className="py-3.5 px-2 text-[12px] text-gray-600 font-mono">{t?.SD0 || "-"}</td>
+                          {/* Hasil */}
+                          <td className="py-3.5 px-2 text-[12px] text-gray-700 font-mono border-l border-gray-100 bg-[#F7F8FF]/40">{fval(t?.E1)}</td>
+                          <td className="py-3.5 px-2 text-[12px] text-gray-700 font-mono bg-[#F7F8FF]/40">{fval(t?.N1)}</td>
+                          <td className="py-3.5 px-2 text-[12px] text-gray-700 font-mono bg-[#F7F8FF]/40">{fval(t?.Z1)}</td>
+                          <td className="py-3.5 px-2 text-[12px] text-gray-700 font-mono bg-[#F7F8FF]/40">{t?.HA1 || "-"}</td>
+                          <td className="py-3.5 px-2 text-[12px] text-gray-700 font-mono bg-[#F7F8FF]/40">{t?.VA1 || "-"}</td>
+                          <td className="py-3.5 px-2 text-[12px] text-gray-700 font-mono bg-[#F7F8FF]/40">{t?.SD1 || "-"}</td>
+                          {/* Pergeseran */}
+                          <td className="py-3.5 px-2 text-[12px] font-mono border-l border-gray-100 bg-[#F4F5F7]/30">
+                            <span className={`font-semibold ${Number(t?.DE) < 0 ? "text-red-500" : Number(t?.DE) > 0 ? "text-emerald-600" : "text-gray-500"}`}>
+                              {t?.DE || "-"}
+                            </span>
+                          </td>
+                          <td className="py-3.5 px-2 text-[12px] font-mono bg-[#F4F5F7]/30">
+                            <span className={`font-semibold ${Number(t?.DN) < 0 ? "text-red-500" : Number(t?.DN) > 0 ? "text-emerald-600" : "text-gray-500"}`}>
+                              {t?.DN || "-"}
+                            </span>
+                          </td>
+                          <td className="py-3.5 px-2 text-[12px] font-mono bg-[#F4F5F7]/30">
+                            <span className={`font-semibold ${Number(t?.DZ) < 0 ? "text-red-500" : Number(t?.DZ) > 0 ? "text-emerald-600" : "text-gray-500"}`}>
+                              {t?.DZ || "-"}
+                            </span>
+                          </td>
+                          <td className="py-3.5 px-2 text-[12px] font-semibold text-[#303481] font-mono bg-[#F4F5F7]/30">
+                            {t?.linear ? Number(t.linear).toFixed(4) : "-"}
+                          </td>
+                          {/* Arah */}
+                          <td className="py-3.5 px-3 text-[12px] text-gray-700 font-medium border-l border-gray-100">
+                            {t?.arah_pergeseran || "-"}
+                          </td>
+                        </tr>
+                      );
+                    })
+                  )}
+                </tbody>
+              </table>
+            ) : (
+              <table className="w-full text-center border-collapse min-w-[1000px]">
+                <thead className="bg-[#FAFAFB]">
+                  <tr className="border-b border-gray-200">
+                    <th className="py-4 px-4 font-bold text-gray-700 text-[12px] whitespace-nowrap">No</th>
+                    <th className="py-4 px-4 font-bold text-gray-700 text-[12px] whitespace-nowrap text-left border-l border-gray-100">Nama Prisma</th>
+                    <th className="py-4 px-4 font-bold text-gray-700 text-[12px] whitespace-nowrap border-l border-gray-100">Pergeseran<br/>(mm)</th>
+                    <th className="py-4 px-4 font-bold text-gray-700 text-[12px] whitespace-nowrap border-l border-gray-100">Status Pergeseran</th>
+                    <th className="py-4 px-4 font-bold text-gray-700 text-[12px] whitespace-nowrap border-l border-gray-100">Kecepatan<br/>(mm/hari)</th>
+                    <th className="py-4 px-4 font-bold text-gray-700 text-[12px] whitespace-nowrap border-l border-gray-100">Status Kecepatan</th>
+                    <th className="py-4 px-4 font-bold text-gray-700 text-[12px] whitespace-nowrap border-l border-gray-100 w-[180px]">Grafik</th>
+                    <th className="py-4 px-4 font-bold text-gray-700 text-[12px] whitespace-nowrap border-l border-gray-100">Waktu Awal</th>
+                    <th className="py-4 px-4 font-bold text-gray-700 text-[12px] whitespace-nowrap border-l border-gray-100">Waktu Akhir</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {deformasiLoading ? (
+                    <tr>
+                      <td colSpan={9} className="py-16 text-center">
+                        <div className="flex flex-col items-center gap-3 text-gray-400">
+                          <Loader2 className="w-7 h-7 animate-spin text-[#303481]" />
+                          <span className="text-[13px] font-medium">Memuat data harian...</span>
+                        </div>
+                      </td>
+                    </tr>
+                  ) : !selectedLog ? (
+                    <tr>
+                      <td colSpan={9} className="py-16 text-center text-gray-400 text-[13px]">
+                        Pilih tanggal running di panel kiri untuk melihat data.
+                      </td>
+                    </tr>
+                  ) : deformasi.length === 0 ? (
+                    <tr>
+                      <td colSpan={9} className="py-16 text-center text-gray-400 text-[13px]">
+                        Tidak ada data pengukuran untuk sesi ini.
+                      </td>
+                    </tr>
+                  ) : (
+                    deformasi.map((row, idx) => {
+                      const d = row.daily;
+                      const hasData = d && d.count > 0;
+                      
+                      const tFirst = d?.first_time ? new Date(d.first_time).toLocaleTimeString('id-ID', { hour:'2-digit', minute:'2-digit', second:'2-digit', hour12: false }) : "-";
+                      const tLast = d?.last_time ? new Date(d.last_time).toLocaleTimeString('id-ID', { hour:'2-digit', minute:'2-digit', second:'2-digit', hour12: false }) : "-";
+
+                      return (
+                        <tr
+                          key={row.id_prisma + "_harian_" + idx}
+                          className="border-b border-gray-100 last:border-0 hover:bg-blue-50/30 transition-colors"
+                        >
+                          <td className="py-3.5 px-4 text-[13px] font-medium text-gray-600">
+                            {idx + 1}
+                          </td>
+                          <td className="py-3.5 px-4 text-[12.5px] text-gray-800 font-semibold text-left border-l border-gray-100 whitespace-nowrap">
+                            {row.nama_prisma || "-"}
+                          </td>
+                          <td className="py-3.5 px-4 text-[13px] text-gray-700 font-mono border-l border-gray-100">
+                            {hasData ? Number(d.pergeseran_mm).toFixed(2) : "-"}
+                          </td>
+                          <td className="py-3.5 px-4 border-l border-gray-100">
+                            {hasData && d.status_pergeseran ? (
+                              <span className={`px-2.5 py-1 rounded-full text-[11px] font-bold ${d.status_pergeseran.class}`}>
+                                {d.status_pergeseran.label}
+                              </span>
+                            ) : (
+                              <span className="text-gray-400">-</span>
+                            )}
+                          </td>
+                          <td className="py-3.5 px-4 text-[13px] text-gray-700 font-mono border-l border-gray-100">
+                            {hasData ? Number(d.kecepatan_mmd).toFixed(2) : "-"}
+                          </td>
+                          <td className="py-3.5 px-4 border-l border-gray-100">
+                            {hasData && d.status_kecepatan ? (
+                              <span className={`px-2.5 py-1 rounded-full text-[11px] font-bold ${d.status_kecepatan.class}`}>
+                                {d.status_kecepatan.label}
+                              </span>
+                            ) : (
+                              <span className="text-gray-400">-</span>
+                            )}
+                          </td>
+                          <td className="py-2 px-2 border-l border-gray-100 align-middle">
+                            {hasData ? <Sparkline data={d.series} /> : <span className="text-gray-400">-</span>}
+                          </td>
+                          <td className="py-3.5 px-4 text-[12.5px] text-gray-600 font-mono border-l border-gray-100">
+                            {tFirst}
+                          </td>
+                          <td className="py-3.5 px-4 text-[12.5px] text-gray-600 font-mono border-l border-gray-100">
+                            {tLast}
+                          </td>
+                        </tr>
+                      );
+                    })
+                  )}
+                </tbody>
+              </table>
+            )}
           </div>
-          
-          {/* Scrollbar placeholder info or custom styling could go here, 
-              but it mostly relies on browser's overflow-x-auto */}
-          <div className="h-4 bg-gray-50 border-t border-gray-100 w-full rounded-b-xl hidden"></div>
+          )}
+
+          <div className="h-4 bg-gray-50 border-t border-gray-100 w-full rounded-b-xl" />
         </div>
       </div>
+
+      {/* ── Modal Atur R0 ── */}
+      {isR0ModalOpen && (
+        <div
+          className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-[#1f2937]/30 backdrop-blur-[2px]"
+          onClick={() => setIsR0ModalOpen(false)}
+        >
+          <div
+            className="bg-white rounded-xl w-[380px] flex flex-col shadow-2xl overflow-hidden animate-in fade-in zoom-in-95 duration-200"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="p-6 pb-4">
+              <div className="flex items-start gap-4 mb-6">
+                <div className="w-11 h-11 rounded-xl bg-[#303481] text-white flex items-center justify-center shrink-0">
+                  <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M4 21v-7"/><path d="M4 10V3"/><path d="M12 21v-9"/><path d="M12 8V3"/><path d="M20 21v-5"/><path d="M20 12V3"/><path d="M1 14h6"/><path d="M9 8h6"/><path d="M17 16h6"/></svg>
+                </div>
+                <div>
+                  <h2 className="text-[16px] font-extrabold text-gray-900 leading-none mb-1.5 mt-0.5">Atur RO</h2>
+                  <p className="text-[12px] text-gray-500 leading-[1.35]">
+                    Pilih running yang akan digunakan sebagai baseline perhitungan pergeseran.
+                  </p>
+                </div>
+              </div>
+              
+              <div className="mb-5">
+                <label className="block text-[13px] font-extrabold text-gray-900 mb-2">Tanggal Running</label>
+                <div className="relative">
+                  <select 
+                    className="w-full border border-gray-200 rounded-lg pl-10 pr-10 py-2.5 text-[13px] text-gray-800 appearance-none bg-white font-medium focus:outline-none focus:ring-1 focus:ring-[#303481] focus:border-[#303481] transition-all cursor-pointer"
+                    value={r0SelectedDate}
+                    onChange={(e) => {
+                      setR0SelectedDate(e.target.value);
+                      setR0SelectedTime("");
+                    }}
+                  >
+                    {availableDates.map(d => <option key={d} value={d}>{d}</option>)}
+                  </select>
+                  <svg className="w-[16px] h-[16px] text-[#303481] absolute left-3.5 top-1/2 -translate-y-1/2" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                    <rect x="3" y="4" width="18" height="18" rx="2" ry="2" />
+                    <line x1="16" y1="2" x2="16" y2="6" />
+                    <line x1="8" y1="2" x2="8" y2="6" />
+                    <line x1="3" y1="10" x2="21" y2="10" />
+                  </svg>
+                  <ChevronDown className="w-4 h-4 text-gray-500 absolute right-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-[13px] font-extrabold text-gray-900 mb-2">Waktu Running</label>
+                <div className="flex flex-col gap-2.5 max-h-[220px] overflow-y-auto pr-1">
+                  {filteredRunsForR0.length === 0 && (
+                    <div className="text-center text-gray-400 text-[12px] py-4">Tidak ada sesi di tanggal ini.</div>
+                  )}
+                  {filteredRunsForR0.map(r => {
+                    const t = formatDate(r.datetime).split(" ")[1];
+                    const isSel = r0SelectedTime === r.id_log;
+                    return (
+                      <label 
+                        key={r.id_log} 
+                        className={`flex items-center justify-between p-3.5 border rounded-xl cursor-pointer transition-all ${
+                          isSel ? 'border-[#303481] ring-1 ring-[#303481] bg-white' : 'border-gray-200 hover:border-gray-300 bg-white shadow-sm'
+                        }`}
+                      >
+                        <div className="flex items-center gap-3.5">
+                          <input 
+                            type="radio" 
+                            name="r0_waktu" 
+                            value={r.id_log}
+                            checked={isSel}
+                            onChange={() => setR0SelectedTime(r.id_log)}
+                            className="hidden"
+                          />
+                          <div className={`w-[18px] h-[18px] rounded-full border-2 flex items-center justify-center ${isSel ? 'border-[#303481]' : 'border-gray-300'}`}>
+                             {isSel && <div className="w-2.5 h-2.5 bg-[#303481] rounded-full" />}
+                          </div>
+                          <span className="text-[13px] text-gray-800 font-semibold">{t}</span>
+                        </div>
+                        {r.r0 === 1 && (
+                          <span className="text-[10px] bg-[#64748B] text-white px-2.5 py-0.5 rounded-full font-bold tracking-wide">
+                            RO Saat Ini
+                          </span>
+                        )}
+                      </label>
+                    );
+                  })}
+                </div>
+              </div>
+            </div>
+            
+            <div className="border-t border-gray-100 p-5 pt-4 flex justify-end gap-3 bg-white">
+              <Button 
+                variant="outline" 
+                onClick={() => setIsR0ModalOpen(false)} 
+                className="px-6 h-[40px] rounded-lg border-gray-300 text-[#303481] font-semibold hover:bg-gray-50"
+              >
+                Batal
+              </Button>
+              <Button 
+                disabled={!r0SelectedTime}
+                className="px-6 h-[40px] rounded-lg bg-[#303481] hover:bg-[#1f2259] text-white font-semibold disabled:opacity-50"
+              >
+                Simpan
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

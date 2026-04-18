@@ -34,7 +34,8 @@ export async function publishMqtt(
     const client = mqtt.connect(url, {
       username: config.username,
       password: config.password,
-      rejectUnauthorized: true,
+      // Bypass TLS in development — set MQTT_REJECT_UNAUTHORIZED=true in production
+      rejectUnauthorized: process.env.MQTT_REJECT_UNAUTHORIZED === "true",
       connectTimeout: 10000,
     });
 
