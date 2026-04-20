@@ -158,7 +158,22 @@ export default function KontrolAdrPage() {
   const [runningDate, setRunningDate] = useState<string>("-");
   const [isControlRunning, setIsControlRunning] = useState(false);
   const [accessCodeError, setAccessCodeError] = useState("");
+  const [logStep, setLogStep] = useState(0); // 0=idle, 1=direct, 2=search, 3=measuring, 4=record
   const pollingRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  // Simulasi step visual saat `isControlRunning` true
+  useEffect(() => {
+    let interval: any;
+    if (isControlRunning) {
+      setLogStep(1);
+      interval = setInterval(() => {
+        setLogStep((prev) => (prev % 4) + 1);
+      }, 1500); // Pindah fase tiap 1.5 detik
+    } else {
+      setLogStep(0);
+    }
+    return () => clearInterval(interval);
+  }, [isControlRunning]);
 
   // Sinkronkan isControlRunning dengan sensor16 dari hardware
   // sensor16=1 → RTS sedang running, sensor16=0 → selesai/idle
@@ -383,6 +398,27 @@ export default function KontrolAdrPage() {
   // Initial fetch saat halaman dibuka
   useEffect(() => {
     fetchPrisma();
+    
+    // Fetch initial config for RTS Card display
+    fetch("/api/config-adr")
+      .then(res => res.json())
+      .then(json => {
+        if (json.success && json.data) {
+          setConfigId(json.data.id);
+          setRtsConfig({
+            jobName:     String(json.data.job_name   ?? ""),
+            prismaConst: String(json.data.prisma_cons ?? ""),
+            tsHigh:      String(json.data.ts_high     ?? ""),
+            coordX:      String(json.data.coor_x      ?? ""),
+            coordY:      String(json.data.coor_y      ?? ""),
+            coordZ:      String(json.data.coor_z      ?? ""),
+            stepRecord:  String(json.data.step_record ?? ""),
+            retries:     String(json.data.retries     ?? "1"),
+            cycleTime:   String(json.data.cycle_time  ?? "1"),
+          });
+        }
+      })
+      .catch(console.error);
   }, [fetchPrisma]);
 
   // Cleanup polling saat unmount
@@ -543,26 +579,49 @@ export default function KontrolAdrPage() {
                    <Image src="/65 2.svg" width={90} height={140} alt="Sokkia Total Station" className="object-contain" />
                  </div>
                  <div className="flex-1 flex flex-col">
-                   <div className="flex gap-10 mb-5">
+                    <div className="flex gap-10 mb-5">
                       <div>
                         <p className="text-[13px] font-bold text-[#303481]">Retries</p>
-                        <p className="text-3xl font-bold text-gray-900 flex items-center gap-2 mt-1">
-                          <RefreshCcw className="w-6 h-6 text-[#F26522]" strokeWidth={3} />
-                          1
+                        <p className="text-[28px] font-bold text-gray-900 flex items-center gap-2 mt-1 leading-[1.1]">
+                          <RefreshCcw className={`w-6 h-6 text-[#F26522] ${isControlRunning ? 'animate-spin' : ''}`} strokeWidth={3} />
+                          {rtsConfig.retries || "1"}
                         </p>
                       </div>
                       <div>
                         <p className="text-[13px] font-bold text-[#303481]">Cycle Time</p>
-                        <p className="text-3xl font-bold text-gray-900 mt-1">1</p>
+                        <p className="text-[28px] font-bold text-gray-900 mt-1 leading-[1.1]">{rtsConfig.cycleTime || "1"}</p>
                       </div>
                    </div>
                    <div>
-                      <p className="text-[12px] font-bold text-[#303481] mb-1">Log</p>
-                      <div className="text-[11px] font-medium text-gray-700 leading-snug">
-                        <p className="flex justify-between items-center"><span className="truncate">Directing to Target.............</span><span className="font-bold text-gray-900">OK!</span></p>
-                        <p className="flex justify-between items-center"><span className="truncate">Search Target..................</span><span className="font-bold text-gray-900">OK!</span></p>
-                        <p className="flex justify-between items-center"><span className="truncate">Measuring Target............</span><span className="font-bold text-gray-900">OK!</span></p>
-                        <p className="flex justify-between items-center"><span className="truncate">Recording Data...............</span><span className="font-bold text-gray-900">OK!</span></p>
+                      <p className="text-[12px] font-bold text-[#303481] mb-1.5 flex justify-between items-center">
+                        Proses Log
+                        {isControlRunning && <span className="text-[10px] text-gray-400 font-normal italic flex items-center gap-1.5"><div className="w-1.5 h-1.5 rounded-full bg-blue-500 animate-pulse"></div> Live</span>}
+                      </p>
+                      <div className="text-[11px] font-medium text-gray-700 leading-snug flex flex-col gap-1">
+                        {[
+                          { step: 1, label: "Directing to Target" },
+                          { step: 2, label: "Search Target" },
+                          { step: 3, label: "Measuring Target" },
+                          { step: 4, label: "Recording Data" },
+                        ].map((log) => {
+                           const active = logStep === log.step;
+                           const done = logStep > log.step || (!isControlRunning && isConnected);
+                           
+                           return (
+                             <p key={log.step} className="flex justify-between items-center group">
+                               <span className={`truncate flex-1 tracking-tight ${active ? 'text-[#303481] font-bold drop-shadow-sm' : ''}`}>
+                                 {log.label} <span className="text-gray-300">{".".repeat(35 - log.label.length)}</span>
+                               </span>
+                               {active ? (
+                                 <Loader2 className="w-[14px] h-[14px] animate-spin text-[#303481] ml-2 shrink-0" />
+                               ) : done ? (
+                                 <span className="font-bold text-emerald-500 ml-2 shrink-0">OK!</span>
+                               ) : (
+                                 <span className="font-bold text-gray-300 ml-2 shrink-0">-</span>
+                               )}
+                             </p>
+                           );
+                        })}
                       </div>
                    </div>
                  </div>
