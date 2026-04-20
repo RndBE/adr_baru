@@ -136,6 +136,8 @@ export function useRtsConnectionStatus() {
     lastUpdate: tempRts?.waktu || null, 
     idLogger: rtsLogger?.id_logger,
     sensor14: tempRts?.sensor14 ?? 0,
+    sensor16: tempRts?.sensor16 ?? 0,
+    sensor17: tempRts?.sensor17 ?? 0,
     sensor5: tempRts?.sensor5 ?? 0,
     sensor6: tempRts?.sensor6 ?? 0,
     sensor7: tempRts?.sensor7 ?? 0

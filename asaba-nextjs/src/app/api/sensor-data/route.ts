@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 
+
 /**
  * GET /api/sensor-data
  * Query sensor data by logger, table, and time range.

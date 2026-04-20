@@ -4,6 +4,7 @@ import { Prisma } from "@prisma/client";
 import { nfloat, fmt, rotateEN, arah8ID, utm2ll } from "@/lib/coordinates";
 import { getRtsBySite } from "@/lib/deformasi";
 
+
 function statusPergeseran(mm: number, site: string) {
   if (site === 'ccp') {
     if (mm < 100) return { label: 'Normal', class: 'bg-emerald-100 text-emerald-700' };
@@ -97,7 +98,7 @@ export async function GET(request: NextRequest) {
     for (const lg of rtsLoggerIds) {
       const idLogger = Number(lg.id_logger);
 
-      // Get prisms — select only from t_prisma (no JOIN to temp_prisma)
+      // Get prisms  select only from t_prisma (no JOIN to temp_prisma)
       const prisms = await prisma.$queryRaw<Array<Record<string, unknown>>>`
         SELECT p.*
         FROM t_prisma p

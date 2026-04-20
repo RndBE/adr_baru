@@ -250,6 +250,140 @@ export default function HasilPengukuranPage() {
 
   const filteredRunsForR0 = allRuns.filter(r => formatDate(r.datetime).split(" ")[0] === r0SelectedDate);
 
+  // ── Download Excel (ExcelJS) ──
+  const handleDownloadExcel = async () => {
+    if (!selectedLog || deformasi.length === 0) {
+      alert("Tidak ada data tabel untuk didownload pada tanggal ini.");
+      return;
+    }
+    
+    try {
+      // Dynamic import to not bloat the initial bundle
+      const ExcelJS = await import("exceljs").then(m => m.default || m);
+      const workbook = new ExcelJS.Workbook();
+      const sheet = workbook.addWorksheet("Hasil Pengukuran");
+
+      // Set columns properties
+      sheet.columns = [
+        { key: "no", width: 15 },
+        { key: "nama", width: 15 },
+        { key: "x0", width: 12 }, { key: "y0", width: 12 }, { key: "z0", width: 10 },
+        { key: "ha0", width: 11 }, { key: "va0", width: 11 }, { key: "sd0", width: 10 },
+        { key: "x1", width: 12 }, { key: "y1", width: 12 }, { key: "z1", width: 10 },
+        { key: "ha1", width: 11 }, { key: "va1", width: 11 }, { key: "sd1", width: 10 },
+        { key: "dx", width: 8 }, { key: "dy", width: 8 }, { key: "dz", width: 8 }, { key: "lin", width: 10 },
+        { key: "arah", width: 16 }
+      ];
+
+      // Row 1: Title
+      const siteName = selectedLog.site === "ccp" ? "CPP 3" : (selectedLog.site?.toUpperCase() || "");
+      const titleRow = sheet.addRow([`Hasil Penembakan RTS ${siteName} PT MIP`]);
+      sheet.mergeCells("A1:S1");
+      titleRow.getCell(1).font = { size: 14, bold: true };
+      titleRow.getCell(1).alignment = { horizontal: "center", vertical: "middle" };
+
+      // Row 2: Tanggal
+      const dateRow = sheet.addRow([`Tanggal : ${selectedDate}`]);
+      sheet.mergeCells("A2:S2");
+      dateRow.getCell(1).font = { size: 11 };
+      dateRow.getCell(1).alignment = { horizontal: "center", vertical: "middle" };
+
+      // Row 3: empty
+      sheet.addRow([]);
+
+      // Row 4: Multi-header Row 1
+      const headerRow1 = sheet.addRow([
+        "Nomor Prisma", "Nama Prisma",
+        "Awal Pengukuran", "", "", "", "", "",
+        "Hasil Pengukuran", "", "", "", "", "",
+        "Pergeseran", "", "", "",
+        "Arah Pergeseran"
+      ]);
+      
+      // Merges
+      sheet.mergeCells("A4:A5");
+      sheet.mergeCells("B4:B5");
+      sheet.mergeCells("C4:H4"); // Awal
+      sheet.mergeCells("I4:N4"); // Hasil
+      sheet.mergeCells("O4:R4"); // Pergeseran
+      sheet.mergeCells("S4:S5");
+
+      // Row 5: Multi-header Row 2
+      const headerRow2 = sheet.addRow([
+        "", "",
+        "X", "Y", "Z", "HA", "VA", "Slop Dis",
+        "X", "Y", "Z", "HA", "VA", "Slop Dis",
+        "ΔX", "ΔY", "ΔZ", "Linear",
+        ""
+      ]);
+
+      // Styling Headers
+      [headerRow1, headerRow2].forEach(row => {
+        row.eachCell((cell, colNumber) => {
+          cell.font = { bold: true };
+          cell.alignment = { horizontal: "center", vertical: "middle" };
+          cell.border = {
+            top: { style: "thin" }, left: { style: "thin" },
+            bottom: { style: "thin" }, right: { style: "thin" }
+          };
+          if (row === headerRow1 && [3, 9, 15].includes(colNumber)) {
+            // Apply borders to merged fields appropriately using the top-left cell
+          }
+        });
+      });
+      // Force borders on merged regions safely
+      for (let R = 4; R <= 5; R++) {
+        for (let C = 1; C <= 19; C++) {
+          sheet.getCell(R, C).border = {
+            top: { style: "thin" }, left: { style: "thin" },
+            bottom: { style: "thin" }, right: { style: "thin" }
+          };
+        }
+      }
+
+      // Add Data
+      deformasi.forEach((row) => {
+        const t = row.temp_tembak;
+        const dataRow = sheet.addRow([
+          row.id_prisma, row.nama_prisma || "-",
+          Number(t?.E0 || 0), Number(t?.N0 || 0), Number(t?.Z0 || 0),
+          t?.HA0 || "-", t?.VA0 || "-", t?.SD0 || "-",
+          Number(t?.E1 || 0), Number(t?.N1 || 0), Number(t?.Z1 || 0),
+          t?.HA1 || "-", t?.VA1 || "-", t?.SD1 || "-",
+          Number(t?.DE || 0), Number(t?.DN || 0), Number(t?.DZ || 0), Number(t?.linear || 0),
+          t?.arah_pergeseran || "-"
+        ]);
+
+        dataRow.eachCell(cell => {
+          cell.alignment = { horizontal: "center", vertical: "middle" };
+          cell.border = {
+            top: { style: "thin" }, left: { style: "thin" },
+            bottom: { style: "thin" }, right: { style: "thin" }
+          };
+        });
+      });
+
+      // Freeze top 5 rows
+      sheet.views = [{ state: "frozen", ySplit: 5 }];
+
+      // Download trigger
+      const buffer = await workbook.xlsx.writeBuffer();
+      const blob = new Blob([buffer], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      const ds = selectedDate.replace(/[\s:-]/g, "_");
+      a.download = `Hasil_Pengukuran_${ds}.xlsx`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      window.URL.revokeObjectURL(url);
+    } catch (e) {
+      console.error(e);
+      alert("Terjadi kesalahan saat memproses file Excel.");
+    }
+  };
+
   return (
     <div className="flex flex-col gap-6 w-full pb-10">
 
@@ -367,6 +501,7 @@ export default function HasilPengukuranPage() {
             <div className="flex gap-3">
               <Button
                 variant="outline"
+                onClick={handleDownloadExcel}
                 className="h-[38px] px-5 border-[#2E7D32] text-[#2E7D32] font-semibold text-[13px] rounded-lg hover:bg-[#E8F5E9] hover:text-[#2E7D32] cursor-pointer"
               >
                 <Download className="w-[15px] h-[15px] mr-1.5" strokeWidth={2.5} />

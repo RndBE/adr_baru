@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 
+
 /**
  * GET /api/config-adr
  * Fetch konfigurasi ADR dari tabel config_adr (row pertama).

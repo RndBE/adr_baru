@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 
+
 /**
  * GET /api/log-kontrol
  * Ambil riwayat running dari log_kontrol beserta data prisma per sesi.
@@ -9,7 +10,7 @@ import { prisma } from "@/lib/prisma";
  * Query params:
  * - limit: jumlah log (default 10, max 100)
  * - site: filter berdasarkan site (optional)
- * - with_prisma: "true" → sertakan data prisma per log (default true)
+ * - with_prisma: "true"  sertakan data prisma per log (default true)
  */
 export async function GET(request: NextRequest) {
   try {

@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { publishMqtt } from "@/lib/mqtt";
 
+
 /**
  * Helper: Ambil id_logger ADR secara dinamis dari kategori_log = '1'
  */

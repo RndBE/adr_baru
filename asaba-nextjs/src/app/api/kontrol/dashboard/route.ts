@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 
+
 /**
  * GET /api/kontrol/dashboard
  * Ambil semua data yang diperlukan untuk halaman Kontrol ADR.
@@ -69,7 +70,7 @@ export async function GET(request: NextRequest) {
       status_logger = waktuRts >= oneHourAgo;
     }
 
-    // 4. Parameter sensor → mapping kolom ke nama parameter
+    // 4. Parameter sensor  mapping kolom ke nama parameter
     const params = await prisma.$queryRaw<Array<Record<string, unknown>>>`
       SELECT nama_parameter, kolom_sensor, satuan
       FROM parameter_sensor

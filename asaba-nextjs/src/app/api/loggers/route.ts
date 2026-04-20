@@ -1,11 +1,6 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 
-/**
- * GET /api/loggers
- * List all loggers with location and category info.
- * Replaces CI3 Beranda::index() logger queries.
- */
 export async function GET() {
   try {
     const loggers = await prisma.$queryRaw`

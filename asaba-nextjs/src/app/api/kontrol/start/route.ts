@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { sendRtsStartCommand } from "@/lib/mqtt";
 
+
 /**
  * POST /api/kontrol/start
  * Start RTS measurement via MQTT.
@@ -29,6 +30,7 @@ export async function POST(request: NextRequest) {
     // Verify access code
     if (kode_akses) {
       const { createHash } = await import("crypto");
+
       const hashedInput = createHash("md5").update(kode_akses).digest("hex");
       
       const accessCode = await prisma.kodeAkses.findFirst({

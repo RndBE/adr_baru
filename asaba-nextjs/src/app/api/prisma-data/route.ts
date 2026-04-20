@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 
+
 /**
  * GET /api/prisma-data
  * Fetch all latest prisma data from temp_prisma grouped by id_prisma.

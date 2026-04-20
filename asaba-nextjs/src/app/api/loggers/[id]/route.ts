@@ -79,15 +79,34 @@ export async function GET(
       config = configRows?.[0] ?? null;
     } catch (_) { /* opsional */ }
 
+    // ── Serialisasi BigInt ──────────────────────────────────────────────────
+    // Prisma $queryRaw mengembalikan kolom INT/TINYINT sebagai BigInt di Node.js.
+    // JSON.stringify tidak bisa serialize BigInt → nilai jadi null/hilang di client.
+    // Fungsi ini konversi semua BigInt ke Number sebelum dikirim.
+    // PENTING: Date object harus di-skip (dikembalikan apa adanya) karena
+    // JSON.stringify sudah bisa handle Date → ISO string secara otomatis.
+    function serializeBigInt(obj: any): any {
+      if (obj === null || obj === undefined) return obj;
+      if (typeof obj === "bigint") return Number(obj);
+      if (obj instanceof Date) return obj;           // ← jangan diubah, biarkan JSON.stringify yang handle
+      if (Array.isArray(obj)) return obj.map(serializeBigInt);
+      if (typeof obj === "object") {
+        const out: any = {};
+        for (const key of Object.keys(obj)) out[key] = serializeBigInt(obj[key]);
+        return out;
+      }
+      return obj;
+    }
+
     return NextResponse.json({
       success: true,
-      data: {
+      data: serializeBigInt({
         logger,
         prisms,
         tempData,
         parameters,
         config,
-      },
+      }),
     });
   } catch (error) {
     console.error("[GET /api/loggers/:id] error:", error);

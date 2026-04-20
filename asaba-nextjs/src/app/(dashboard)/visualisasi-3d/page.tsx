@@ -1,12 +1,38 @@
 "use client";
 
 import React, { useState, useEffect, useRef, useCallback } from "react";
-import { History, Target, Sliders, Crosshair, Play, ChevronDown, Loader2, Maximize } from "lucide-react";
+import { History, Target, Sliders, Crosshair, Play, ChevronDown, Loader2, Maximize, Database } from "lucide-react";
 import { Input } from "@/components/ui/input";
 
 // ─── Plotly loaded via CDN (same as legacy) ──────────────────────────────────
 declare global {
   interface Window { Plotly: any }
+}
+
+// ─── Cache key ───────────────────────────────────────────────────────────────
+const CACHE_KEY = "vis3d_cache_v1";
+
+interface CachePayload {
+  id_log: string;
+  rtsE: string;
+  rtsN: string;
+  rtsZ: string;
+  coneScale: string;
+  minLinear: string;
+  points: any[];
+  meta: any;
+  logLines: string[];
+}
+
+function saveCache(data: CachePayload) {
+  try { localStorage.setItem(CACHE_KEY, JSON.stringify(data)); } catch { /* quota */ }
+}
+
+function loadCache(): CachePayload | null {
+  try {
+    const raw = localStorage.getItem(CACHE_KEY);
+    return raw ? JSON.parse(raw) : null;
+  } catch { return null; }
 }
 
 // ─── Helpers (ported 1:1 from deformasi.php) ────────────────────────────────
@@ -99,6 +125,11 @@ export default function Visualisasi3DPage() {
   const [plotlyReady, setPlotlyReady] = useState(false);
   const [isFullscreen, setIsFullscreen] = useState(false);
 
+  // Cache state: menyimpan data yang sudah di-fetch agar bisa re-render tanpa fetch ulang
+  const cachedPointsRef = useRef<any[] | null>(null);
+  const cachedMetaRef = useRef<any | null>(null);
+  const [restoredFromCache, setRestoredFromCache] = useState(false);
+
   // Load Plotly (Local)
   useEffect(() => {
     if (window.Plotly) { setPlotlyReady(true); return; }
@@ -108,14 +139,35 @@ export default function Visualisasi3DPage() {
     document.head.appendChild(s);
   }, []);
 
-  // Fetch log list
+  // Fetch log list — setelah dapat, cek cache
   useEffect(() => {
     fetch("/api/log-kontrol?limit=200&with_prisma=false")
       .then(r => r.json())
       .then(json => {
         if (json.success) {
           setLogs(json.data);
-          if (json.data.length > 0) setSelectedLogId(json.data[0].id_log);
+          if (json.data.length > 0) {
+            const cache = loadCache();
+            // Cek apakah cache ada dan log-nya masih valid
+            const cachedLog = cache && json.data.find((l: any) => String(l.id_log) === String(cache.id_log));
+            if (cache && cachedLog) {
+              // Restore form state dari cache
+              setSelectedLogId(cache.id_log);
+              setRtsE(cache.rtsE);
+              setRtsN(cache.rtsN);
+              setRtsZ(cache.rtsZ);
+              setConeScale(cache.coneScale);
+              setMinLinear(cache.minLinear);
+              setLogLines(cache.logLines);
+              // Simpan points & meta ke ref untuk di-render setelah Plotly siap
+              cachedPointsRef.current = cache.points;
+              cachedMetaRef.current = cache.meta;
+              setRestoredFromCache(true);
+            } else {
+              // Tidak ada cache valid → pakai log pertama seperti biasa
+              setSelectedLogId(json.data[0].id_log);
+            }
+          }
         }
       })
       .catch(() => {})
@@ -138,21 +190,17 @@ export default function Visualisasi3DPage() {
     setTimeout(() => { if (logRef.current) logRef.current.scrollTop = logRef.current.scrollHeight; }, 50);
   }
 
-  const render = useCallback((points: any[], meta: any) => {
+  const render = useCallback((points: any[], meta: any, overrideE?: string, overrideN?: string, overrideZ?: string, overrideScale?: string, overrideLin?: string) => {
     if (!window.Plotly || !plotRef.current) return;
 
-    const E = Number(rtsE), N = Number(rtsN), Z = Number(rtsZ);
-    const scale = parseFloat(coneScale.replace(",", ".")) || 0.2;
-    const minLin = parseFloat(minLinear.replace(",", ".")) || 0;
+    const E = Number(overrideE ?? rtsE);
+    const N = Number(overrideN ?? rtsN);
+    const Z = Number(overrideZ ?? rtsZ);
+    const scale = parseFloat((overrideScale ?? coneScale).replace(",", ".")) || 0.2;
+    const minLin = parseFloat((overrideLin ?? minLinear).replace(",", ".")) || 0;
 
     const baseline = points;
     const moved = points.filter((p: any) => p.ok && Number.isFinite(p.lin) && p.lin >= minLin);
-
-    addLog(`baseline prisms: ${baseline.length}`);
-    addLog(`valid shots: ${points.filter((p: any) => p.ok).length}`);
-    addLog(`render shots (threshold >= ${minLin}): ${moved.length}`);
-
-    if (baseline.length === 0) return;
 
     const x0 = baseline.map((p: any) => p.e0);
     const y0 = baseline.map((p: any) => p.n0);
@@ -193,16 +241,13 @@ export default function Visualisasi3DPage() {
 
     if (moved.length > 0) {
       traces.push(
-        // Displacement lines
         { type: "scatter3d", mode: "lines", name: "Displacement",
           x: lineX, y: lineY, z: lineZ,
           line: { width: 3 }, opacity: 0.75, hoverinfo: "skip" },
-        // Deformed result points
         { type: "scatter3d", mode: "markers", name: "Hasil",
           x: x1, y: y1, z: z1,
           marker: { size: 6, color: lin, colorscale: "Turbo", colorbar: { title: "Linear" } },
           text: hover1, hoverinfo: "text" },
-        // Cone vectors (same as legacy)
         { type: "cone", name: "Vector",
           x: moved.map((p: any) => p.e0), y: moved.map((p: any) => p.n0), z: moved.map((p: any) => p.z0),
           u, v, w,
@@ -212,7 +257,6 @@ export default function Visualisasi3DPage() {
       );
     }
 
-    // RTS diamond marker
     traces.push({
       type: "scatter3d", mode: "markers+text", name: "RTS",
       x: [E], y: [N], z: [Z],
@@ -220,7 +264,6 @@ export default function Visualisasi3DPage() {
       text: ["RTS"], textposition: "top center", hoverinfo: "skip",
     });
 
-    // Compass N/E/S/W lines
     const allX = finiteArr(x0.concat(x1)), allY = finiteArr(y0.concat(y1)), allZ = finiteArr(z0.concat(z1));
     const cx = (Math.min(...allX) + Math.max(...allX)) / 2;
     const cy = (Math.min(...allY) + Math.max(...allY)) / 2;
@@ -257,10 +300,47 @@ export default function Visualisasi3DPage() {
       },
       margin: { l: 0, r: 0, t: 40, b: 0 },
       legend: { orientation: "h", font: { color: "#0f172a" } },
-    }, { responsive: true });
+    }, { responsive: true, displayModeBar: false });
 
     window.Plotly.Plots.resize(plotRef.current);
   }, [rtsE, rtsN, rtsZ, coneScale, minLinear]);
+
+  // ── Restore dari cache setelah Plotly siap ──────────────────────────────────
+  const hasRestoredRef = useRef(false);
+  useEffect(() => {
+    if (
+      plotlyReady &&
+      restoredFromCache &&
+      cachedPointsRef.current &&
+      cachedMetaRef.current &&
+      !hasRestoredRef.current
+    ) {
+      hasRestoredRef.current = true;
+      // Re-render plot dari cache — tidak perlu fetch ulang
+      render(
+        cachedPointsRef.current,
+        cachedMetaRef.current,
+        rtsE, rtsN, rtsZ, coneScale, minLinear
+      );
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [plotlyReady, restoredFromCache]);
+
+  // ── Auto-load dari server (jika tidak ada cache yang valid) ─────────────────
+  const hasAutoLoaded = useRef(false);
+  useEffect(() => {
+    if (
+      plotlyReady &&
+      selectedLogId &&
+      logs.length > 0 &&
+      !restoredFromCache &&
+      !hasAutoLoaded.current
+    ) {
+      hasAutoLoaded.current = true;
+      handleLoad();
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [plotlyReady, selectedLogId, logs.length, restoredFromCache]);
 
   const handleLoad = useCallback(async () => {
     if (!selectedLogId || !plotlyReady) return;
@@ -276,10 +356,14 @@ export default function Visualisasi3DPage() {
 
       // Auto-fill RTS from posisi_rts
       const rts = getRTSFromPayload(payload.data);
+      let finalE = rtsE, finalN = rtsN, finalZ = rtsZ;
       if (rts) {
-        setRtsE(String(rts.e));
-        setRtsN(String(rts.n));
-        setRtsZ(Number.isFinite(rts.z) ? String(rts.z) : "0");
+        finalE = String(rts.e);
+        finalN = String(rts.n);
+        finalZ = Number.isFinite(rts.z) ? String(rts.z) : "0";
+        setRtsE(finalE);
+        setRtsN(finalN);
+        setRtsZ(finalZ);
       }
 
       const n = payload.data?.data_pengukuran?.length ?? 0;
@@ -294,19 +378,38 @@ export default function Visualisasi3DPage() {
 
       if (pts.length === 0) { addLog("Tidak ada prisma yang kebaca untuk id_log ini."); return; }
 
-      render(pts, payload.data);
+      // Simpan ke ref dan cache
+      cachedPointsRef.current = pts;
+      cachedMetaRef.current = payload.data;
+
+      const logSnapshot = [
+        "Loaded JSON from server",
+        `tanggal: ${payload.data?.tanggal ?? "-"}`,
+        `rows: ${n}`,
+        `parsed prisms: ${pts.length}`,
+        `valid shots: ${pts.filter((x: any) => x.ok).length}`,
+        `failed shots: ${pts.filter((x: any) => !x.ok).length}`,
+      ];
+
+      saveCache({
+        id_log: selectedLogId,
+        rtsE: finalE,
+        rtsN: finalN,
+        rtsZ: finalZ,
+        coneScale,
+        minLinear,
+        points: pts,
+        meta: payload.data,
+        logLines: logSnapshot,
+      });
+
+      render(pts, payload.data, finalE, finalN, finalZ, coneScale, minLinear);
     } catch (e: any) {
       addLog(String(e?.message ?? e));
     } finally {
       setLoading(false);
     }
-  }, [selectedLogId, plotlyReady, render]);
-
-  // Auto-load when first log selected and Plotly ready
-  useEffect(() => {
-    if (plotlyReady && selectedLogId && logs.length > 0) handleLoad();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [plotlyReady, selectedLogId]);
+  }, [selectedLogId, plotlyReady, rtsE, rtsN, rtsZ, coneScale, minLinear, render]);
 
   const toggleFullscreen = () => {
     if (!fsTargetRef.current) return;
@@ -319,99 +422,146 @@ export default function Visualisasi3DPage() {
     return dt.toLocaleString("id-ID", { day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit", second: "2-digit" });
   }
 
+  const isRendered = cachedPointsRef.current !== null && logLines.length > 0;
+
   return (
     <div className="flex flex-col gap-6 w-full pb-10">
       <div className="grid grid-cols-1 xl:grid-cols-[340px_1fr] gap-6 items-start">
 
         {/* ─── LEFT PANEL ─── */}
-        <div className="bg-white border border-[#EAEAEA] rounded-[8px] shadow-sm p-5 flex flex-col gap-5">
-          <div className="flex items-center gap-2">
-            <h5 className="font-bold text-[15px] text-[#0f172a]">Deformasi RTS 3D</h5>
-          </div>
-
-          {/* Pilih Tanggal */}
-          <div className="flex flex-col gap-2">
-            <label className="text-[12px] font-semibold text-[#334155]">Pilih Tanggal</label>
-            <div className="relative">
-              {logsLoading ? (
-                <div className="flex items-center gap-2 text-[13px] text-gray-400 py-2.5 px-3 bg-gray-50 rounded border border-gray-200">
-                  <Loader2 className="w-4 h-4 animate-spin" /> Memuat...
-                </div>
-              ) : (
-                <>
-                  <select
-                    value={selectedLogId}
-                    onChange={e => setSelectedLogId(e.target.value)}
-                    className="w-full appearance-none bg-white border border-gray-300 text-[#0f172a] text-[13px] rounded-md px-3 py-2.5 font-medium outline-none focus:border-[#303481] cursor-pointer pr-8"
-                  >
-                    {logs.map(log => (
-                      <option key={log.id_log} value={log.id_log}>
-                        {formatLogDate(log.datetime)} ({log.site === "ccp" ? "CPP3" : "VP"})
-                        {log.r0 === 1 ? " [R0]" : ""}
-                      </option>
-                    ))}
-                  </select>
-                  <ChevronDown className="w-4 h-4 text-gray-500 absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none" />
-                </>
-              )}
-            </div>
-          </div>
-
-          {/* RTS E/N/Z */}
-          <div className="flex flex-col gap-2">
-            <div className="flex items-center gap-2 text-[#303481]">
-              <Target className="w-[14px] h-[14px]" strokeWidth={2.5} />
-              <label className="text-[11px] font-bold tracking-widest uppercase">Referensi RTS</label>
-            </div>
-            <div className="grid grid-cols-3 gap-2">
-              {[["RTS E", rtsE, setRtsE], ["RTS N", rtsN, setRtsN], ["RTS Z", rtsZ, setRtsZ]].map(([label, val, setter]: any) => (
-                <div key={label} className="flex flex-col gap-1">
-                  <label className="text-[11px] font-semibold text-[#334155]">{label}</label>
-                  <Input type="number" step="0.001" value={val} onChange={e => setter(e.target.value)}
-                    className="h-[34px] text-[12px] font-medium" />
-                </div>
-              ))}
-            </div>
-          </div>
-
-          {/* Cone Scale / Threshold */}
-          <div className="flex flex-col gap-2">
-            <div className="flex items-center gap-2 text-[#303481]">
-              <Sliders className="w-[14px] h-[14px]" strokeWidth={2.5} />
-              <label className="text-[11px] font-bold tracking-widest uppercase">Pengaturan Visualisasi</label>
-            </div>
-            <div className="grid grid-cols-2 gap-2">
-              <div className="flex flex-col gap-1">
-                <label className="text-[12px] font-semibold text-[#334155]">Cone Scale</label>
-                <Input type="number" step="0.1" value={coneScale} onChange={e => setConeScale(e.target.value)}
-                  className="h-[34px] text-[12px] font-medium" />
+        <div className="flex flex-col gap-5">
+          
+          {/* Main Controls Card */}
+          <div className="bg-white border border-[#EAEAEA] rounded-[8px] p-5 flex flex-col gap-6 shadow-sm">
+            
+            {/* WAKTU PENGUKURAN */}
+            <div className="flex flex-col gap-3">
+              <div className="flex items-center gap-2 text-[#303481]">
+                <History className="w-[14px] h-[14px]" strokeWidth={2.5} />
+                <span className="text-[11px] font-bold tracking-[0.5px] uppercase">Waktu Pengukuran</span>
               </div>
-              <div className="flex flex-col gap-1">
-                <label className="text-[12px] font-semibold text-[#334155]">Threshold Linear</label>
-                <Input type="number" step="0.0001" value={minLinear} onChange={e => setMinLinear(e.target.value)}
-                  className="h-[34px] text-[12px] font-medium" />
+              <div className="relative">
+                {logsLoading ? (
+                  <div className="w-full flex items-center justify-between text-[13px] text-gray-400 py-2.5 px-3 bg-white rounded-md border border-gray-200">
+                    <span className="flex items-center gap-2"><Loader2 className="w-4 h-4 animate-spin" /> Memuat...</span>
+                  </div>
+                ) : (
+                  <>
+                    <select
+                      value={selectedLogId}
+                      onChange={e => setSelectedLogId(e.target.value)}
+                      className="w-full appearance-none bg-white border border-gray-200 text-[#0f172a] text-[13px] rounded-md px-3 py-2.5 font-medium outline-none focus:border-[#303481] cursor-pointer pr-8"
+                    >
+                      {logs.map(log => (
+                        <option key={log.id_log} value={log.id_log}>
+                          {formatLogDate(log.datetime)} ({log.site === "ccp" ? "CPP3" : "VP"})
+                          {log.r0 === 1 ? " [R0]" : ""}
+                        </option>
+                      ))}
+                    </select>
+                    <ChevronDown className="w-4 h-4 text-gray-400 absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none" />
+                  </>
+                )}
               </div>
             </div>
+
+            {/* REFERENSI RTS */}
+            <div className="flex flex-col gap-3">
+              <div className="flex items-center gap-2 text-[#303481]">
+                <Crosshair className="w-[14px] h-[14px]" strokeWidth={2.5} />
+                <span className="text-[11px] font-bold tracking-[0.5px] uppercase">Referensi RTS</span>
+              </div>
+              <div className="flex flex-col gap-3">
+                {[["Easting (E)", rtsE, setRtsE], ["Northing (N)", rtsN, setRtsN], ["Elevation (Z)", rtsZ, setRtsZ]].map(([label, val, setter]: any) => (
+                  <div key={label} className="flex flex-col gap-1.5">
+                    <label className="text-[10px] font-bold text-black">{label}</label>
+                    <Input type="number" step="0.001" value={val} onChange={e => setter(e.target.value)}
+                      className="h-[38px] text-[13px] font-medium border-gray-200 focus:border-[#303481]" />
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            {/* PENGATURAN VISUALISASI */}
+            <div className="flex flex-col gap-3">
+              <div className="flex items-center gap-2 text-[#303481]">
+                <Sliders className="w-[14px] h-[14px]" strokeWidth={2.5} />
+                <span className="text-[11px] font-bold tracking-[0.5px] uppercase">Pengaturan Visualisasi</span>
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div className="flex flex-col gap-1.5">
+                  <label className="text-[10px] font-bold text-black">Cone Scale</label>
+                  <Input type="number" step="0.1" value={coneScale} onChange={e => setConeScale(e.target.value)}
+                    className="h-[38px] text-[13px] font-medium border-gray-200 focus:border-[#303481]" />
+                </div>
+                <div className="flex flex-col gap-1.5">
+                  <label className="text-[10px] font-bold text-black">Threshold Linear</label>
+                  <Input type="number" step="0.0001" value={minLinear} onChange={e => setMinLinear(e.target.value)}
+                    className="h-[38px] text-[13px] font-medium border-gray-200 focus:border-[#303481]" />
+                </div>
+              </div>
+            </div>
+
+            {/* Load Button */}
+            <button
+              onClick={handleLoad}
+              disabled={loading || !plotlyReady || !selectedLogId}
+              className="mt-1 w-full h-[42px] bg-[#303481] hover:bg-[#1f2259] disabled:opacity-60 text-white font-medium tracking-wide text-[13px] rounded-lg flex items-center justify-center gap-2 transition-colors cursor-pointer"
+            >
+              {loading ? <><Loader2 className="w-4 h-4 animate-spin" /> Loading...</> : <><Play className="w-3.5 h-3.5 fill-white" /> Load &amp; Render 3D</>}
+            </button>
+            <div ref={logRef} className="hidden" /> {/* Hidden log ref to prevent errors */}
           </div>
 
-          {/* Load Button */}
-          <button
-            onClick={handleLoad}
-            disabled={loading || !plotlyReady || !selectedLogId}
-            className="w-full h-[40px] bg-[#303481] hover:bg-[#1f2259] disabled:opacity-60 text-white font-bold text-[13px] rounded-lg flex items-center justify-center gap-2 transition-colors cursor-pointer"
-          >
-            {loading ? <><Loader2 className="w-4 h-4 animate-spin" /> Loading...</> : <><Play className="w-3.5 h-3.5 fill-white" /> Load &amp; Render 3D</>}
-          </button>
-
-          {/* Log box */}
-          <div
-            ref={logRef}
-            className="font-mono text-[11px] border border-gray-200 rounded-lg p-2.5 bg-gray-50 max-h-[200px] overflow-auto whitespace-pre-wrap text-[#0f172a] leading-relaxed"
-            style={{ minHeight: 48 }}
-          >
-            {logLines.length === 0
-              ? <span className="text-gray-400">Log output akan muncul di sini...</span>
-              : logLines.join("\n")}
+          {/* Status Render Card */}
+          <div className="bg-white border border-[#EAEAEA] rounded-[8px] shadow-sm flex flex-col">
+            <div className="px-5 py-4 border-b border-[#EAEAEA] flex items-center gap-2 text-[#303481]">
+              <Crosshair className="w-[14px] h-[14px]" strokeWidth={2.5} />
+              <span className="text-[11px] font-bold tracking-[0.5px] uppercase">Status Render</span>
+            </div>
+            
+            {(() => {
+              const pts = cachedPointsRef.current || [];
+              const nPrisma = pts.length;
+              const nValid = pts.filter((x: any) => x.ok).length;
+              const nGagal = pts.filter((x: any) => !x.ok).length;
+              const meta = cachedMetaRef.current;
+              
+              const isRenderedNow = isRendered && !loading;
+              
+              return (
+                <div className="p-5 flex flex-col gap-4">
+                  <div className="flex justify-between items-center text-[12px]">
+                    <span className="text-[#333]">Waktu Data</span>
+                    <span className="font-medium text-[#222]">{isRenderedNow && meta?.tanggal ? meta.tanggal : "-"}</span>
+                  </div>
+                  <div className="flex justify-between items-center text-[12px]">
+                    <span className="text-[#333]">Prisma Terbaca</span>
+                    <span className="font-medium text-[#222]">{isRenderedNow ? nPrisma : "-"}</span>
+                  </div>
+                  <div className="flex justify-between items-center text-[12px]">
+                    <span className="text-[#333]">Shot Valid</span>
+                    <span className="font-medium text-[#222]">
+                      {isRenderedNow ? <><span className="text-green-500 font-bold">{nValid}</span> / {nPrisma}</> : "-"}
+                    </span>
+                  </div>
+                  <div className="flex justify-between items-center text-[12px]">
+                    <span className="text-[#333]">Shot Gagal</span>
+                    <span className="font-medium text-[#222]">{isRenderedNow ? nGagal : "-"}</span>
+                  </div>
+                  <div className="flex justify-between items-center text-[12px] mt-1 pt-4 border-t border-[#EAEAEA]">
+                    <span className="text-[#333]">Status Render</span>
+                    {loading ? (
+                      <span className="font-semibold text-gray-500 flex items-center gap-1.5"><Loader2 className="w-3.5 h-3.5 animate-spin" /> Menunggu...</span>
+                    ) : isRenderedNow ? (
+                      <span className="font-semibold text-green-500 flex items-center gap-1.5"><div className="w-2 h-2 rounded-full bg-green-500"></div> Berhasil</span>
+                    ) : (
+                      <span className="font-semibold text-gray-400">-</span>
+                    )}
+                  </div>
+                </div>
+              );
+            })()}
           </div>
         </div>
 
@@ -434,13 +584,34 @@ export default function Visualisasi3DPage() {
               ref={plotRef}
               style={{ width: "100%", height: isFullscreen ? "100vh" : "78vh", minHeight: 520 }}
             >
-              {/* Placeholder jika belum di-render */}
-              {logLines.length === 0 && !loading && (
+              {/* Placeholder: sedang loading */}
+              {!isRendered && loading && (
+                <div className="w-full h-full flex flex-col items-center justify-center gap-3 text-gray-400" style={{ minHeight: 520 }}>
+                  <Loader2 className="w-10 h-10 animate-spin opacity-40" />
+                  <p className="font-semibold text-[14px]">Memuat visualisasi 3D...</p>
+                </div>
+              )}
+              {/* Placeholder: Plotly belum siap */}
+              {!isRendered && !loading && !plotlyReady && (
+                <div className="w-full h-full flex flex-col items-center justify-center gap-3 text-gray-400" style={{ minHeight: 520 }}>
+                  <Loader2 className="w-10 h-10 animate-spin opacity-40" />
+                  <p className="font-semibold text-[14px]">Menyiapkan renderer...</p>
+                </div>
+              )}
+              {/* Placeholder: tidak ada data log */}
+              {!isRendered && !loading && plotlyReady && logs.length === 0 && !logsLoading && (
                 <div className="w-full h-full flex flex-col items-center justify-center gap-3 text-gray-400" style={{ minHeight: 520 }}>
                   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" className="w-12 h-12 opacity-30">
                     <path d="M12 2L2 7l10 5 10-5-10-5z"/><path d="M2 17l10 5 10-5"/><path d="M2 12l10 5 10-5"/>
                   </svg>
-                  <p className="font-semibold text-[14px]">Pilih tanggal dan klik Load &amp; Render 3D</p>
+                  <p className="font-semibold text-[14px]">Tidak ada data log tersedia</p>
+                </div>
+              )}
+              {/* Placeholder: menunggu restore cache */}
+              {!isRendered && !loading && plotlyReady && logs.length > 0 && (
+                <div className="w-full h-full flex flex-col items-center justify-center gap-3 text-gray-400" style={{ minHeight: 520 }}>
+                  <Loader2 className="w-10 h-10 animate-spin opacity-40" />
+                  <p className="font-semibold text-[14px]">Mempersiapkan tampilan...</p>
                 </div>
               )}
             </div>

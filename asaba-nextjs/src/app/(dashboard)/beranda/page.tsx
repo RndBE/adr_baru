@@ -41,24 +41,48 @@ import { cn } from "@/lib/utils";
 import { useLoggers, useLogKontrol, useDeformasi, useLoggerDetail } from "@/hooks/use-api";
 import Image from "next/image";
 
+// ─── Helper: parse waktu dari berbagai format MySQL ──────────────────────────
+// Prisma $queryRaw bisa return Date object ATAU string "YYYY-MM-DD HH:MM:SS"
+// tergantung versi driver. Fungsi ini normalize semua format ke ISO string.
+function parseWaktuToIso(d: any): string | null {
+  if (!d) return null;
+  try {
+    if (d instanceof Date) {
+      if (isNaN(d.getTime())) return null;
+      return d.toISOString();
+    }
+    if (typeof d === "string") {
+      // Format MySQL: "2026-04-20 09:43:00" → ganti spasi dengan T
+      const normalized = d.trim().replace(" ", "T");
+      const dt = new Date(normalized);
+      if (isNaN(dt.getTime())) return null;
+      return normalized.includes("T") ? normalized : dt.toISOString();
+    }
+  } catch { /* ignore */ }
+  return null;
+}
+
 // ─── Helper: format date nicely ──────────────────────────────
 function fmtDate(d: string | Date | null, showSeconds = false, shortYear = false) {
   if (!d) return "-";
-  
-  // Karena data DB adalah waktu lokal WIB yang terbaca sebagai UTC oleh Prisma (berakhiran Z)
-  // Kita bersihkan dulu formatting-nya agar tampil persis 1:1 di dashboard.
-  let isoStr = typeof d === "string" ? d : d.toISOString();
-  
+
+  const isoStr = parseWaktuToIso(d);
+  if (!isoStr) return "-";
+
   if (isoStr.includes("T")) {
     const [datePart, timePart] = isoStr.split("T");
-    const [year, month, day] = datePart.split("-");
-    const [hr, min, sec] = timePart.split(".")[0].split(":");
-    
+    const parts = datePart.split("-");
+    if (parts.length < 3) return "-";
+    const [year, month, day] = parts;
+    const timeParts = timePart.split(".")[0].split(":");
+    if (timeParts.length < 2) return "-";
+    const [hr, min, sec] = timeParts;
+
     const yFormat = shortYear ? year.slice(2) : year;
-    const sFormat = showSeconds ? `:${sec}` : "";
+    const sFormat = showSeconds && sec ? `:${sec}` : "";
     return `${day}-${month}-${yFormat} ${hr}:${min}${sFormat}`;
   }
-  
+
   return "-";
 }
 
@@ -127,20 +151,15 @@ function RtsDashboard({ logger }: { logger: any }) {
 
   // Status dihitung berdasarkan waktu terakhir update (sama seperti CI3 Beranda.php)
   // Connected jika data terakhir diterima dalam 1 jam terakhir
-  // Status Logger dihitung berdasarkan waktu update terakhir
   const isLoggerConnected = (() => {
     if (!tempRts?.waktu) return false;
-    
-    const rawWaktu = typeof tempRts.waktu === "string" 
-      ? tempRts.waktu 
-      : new Date(tempRts.waktu).toISOString();
-      
-    // Konversi string "2026-04-18T09:49:00.000Z" menjadi WIB (+07:00) yang valid
-    const dbWibStr = rawWaktu.split(".")[0].replace("Z", "") + "+07:00";
-    const waktuTerakhirMs = new Date(dbWibStr).getTime();
-    
-    const satuJamLaluMs = Date.now() - (60 * 60 * 1000);
-    return waktuTerakhirMs >= satuJamLaluMs;
+    const isoStr = parseWaktuToIso(tempRts.waktu);
+    if (!isoStr) return false;
+    // Hapus timezone suffix lalu tambah +07:00 (WIB)
+    const normalized = isoStr.replace(/Z$/, "").replace(/\+\d{2}:\d{2}$/, "");
+    const waktuMs = new Date(normalized + "+07:00").getTime();
+    if (isNaN(waktuMs)) return false;
+    return waktuMs >= Date.now() - 60 * 60 * 1000;
   })();
 
   // Status RTS dari payload sensor 14 (0 = disconnected, 1 = connected)
@@ -154,6 +173,8 @@ function RtsDashboard({ logger }: { logger: any }) {
   const humidity    = tempRts?.sensor20 ?? 0;   // Humidity (%)
   const battery     = tempRts?.sensor21 ?? 0;   // Battery (Volt)
   const temperature = tempRts?.sensor22 ?? 0;   // Temperature (°C)
+  // Status SD Card dari sensor17: 1 = OK, 0 = Error
+  const isSdCardOk = Number(tempRts?.sensor17 ?? 0) === 1;
   const lastUpdateStr = tempRts?.waktu ? fmtDate(tempRts.waktu, true) : "01-01-2026 17:19:00";
 
   const pengukuran = deformasi?.data_pengukuran || [];
@@ -201,12 +222,21 @@ function RtsDashboard({ logger }: { logger: any }) {
                       </div>
                       <div className="px-4 py-3 flex justify-between items-center">
                         <span className="text-[13px] text-black font-semibold">Status SD Card</span>
-                        <div className="flex items-center gap-1.5">
-                          <span className="text-[13px] text-gray-800">OK</span>
-                          <div className="w-[14px] h-[14px] rounded-full border border-green-500 text-green-500 flex items-center justify-center flex-shrink-0">
-                            <Check className="w-2.5 h-2.5 stroke-[3]" />
+                        {isSdCardOk ? (
+                          <div className="flex items-center gap-1.5">
+                            <span className="text-[13px] text-gray-800">OK</span>
+                            <div className="w-[14px] h-[14px] rounded-full border border-green-500 text-green-500 flex items-center justify-center flex-shrink-0">
+                              <Check className="w-2.5 h-2.5 stroke-[3]" />
+                            </div>
                           </div>
-                        </div>
+                        ) : (
+                          <div className="flex items-center gap-1.5">
+                            <span className="text-[13px] text-red-500 font-semibold">Error</span>
+                            <div className="w-[14px] h-[14px] rounded-full border border-red-400 text-red-500 flex items-center justify-center flex-shrink-0">
+                              <X className="w-2.5 h-2.5 stroke-[3]" />
+                            </div>
+                          </div>
+                        )}
                       </div>
                     </div>
                   </>

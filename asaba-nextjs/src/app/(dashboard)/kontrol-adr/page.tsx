@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef, useCallback } from "react";
 import Image from "next/image";
 import {
   Settings2,
@@ -102,12 +102,6 @@ type PrismaCard = {
   waktu?: string;
 };
 
-// 2 dummy data untuk menampilkan status Failed & Running
-const DUMMY_ENTRIES: PrismaCard[] = [
-  { name: "P-ERR", status: "Failed",     y: "0", x: "0", z: "0" },
-  { name: "P-RUN", status: "Running...", y: "-", x: "-", z: "-" },
-];
-
 function mapStatus(status_get: number): "Success" | "Failed" | "Running..." {
   if (status_get === 1) return "Success";
   if (status_get === 2) return "Running...";
@@ -153,13 +147,30 @@ const DEFAULT_SCHEDULES: DaySchedule[] = [1, 2, 3, 4, 5, 6, 7].map(d => ({
 
 
 export default function KontrolAdrPage() {
-  const { isConnected, lastUpdate, sensor14, sensor5, sensor6, sensor7 } = useRtsConnectionStatus();
-  
+  const { isConnected, lastUpdate, sensor14, sensor16, sensor5, sensor6, sensor7 } = useRtsConnectionStatus();
+
+
+
   const [accessCode, setAccessCode] = useState("");
   const [showPassword, setShowPassword] = useState(false);
   const [prismaCards, setPrismaCards] = useState<PrismaCard[]>([]);
   const [prismaLoading, setPrismaLoading] = useState(true);
   const [runningDate, setRunningDate] = useState<string>("-");
+  const [isControlRunning, setIsControlRunning] = useState(false);
+  const [accessCodeError, setAccessCodeError] = useState("");
+  const pollingRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  // Sinkronkan isControlRunning dengan sensor16 dari hardware
+  // sensor16=1 → RTS sedang running, sensor16=0 → selesai/idle
+  useEffect(() => {
+    const isRunning = String(sensor16) === "1";
+    setIsControlRunning(isRunning);
+    // Jika running selesai (sensor16 kembali 0), stop polling
+    if (!isRunning && pollingRef.current) {
+      clearInterval(pollingRef.current);
+      pollingRef.current = null;
+    }
+  }, [sensor16]);
   const [showRtsConfig, setShowRtsConfig] = useState(false);
   const [configId, setConfigId] = useState<number>(1);
   const [configLoading, setConfigLoading] = useState(false);
@@ -344,36 +355,83 @@ export default function KontrolAdrPage() {
     }
   };
 
-  useEffect(() => {
-    const fetchPrisma = async () => {
-      try {
-        const res = await fetch("/api/prisma-data");
-        const json = await res.json();
-        if (json.success && Array.isArray(json.data)) {
-          const dbCards: PrismaCard[] = (json.data as TempPrisma[]).map((row) => ({
-            name: row.id_prisma,
-            status: mapStatus(row.status_get),
-            y: row.N1,
-            x: row.E1,
-            z: row.Z1,
-            waktu: row.waktu,
-          }));
-          if (dbCards.length > 0 && json.data[0].waktu) {
-            setRunningDate(json.data[0].waktu);
-          }
-          // Gabungkan data dari DB + 2 dummy (Failed & Running)
-          setPrismaCards([...dbCards, ...DUMMY_ENTRIES]);
+  const fetchPrisma = useCallback(async () => {
+    try {
+      const res = await fetch("/api/prisma-data");
+      const json = await res.json();
+      if (json.success && Array.isArray(json.data)) {
+        const dbCards: PrismaCard[] = (json.data as TempPrisma[]).map((row) => ({
+          name: row.id_prisma,
+          status: mapStatus(row.status_get),
+          y: row.N1,
+          x: row.E1,
+          z: row.Z1,
+          waktu: row.waktu,
+        }));
+        if (dbCards.length > 0 && json.data[0].waktu) {
+          setRunningDate(json.data[0].waktu);
         }
-      } catch (err) {
-        console.error("Failed to fetch prisma data:", err);
-        setPrismaCards(DUMMY_ENTRIES);
-      } finally {
-        setPrismaLoading(false);
+        setPrismaCards(dbCards);
       }
-    };
-
-    fetchPrisma();
+    } catch (err) {
+      console.error("Failed to fetch prisma data:", err);
+    } finally {
+      setPrismaLoading(false);
+    }
   }, []);
+
+  // Initial fetch saat halaman dibuka
+  useEffect(() => {
+    fetchPrisma();
+  }, [fetchPrisma]);
+
+  // Cleanup polling saat unmount
+  useEffect(() => {
+    return () => {
+      if (pollingRef.current) clearInterval(pollingRef.current);
+    };
+  }, []);
+
+  const handleMulaiKontrol = async () => {
+    if (!accessCode.trim()) return;
+
+    // Reset error
+    setAccessCodeError("");
+
+    // Stop polling lama jika ada
+    if (pollingRef.current) clearInterval(pollingRef.current);
+
+    setIsControlRunning(true);
+
+    try {
+      const res = await fetch("/api/kontrol/start", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ kode_akses: accessCode }),
+      });
+      const json = await res.json();
+
+      if (!json.success) {
+        // Kode salah atau error lain
+        setAccessCodeError(
+          res.status === 403
+            ? "Kode akses salah. Silakan coba lagi."
+            : json.error || "Gagal menjalankan kontrol."
+        );
+        setIsControlRunning(false);
+        return;
+      }
+
+      // Kode benar — fetch data langsung, lalu polling tiap 5 detik
+      await fetchPrisma();
+      pollingRef.current = setInterval(() => {
+        fetchPrisma();
+      }, 5000);
+    } catch (err) {
+      setAccessCodeError("Terjadi kesalahan jaringan. Coba lagi.");
+      setIsControlRunning(false);
+    }
+  };
 
   return (
     <main className="min-h-screen">
@@ -436,9 +494,10 @@ export default function KontrolAdrPage() {
                     <Input
                       type={showPassword ? "text" : "password"}
                       value={accessCode}
-                      onChange={(e) => setAccessCode(e.target.value)}
+                      onChange={(e) => { setAccessCode(e.target.value); setAccessCodeError(""); }}
+                      onKeyDown={(e) => e.key === "Enter" && handleMulaiKontrol()}
                       placeholder="Masukkan kode..."
-                      className="h-[38px] pr-10 text-[13px] border-gray-300 focus-visible:ring-[#303481] rounded-md font-medium"
+                      className={`h-[38px] pr-10 text-[13px] rounded-md font-medium ${accessCodeError ? "border-red-400 focus-visible:ring-red-400" : "border-gray-300 focus-visible:ring-[#303481]"}`}
                     />
                     <button
                       type="button"
@@ -448,13 +507,25 @@ export default function KontrolAdrPage() {
                       {showPassword ? <EyeOff className="w-[16px] h-[16px]" /> : <Lock className="w-[16px] h-[16px]" />}
                     </button>
                   </div>
-                  <Button className="shrink-0 h-[38px] px-6 bg-[#303481] hover:bg-[#1f2259] text-white font-medium text-[13px] rounded-lg transition-colors border-none cursor-pointer">
-                    Mulai Kontrol
+                  <Button
+                    onClick={handleMulaiKontrol}
+                    disabled={!accessCode.trim() || isControlRunning}
+                    className="shrink-0 h-[38px] px-6 bg-[#303481] hover:bg-[#1f2259] text-white font-medium text-[13px] rounded-lg transition-colors border-none cursor-pointer disabled:opacity-60"
+                  >
+                    {isControlRunning
+                      ? <><Loader2 className="w-3.5 h-3.5 animate-spin" /> Running...</>
+                      : "Mulai Kontrol"}
                   </Button>
                 </div>
+                {/* Error message kode akses */}
+                {accessCodeError && (
+                  <p className="text-[12px] text-red-500 font-medium mt-1.5 flex items-center gap-1">
+                    <X className="w-3.5 h-3.5" />
+                    {accessCodeError}
+                  </p>
+                )}
               </div>
             </div>
-            {/* Robotic Total Station Card */}
             {/* Robotic Total Station Card */}
             <div className="bg-white border border-[#EAEAEA] rounded-[8px] shadow-sm overflow-hidden text-slate-800">
               <div className="border-b border-gray-100 px-4 py-3 flex items-center gap-2.5">
@@ -539,11 +610,21 @@ export default function KontrolAdrPage() {
               {TOP_METRICS.map((metric, i) => {
                 let finalValue = metric.value;
                 let valueColor = "#0f172a";
-                const isRtsConnected = String(sensor14) === "1";
-                
+                // Prioritas: sensor16=1 → Running, sensor14=1 → Connected, else → Disconnected
+                const isRtsRunning   = String(sensor16) === "1";
+                const isRtsConnected = !isRtsRunning && String(sensor14) === "1";
+
                 if (metric.title === "Status RTS") {
-                  finalValue = isRtsConnected ? "Connected" : "Disconnected";
-                  valueColor = isRtsConnected ? "#059669" : "#EF4444";
+                  if (isRtsRunning) {
+                    finalValue = "Running...";
+                    valueColor = "#303481";
+                  } else if (isRtsConnected) {
+                    finalValue = "Connected";
+                    valueColor = "#059669";
+                  } else {
+                    finalValue = "Disconnected";
+                    valueColor = "#EF4444";
+                  }
                 } else if (metric.title === "Slope Distance") {
                   finalValue = `${sensor7 || 0} m`;
                 } else if (metric.title === "Vertical Angle") {
@@ -554,17 +635,30 @@ export default function KontrolAdrPage() {
                   finalValue = lastUpdate ? fmtDate(lastUpdate) : metric.value;
                 }
 
+                // Pilih warna bg & ikon untuk Status RTS card
+                const rtsIconSrc = isRtsRunning
+                  ? "/ikon_rts_online.svg"
+                  : isRtsConnected
+                    ? "/ikon_rts_online.svg"
+                    : "/ikon_rts_offline.svg";
+                const rtsBg = isRtsRunning ? "bg-blue-50" : isRtsConnected ? "bg-green-50" : "bg-gray-50";
+
                 return (
                   <div key={i} className="bg-white border border-[#EAEAEA] rounded-[8px] p-4 flex items-center gap-4 shadow-sm h-full hover:border-gray-300 hover:shadow-md transition-all duration-200">
-                    <div className={cn("w-[42px] h-[42px] rounded-lg flex items-center justify-center flex-shrink-0 overflow-hidden", metric.bg, metric.title === "Status RTS" ? (isRtsConnected ? "bg-green-50" : "bg-gray-50") : "")}>
+                    <div className={cn("w-[42px] h-[42px] rounded-lg flex items-center justify-center flex-shrink-0 overflow-hidden", metric.bg, metric.title === "Status RTS" ? rtsBg : "")}>
                       {metric.title === "Status RTS" ? (
-                        <Image
-                          src={isRtsConnected ? "/ikon_rts_online.svg" : "/ikon_rts_offline.svg"}
-                          alt="Status RTS"
-                          width={26}
-                          height={26}
-                          className="object-contain"
-                        />
+                        <div className="relative">
+                          {isRtsRunning && (
+                            <span className="absolute inset-0 rounded-full bg-[#303481]/20 animate-ping" />
+                          )}
+                          <Image
+                            src={rtsIconSrc}
+                            alt="Status RTS"
+                            width={26}
+                            height={26}
+                            className="object-contain relative z-10"
+                          />
+                        </div>
                       ) : (
                         <Image
                           src={metric.imageSrc!}
