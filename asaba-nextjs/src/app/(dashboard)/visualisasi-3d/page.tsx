@@ -99,11 +99,11 @@ export default function Visualisasi3DPage() {
   const [plotlyReady, setPlotlyReady] = useState(false);
   const [isFullscreen, setIsFullscreen] = useState(false);
 
-  // Load Plotly CDN
+  // Load Plotly (Local)
   useEffect(() => {
     if (window.Plotly) { setPlotlyReady(true); return; }
     const s = document.createElement("script");
-    s.src = "https://cdn.plot.ly/plotly-2.33.0.min.js";
+    s.src = "/plotly-2.33.0.min.js";
     s.onload = () => setPlotlyReady(true);
     document.head.appendChild(s);
   }, []);

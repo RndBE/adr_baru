@@ -35,32 +35,49 @@ export async function GET(
     const logger = loggers[0];
 
     // Get prisms for this logger
+    // temp_prisma uses N1/E1/Z1/N0/E0/Z0 columns (not sensor*)
     const prisms = await prisma.$queryRaw`
-      SELECT p.*, tp.sensor1 as tp_sensor1, tp.sensor2 as tp_sensor2,
-             tp.sensor3 as tp_sensor3, tp.sensor4 as tp_sensor4,
-             tp.sensor5 as tp_sensor5, tp.sensor6 as tp_sensor6,
-             tp.sensor7 as tp_sensor7, tp.sensor8 as tp_sensor8,
-             tp.sensor9 as tp_sensor9, tp.nama as tp_nama,
-             tp.status_get
+      SELECT p.*,
+             tp.N1, tp.E1, tp.Z1,
+             tp.N0, tp.E0, tp.Z0,
+             tp.status_get,
+             tp.waktu as tp_waktu
       FROM t_prisma p
       LEFT JOIN temp_prisma tp ON tp.id_prisma = p.id_prisma
       WHERE p.id_logger = ${parseInt(idLogger)}
     `;
 
-    // Get latest temp data
+    // Get latest temp_rts data — ORDER BY waktu DESC untuk pastikan dapat data terbaru
     const tempData = await prisma.$queryRaw`
-      SELECT * FROM temp_rts WHERE code_logger = ${idLogger} LIMIT 1
+      SELECT
+        id, code_logger, id_kontrol, waktu,
+        sensor1,  sensor2,  sensor3,  sensor4,  sensor5,
+        sensor6,  sensor7,  sensor8,  sensor9,  sensor10,
+        sensor11, sensor12, sensor13, sensor14, sensor15,
+        sensor16, sensor17, sensor18, sensor19, sensor20,
+        sensor21, sensor22, sensor23
+      FROM temp_rts
+      WHERE code_logger = ${idLogger}
+      ORDER BY waktu DESC, id DESC
+      LIMIT 1
     `;
 
-    // Get sensor parameters
-    const parameters = await prisma.parameterSensor.findMany({
-      where: { logger_id: idLogger },
-    });
+    // Get sensor parameters — raw query to avoid schema mismatch
+    let parameters: any[] = [];
+    try {
+      parameters = await prisma.$queryRaw`
+        SELECT * FROM parameter_sensor WHERE logger_id = ${idLogger}
+      `;
+    } catch (_) { /* tabel mungkin kosong atau kolom berbeda */ }
 
-    // Get ADR config
-    const config = await prisma.configAdr.findFirst({
-      where: { id_logger: parseInt(idLogger) },
-    });
+    // Get ADR config — raw query to avoid schema mismatch
+    let config: any = null;
+    try {
+      const configRows = await prisma.$queryRaw<any[]>`
+        SELECT * FROM config_adr WHERE id_logger = ${parseInt(idLogger)} LIMIT 1
+      `;
+      config = configRows?.[0] ?? null;
+    } catch (_) { /* opsional */ }
 
     return NextResponse.json({
       success: true,
@@ -73,9 +90,13 @@ export async function GET(
       },
     });
   } catch (error) {
-    console.error("[GET /api/loggers/:id]", error);
+    console.error("[GET /api/loggers/:id] error:", error);
     return NextResponse.json(
-      { success: false, error: "Failed to fetch logger detail" },
+      {
+        success: false,
+        error: "Failed to fetch logger detail",
+        detail: error instanceof Error ? error.message : String(error),
+      },
       { status: 500 }
     );
   }

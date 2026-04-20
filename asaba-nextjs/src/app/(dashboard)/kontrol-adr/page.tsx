@@ -20,6 +20,21 @@ import {
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
+import { RtsConnectionBadge } from "@/components/RtsConnectionBadge";
+import { useRtsConnectionStatus } from "@/hooks/use-api";
+
+// --- Helper Date Formatter ---
+function fmtDate(d: string | Date | null) {
+  if (!d) return "-";
+  let isoStr = typeof d === "string" ? d : d.toISOString();
+  if (isoStr.includes("T")) {
+    const [datePart, timePart] = isoStr.split("T");
+    const [year, month, day] = datePart.split("-");
+    const [hr, min, sec] = timePart.split(".")[0].split(":");
+    return `${day}-${month}-${year} ${hr}:${min}`;
+  }
+  return "-";
+}
 
 // --- Metric Cards ---
 const TOP_METRICS = [
@@ -138,9 +153,10 @@ const DEFAULT_SCHEDULES: DaySchedule[] = [1, 2, 3, 4, 5, 6, 7].map(d => ({
 
 
 export default function KontrolAdrPage() {
+  const { isConnected, lastUpdate, sensor14, sensor5, sensor6, sensor7 } = useRtsConnectionStatus();
+  
   const [accessCode, setAccessCode] = useState("");
   const [showPassword, setShowPassword] = useState(false);
-  const [isConnected] = useState(false);
   const [prismaCards, setPrismaCards] = useState<PrismaCard[]>([]);
   const [prismaLoading, setPrismaLoading] = useState(true);
   const [runningDate, setRunningDate] = useState<string>("-");
@@ -366,16 +382,14 @@ export default function KontrolAdrPage() {
         {/* Header Section */}
         <div className="p-6 pb-2">
           <div className="flex flex-wrap items-center justify-between gap-4">
-            {/* Left Header */}
-            <div className="flex items-center gap-3.5">
-              <div className="w-[38px] h-[38px] rounded-full bg-[#E5E5E5] flex items-center justify-center flex-shrink-0">
-                <div className="w-2.5 h-2.5 rounded-full bg-black"></div>
+            <div className="flex items-center gap-4">
+              <div className="w-10 h-10 rounded-full border border-gray-200 bg-[#E5E5E5] flex items-center justify-center shadow-inner relative">
+                {isConnected && <div className="absolute w-3.5 h-3.5 rounded-full bg-green-400/80 animate-ping" />}
+                <div className={cn("w-3.5 h-3.5 rounded-full relative z-10", isConnected ? "bg-[#06C022]" : "bg-gray-800")} />
               </div>
-              <div className="flex flex-col gap-0.5">
-                <p className="font-bold text-black text-[15.5px] leading-tight">Pos RTS Site MIP</p>
-                <p className="text-[13px] text-gray-800 font-medium">
-                  {isConnected ? "Koneksi Terhubung" : "Koneksi Terputus"}
-                </p>
+              <div className="flex flex-col gap-1 items-start">
+                <h2 className="font-extrabold text-[#1f2937] text-[18px] leading-tight">Pos RTS Site MIP</h2>
+                <RtsConnectionBadge />
               </div>
             </div>
             {/* Right Buttons */}
@@ -522,33 +536,52 @@ export default function KontrolAdrPage() {
             
             {/* 5 Status Cards */}
             <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-5 gap-2.5">
-              {TOP_METRICS.map((metric, i) => (
-                <div key={i} className="bg-white border border-[#EAEAEA] rounded-[8px] p-4 flex items-center gap-4 shadow-sm h-full">
-                  <div className={cn("w-[42px] h-[42px] rounded-lg flex items-center justify-center flex-shrink-0 overflow-hidden", metric.bg)}>
-                    {metric.title === "Status RTS" ? (
-                      <Image
-                        src={isConnected ? "/ikon_rts_online.svg" : "/ikon_rts_offline.svg"}
-                        alt="Status RTS"
-                        width={26}
-                        height={26}
-                        className="object-contain"
-                      />
-                    ) : (
-                      <Image
-                        src={metric.imageSrc!}
-                        alt={metric.title}
-                        width={22}
-                        height={22}
-                        className="object-contain"
-                      />
-                    )}
+              {TOP_METRICS.map((metric, i) => {
+                let finalValue = metric.value;
+                let valueColor = "#0f172a";
+                const isRtsConnected = String(sensor14) === "1";
+                
+                if (metric.title === "Status RTS") {
+                  finalValue = isRtsConnected ? "Connected" : "Disconnected";
+                  valueColor = isRtsConnected ? "#059669" : "#EF4444";
+                } else if (metric.title === "Slope Distance") {
+                  finalValue = `${sensor7 || 0} m`;
+                } else if (metric.title === "Vertical Angle") {
+                  finalValue = String(sensor6 || 0);
+                } else if (metric.title === "Horizontal Angle") {
+                  finalValue = String(sensor5 || 0);
+                } else if (metric.title === "Last Updated") {
+                  finalValue = lastUpdate ? fmtDate(lastUpdate) : metric.value;
+                }
+
+                return (
+                  <div key={i} className="bg-white border border-[#EAEAEA] rounded-[8px] p-4 flex items-center gap-4 shadow-sm h-full hover:border-gray-300 hover:shadow-md transition-all duration-200">
+                    <div className={cn("w-[42px] h-[42px] rounded-lg flex items-center justify-center flex-shrink-0 overflow-hidden", metric.bg, metric.title === "Status RTS" ? (isRtsConnected ? "bg-green-50" : "bg-gray-50") : "")}>
+                      {metric.title === "Status RTS" ? (
+                        <Image
+                          src={isRtsConnected ? "/ikon_rts_online.svg" : "/ikon_rts_offline.svg"}
+                          alt="Status RTS"
+                          width={26}
+                          height={26}
+                          className="object-contain"
+                        />
+                      ) : (
+                        <Image
+                          src={metric.imageSrc!}
+                          alt={metric.title}
+                          width={22}
+                          height={22}
+                          className="object-contain"
+                        />
+                      )}
+                    </div>
+                    <div className="flex flex-col justify-center">
+                      <p className="text-[12px] text-gray-500 font-medium leading-none mb-1.5">{metric.title}:</p>
+                      <p className="text-[13.5px] font-bold leading-tight" style={{ color: valueColor }}>{finalValue}</p>
+                    </div>
                   </div>
-                  <div className="flex flex-col justify-center">
-                    <p className="text-[12px] text-gray-500 font-medium leading-none mb-1.5">{metric.title}:</p>
-                    <p className="text-[13.5px] font-bold text-gray-900 leading-tight">{metric.value}</p>
-                  </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
 
             {/* Prisma Data Grid Box */}

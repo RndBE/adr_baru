@@ -18,6 +18,9 @@ import {
 import { Button } from "@/components/ui/button";
 import { useRouter } from "next/navigation";
 import dynamic from "next/dynamic";
+import { cn } from "@/lib/utils";
+import { RtsConnectionBadge } from "@/components/RtsConnectionBadge";
+import { useRtsConnectionStatus } from "@/hooks/use-api";
 import type { PrismaMarkerData } from "@/components/PrismaMap";
 
 const PrismaMap = dynamic(() => import("@/components/PrismaMap"), { ssr: false });
@@ -145,6 +148,8 @@ const RUNS_PER_PAGE = 10;
 export default function HasilPengukuranPage() {
   const router = useRouter();
   const searchParams = useSearchParams();
+  const { isConnected } = useRtsConnectionStatus();
+  
   const [activeTab, setActiveTab] = useState("Event");
   const [activeView, setActiveView] = useState(() => searchParams.get("view") ?? "Tabel");
 
@@ -250,12 +255,13 @@ export default function HasilPengukuranPage() {
 
       {/* Sub Header */}
       <div className="flex items-center gap-4">
-        <div className="w-10 h-10 rounded-full border border-gray-200 bg-gray-100 flex items-center justify-center shadow-inner">
-          <div className="w-3.5 h-3.5 rounded-full bg-gray-800" />
+        <div className="w-10 h-10 rounded-full border border-gray-200 bg-[#E5E5E5] flex items-center justify-center shadow-inner relative">
+          {isConnected && <div className="absolute w-3.5 h-3.5 rounded-full bg-green-400/80 animate-ping" />}
+          <div className={cn("w-3.5 h-3.5 rounded-full relative z-10", isConnected ? "bg-[#06C022]" : "bg-gray-800")} />
         </div>
-        <div className="flex flex-col">
+        <div className="flex flex-col gap-1 items-start">
           <h2 className="font-extrabold text-[#1f2937] text-[18px] leading-tight">Pos RTS Site MIP</h2>
-          <p className="text-[12px] font-medium text-gray-500">Koneksi Terputus</p>
+          <RtsConnectionBadge />
         </div>
       </div>
 

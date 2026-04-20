@@ -6,6 +6,7 @@ import { PageHeader } from "@/components/page-header";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
+import AnimatedRTS from "@/components/AnimatedRTS";
 import {
   Table,
   TableBody,
@@ -43,19 +44,22 @@ import Image from "next/image";
 // ─── Helper: format date nicely ──────────────────────────────
 function fmtDate(d: string | Date | null, showSeconds = false, shortYear = false) {
   if (!d) return "-";
-  const dt = new Date(d);
-  const dateStr = dt.toLocaleDateString("en-GB", {
-    day: "2-digit",
-    month: "2-digit",
-    year: shortYear ? "2-digit" : "numeric",
-  }).replace(/\//g, '-');
-  const timeStr = dt.toLocaleTimeString("en-GB", { 
-    hour: "2-digit", 
-    minute: "2-digit", 
-    second: showSeconds ? "2-digit" : undefined,
-    hour12: false
-  });
-  return `${dateStr} ${timeStr}`;
+  
+  // Karena data DB adalah waktu lokal WIB yang terbaca sebagai UTC oleh Prisma (berakhiran Z)
+  // Kita bersihkan dulu formatting-nya agar tampil persis 1:1 di dashboard.
+  let isoStr = typeof d === "string" ? d : d.toISOString();
+  
+  if (isoStr.includes("T")) {
+    const [datePart, timePart] = isoStr.split("T");
+    const [year, month, day] = datePart.split("-");
+    const [hr, min, sec] = timePart.split(".")[0].split(":");
+    
+    const yFormat = shortYear ? year.slice(2) : year;
+    const sFormat = showSeconds ? `:${sec}` : "";
+    return `${day}-${month}-${yFormat} ${hr}:${min}${sFormat}`;
+  }
+  
+  return "-";
 }
 
 // ─── Helper: badge colors ───────────────────────
@@ -120,14 +124,37 @@ function RtsDashboard({ logger }: { logger: any }) {
   const recentLogs = logs.slice(0, 8);
 
   const tempRts = detail?.tempData?.[0];
-  const isConnected = !!tempRts;
-  // Based on your UI, usually "Disconnected" is shown in red
-  const statusRtsText = isConnected ? "Connected" : "Disconnected";
-  const powerRts = tempRts?.sensor2 ?? 9; 
-  const humidity = tempRts?.sensor3 ?? 41.99;
-  const battery = tempRts?.sensor4 ?? 12;
-  const temperature = tempRts?.sensor5 ?? 32.75;
-  const lastUpdateStr = tempRts?.waktu ? fmtDate(tempRts.waktu, true) : "24-01-2026 17:19:00";
+
+  // Status dihitung berdasarkan waktu terakhir update (sama seperti CI3 Beranda.php)
+  // Connected jika data terakhir diterima dalam 1 jam terakhir
+  // Status Logger dihitung berdasarkan waktu update terakhir
+  const isLoggerConnected = (() => {
+    if (!tempRts?.waktu) return false;
+    
+    const rawWaktu = typeof tempRts.waktu === "string" 
+      ? tempRts.waktu 
+      : new Date(tempRts.waktu).toISOString();
+      
+    // Konversi string "2026-04-18T09:49:00.000Z" menjadi WIB (+07:00) yang valid
+    const dbWibStr = rawWaktu.split(".")[0].replace("Z", "") + "+07:00";
+    const waktuTerakhirMs = new Date(dbWibStr).getTime();
+    
+    const satuJamLaluMs = Date.now() - (60 * 60 * 1000);
+    return waktuTerakhirMs >= satuJamLaluMs;
+  })();
+
+  // Status RTS dari payload sensor 14 (0 = disconnected, 1 = connected)
+  const isRtsConnected = (() => {
+    if (!tempRts || tempRts.sensor14 === undefined || tempRts.sensor14 === null) return false;
+    return Number(tempRts.sensor14) === 1;
+  })();
+
+  const statusRtsText = isRtsConnected ? "Connected" : "Disconnected";
+  const powerRts    = tempRts?.sensor23 ?? 0;   // Power RTS (Volt)
+  const humidity    = tempRts?.sensor20 ?? 0;   // Humidity (%)
+  const battery     = tempRts?.sensor21 ?? 0;   // Battery (Volt)
+  const temperature = tempRts?.sensor22 ?? 0;   // Temperature (°C)
+  const lastUpdateStr = tempRts?.waktu ? fmtDate(tempRts.waktu, true) : "01-01-2026 17:19:00";
 
   const pengukuran = deformasi?.data_pengukuran || [];
   
@@ -164,8 +191,8 @@ function RtsDashboard({ logger }: { logger: any }) {
                       <div className="px-4 py-3 flex justify-between items-center border-b border-gray-200">
                         <span className="text-[13px] text-black font-semibold">Status Logger</span>
                         <div className="flex items-center gap-2">
-                          <span className="text-[13px] text-gray-800">{isConnected ? "Koneksi Terhubung" : "Koneksi Terputus"}</span>
-                          {!isConnected && (
+                          <span className="text-[13px] text-gray-800">{isLoggerConnected ? "Koneksi Terhubung" : "Koneksi Terputus"}</span>
+                          {!isLoggerConnected && (
                             <div className="w-3.5 h-3.5 rounded-full flex items-center justify-center flex-shrink-0 border border-red-200 text-red-500 bg-red-50">
                               <X className="w-2.5 h-2.5 stroke-[3]" />
                             </div>
@@ -185,8 +212,13 @@ function RtsDashboard({ logger }: { logger: any }) {
                   </>
                 )}
               </div>
-              <div className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-gray-100/80 text-[11px] text-gray-700 font-medium border border-gray-200">
-                <div className="h-1.5 w-1.5 rounded-full bg-gray-600"></div>
+              <div className={cn(
+                "inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[11px] font-medium border",
+                isLoggerConnected 
+                  ? "bg-[#E5F7E7] text-[#06C022] border-green-200" 
+                  : "bg-gray-100/80 text-gray-700 border-gray-200"
+              )}>
+                <div className={cn("h-1.5 w-1.5 rounded-full", isLoggerConnected ? "bg-[#06C022]" : "bg-gray-600")}></div>
                 {lastUpdateStr}
               </div>
             </div>
@@ -194,7 +226,7 @@ function RtsDashboard({ logger }: { logger: any }) {
               onClick={() => router.push("/kontrol-adr")}
               className="w-full bg-[#2B3270] hover:bg-[#1a1e4a] text-white rounded-md h-[42px] flex items-center justify-center text-sm font-medium shadow-sm transition-colors cursor-pointer"
             >
-              <Image src="/robot-arm.svg" width={18} height={18} alt="Robot Arm" className="mr-2 object-contain" />
+              <Image src="/kontrol_adr_fill.svg" width={18} height={18} alt="Kontrol ADR" className="mr-2 object-contain brightness-0 invert" />
               Kontrol ADR
             </Button>
           </CardContent>
@@ -206,14 +238,17 @@ function RtsDashboard({ logger }: { logger: any }) {
           <Card className="col-span-2 md:col-span-1 border-[#EAEAEA] shadow-sm rounded-[6px] flex flex-row items-center justify-start py-3.5 pr-4 pl-[115px] flex-nowrap relative overflow-hidden h-full">
             {/* Left Image positioned exactly at bottom */}
             <div className="absolute left-1 bottom-1 w-[150px] h-[110%] pointer-events-none flex items-end">
-              <Image src="/sokkia.svg" width={140} height={150} alt="Sokkia Total Station" className="object-contain drop-shadow-sm translate-y-[2px]" />
+              <AnimatedRTS
+                isOnline={isRtsConnected}
+                className="w-[140px] h-[150px] object-contain drop-shadow-sm translate-y-[2px]"
+              />
             </div>
             {/* Right Status */}
             <div className="flex-1 min-w-0">
               <p className="text-[10px] lg:text-[11px] uppercase tracking-wider text-gray-500 font-bold mb-1 lg:mb-1.5">STATUS RTS</p>
               <div className="flex items-center gap-1.5 lg:gap-2 mb-1 lg:mb-1.5">
-                <div className={cn("h-4 w-4 lg:h-[20px] lg:w-[20px] rounded-full flex-shrink-0", isConnected ? "bg-[#2DB77B]" : "bg-[#EF4444]")}></div>
-                <span className={cn("font-extrabold text-[22px] sm:text-2xl lg:text-[28px] xl:text-[32px] tracking-tight truncate", isConnected ? "text-[#2DB77B]" : "text-[#EF4444]")}>
+                <div className={cn("h-4 w-4 lg:h-[20px] lg:w-[20px] rounded-full flex-shrink-0", isRtsConnected ? "bg-[#2DB77B]" : "bg-[#EF4444]")}></div>
+                <span className={cn("font-extrabold text-[22px] sm:text-2xl lg:text-[28px] xl:text-[32px] tracking-tight truncate", isRtsConnected ? "text-[#2DB77B]" : "text-[#EF4444]")}>
                   {statusRtsText}
                 </span>
               </div>

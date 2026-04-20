@@ -47,11 +47,21 @@ function getWaktu(payload: PayloadMap): string {
   return `${yyyy}-${mm}-${dd} ${hh}:${mi}:${ss}`;
 }
 
+// Sensor yang kolom-nya integer/bit di MySQL — tidak boleh string kosong
+const NUMERIC_SENSORS = new Set([14, 15, 16, 17, 18, 19]);
+
 function buildSensorPayload(payload: PayloadMap) {
-  const data: PayloadMap = {};
+  const data: Record<string, string | number> = {};
 
   for (let i = 1; i <= 23; i += 1) {
-    data[`sensor${i}`] = payload[`sensor${i}`] || "";
+    const val = payload[`sensor${i}`];
+    if (NUMERIC_SENSORS.has(i)) {
+      // Kolom integer/bit: pakai 0 jika tidak ada atau kosong
+      data[`sensor${i}`] = (val !== undefined && val !== "") ? val : "0";
+    } else {
+      // Kolom varchar/text: pakai string kosong jika tidak ada
+      data[`sensor${i}`] = val ?? "";
+    }
   }
 
   return data;
@@ -105,6 +115,13 @@ export async function POST(request: NextRequest) {
     let mqttPrismaSent = false;
     let mqttKontrolSent = false;
 
+    // DEBUG: log apa yang diterima dari logger
+    console.log("[datamasuk/adr] payload.id_alat:", idAlat);
+    console.log("[datamasuk/adr] payload.tanggal:", payload.tanggal);
+    console.log("[datamasuk/adr] payload.jam:", payload.jam);
+    console.log("[datamasuk/adr] payload.waktu (raw):", payload.waktu);
+    console.log("[datamasuk/adr] waktu (computed):", waktu);
+
     if (sensorData.sensor1) {
       const latestLog = await prisma.$queryRaw<Array<{ id_log: string }>>`
         SELECT id_log
@@ -124,7 +141,7 @@ export async function POST(request: NextRequest) {
       }
 
       const prismaUpdate: PayloadMap = {
-        id_prisma: sensorData.sensor1,
+        id_prisma: String(sensorData.sensor1),
         waktu,
         N1: sensorData.sensor8,
         E1: sensorData.sensor9,
@@ -165,16 +182,12 @@ export async function POST(request: NextRequest) {
     const rtsInsert = buildInsertStatement("rts", rtsPayload);
     await prisma.$executeRawUnsafe(rtsInsert.sql, ...rtsInsert.values);
 
-    const tempRtsUpdate = buildUpdateStatement(
-      "temp_rts",
-      rtsPayload,
-      "code_logger",
-      idAlat
-    );
-    await prisma.$executeRawUnsafe(
-      tempRtsUpdate.sql,
-      ...tempRtsUpdate.values
-    );
+    // UPDATE temp_rts: hapus baris lama lalu insert baru
+    // - Tidak bergantung pada UNIQUE KEY di code_logger
+    // - Menjamin hanya 1 baris per logger yang tersimpan
+    await prisma.$executeRaw`DELETE FROM temp_rts WHERE code_logger = ${idAlat}`;
+    const tempRtsInsert = buildInsertStatement("temp_rts", rtsPayload);
+    await prisma.$executeRawUnsafe(tempRtsInsert.sql, ...tempRtsInsert.values);
 
     const kontrolRows = await prisma.$queryRaw<
       Array<{ status: string | null; status_manual: string | null }>

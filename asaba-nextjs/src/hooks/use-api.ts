@@ -29,7 +29,11 @@ export function useLoggerDetail(id: string | null) {
   const { data, error, isLoading, mutate } = useSWR(
     id ? `/api/loggers/${id}` : null,
     fetcher,
-    { revalidateOnFocus: false, dedupingInterval: 15000 }
+    {
+      revalidateOnFocus: true,
+      dedupingInterval: 2000,
+      refreshInterval: 1000,   // auto-refresh setiap 3 detik supaya kesan real-time
+    }
   );
   return {
     detail: data?.data || null,
@@ -105,5 +109,35 @@ export function useSensorData(
     isLoading,
     isError: !!error || data?.success === false,
     mutate,
+  };
+}
+
+/**
+ * Fetch RTS connection status (Connected if latest data < 1 hour)
+ */
+export function useRtsConnectionStatus() {
+  const { loggers } = useLoggers();
+  const rtsLogger = loggers?.find((l: any) => l?.temp_data === "temp_rts");
+  const { detail } = useLoggerDetail(rtsLogger?.id_logger || null);
+
+  const tempRts = detail?.tempData?.[0];
+
+  const isConnected = (() => {
+    if (!tempRts?.waktu) return false;
+    const rawWaktu = typeof tempRts.waktu === "string" ? tempRts.waktu : new Date(tempRts.waktu).toISOString();
+    const dbWibStr = rawWaktu.split(".")[0].replace("Z", "") + "+07:00";
+    const waktuTerakhirMs = new Date(dbWibStr).getTime();
+    const satuJamLaluMs = Date.now() - (60 * 60 * 1000);
+    return waktuTerakhirMs >= satuJamLaluMs;
+  })();
+
+  return { 
+    isConnected, 
+    lastUpdate: tempRts?.waktu || null, 
+    idLogger: rtsLogger?.id_logger,
+    sensor14: tempRts?.sensor14 ?? 0,
+    sensor5: tempRts?.sensor5 ?? 0,
+    sensor6: tempRts?.sensor6 ?? 0,
+    sensor7: tempRts?.sensor7 ?? 0
   };
 }
