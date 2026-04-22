@@ -1,0 +1,13 @@
+version: '3.8'
+
+services:
+  asaba-web:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: asaba-nextjs-app
+    restart: always
+    ports:
+      - "3000:3000"  # Akses web di port 3000
+    env_file:
+      - .env
