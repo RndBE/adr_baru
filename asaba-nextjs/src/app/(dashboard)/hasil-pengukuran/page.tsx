@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect, useCallback } from "react";
+import React, { useState, useEffect, useCallback, Suspense } from "react";
 import { useSearchParams } from "next/navigation";
 import {
   History,
@@ -145,7 +145,7 @@ function fval(v: unknown): string {
 // =================== MAIN PAGE ===================
 const RUNS_PER_PAGE = 10;
 
-export default function HasilPengukuranPage() {
+function HasilPengukuranContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const { isConnected } = useRtsConnectionStatus();
@@ -964,5 +964,13 @@ export default function HasilPengukuranPage() {
         </div>
       )}
     </div>
+  );
+}
+
+export default function HasilPengukuranPage() {
+  return (
+    <Suspense fallback={<div className="flex items-center justify-center p-10"><Loader2 className="w-8 h-8 animate-spin text-[#303481]" /></div>}>
+      <HasilPengukuranContent />
+    </Suspense>
   );
 }
