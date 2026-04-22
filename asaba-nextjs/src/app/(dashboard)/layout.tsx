@@ -33,14 +33,14 @@ export default function DashboardLayout({
       <AppSidebar />
       <SidebarInset>
         {/* Top Header */}
-        <header className="sticky top-0 z-30 flex h-14 items-center gap-3 border-b bg-background/80 px-4 backdrop-blur-lg">
+        <header className="sticky top-0 z-30 flex h-14 items-center gap-3 border-b bg-background/80 px-4 backdrop-blur-lg bg-white">
           {/* <SidebarTrigger className="-ml-1" /> */}
           {/* <Separator orientation="vertical" className="h-5" /> */}
           <h1 className="text-sm font-semibold tracking-tight">{title}</h1>
         </header>
 
         {/* Page Content */}
-        <main className="flex-1 overflow-auto p-4 md:p-6">{children}</main>
+        <main className="flex-1 overflow-auto p-4 md:p-6 bg-white">{children}</main>
       </SidebarInset>
     </SidebarProvider>
   );

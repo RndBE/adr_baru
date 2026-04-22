@@ -68,7 +68,7 @@ export function AppSidebar() {
 
   return (
     <Sidebar variant="sidebar" collapsible="icon" className="border-r border-gray-100 bg-white">
-      <SidebarHeader className="border-b-0 pt-6 pb-4 px-4 group-data-[collapsible=icon]:px-0">
+      <SidebarHeader className="border-b-0 pt-6 pb-4 px-4 group-data-[collapsible=icon]:px-0 bg-white">
         <div className="flex items-center justify-between w-full h-8 group-data-[collapsible=icon]:justify-center">
           <div className="flex items-center gap-2 overflow-hidden group-data-[collapsible=icon]:hidden">
             <img 

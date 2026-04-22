@@ -220,10 +220,10 @@ export default function PrismaMap({ markers, site }: Props) {
     // R0 connection line
     if (r0Points.length > 1) {
       L.polyline(r0Points, {
-        color: "#e5e7eb",
-        weight: 1,
-        opacity: 0.8,
-        dashArray: "4 6",
+        color: "#ffffff",
+        weight: 2,
+        opacity: 0.9,
+        dashArray: "5 7",
       }).addTo(map);
     }
 
