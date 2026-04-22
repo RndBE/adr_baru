@@ -143,12 +143,12 @@ export async function POST(request: NextRequest) {
       const prismaUpdate: PayloadMap = {
         id_prisma: String(sensorData.sensor1),
         waktu,
-        N1: sensorData.sensor8,
-        E1: sensorData.sensor9,
-        Z1: sensorData.sensor10,
-        N0: sensorData.sensor11,
-        E0: sensorData.sensor12,
-        Z0: sensorData.sensor13,
+        N1: String(sensorData.sensor8),
+        E1: String(sensorData.sensor9),
+        Z1: String(sensorData.sensor10),
+        N0: String(sensorData.sensor11),
+        E0: String(sensorData.sensor12),
+        Z0: String(sensorData.sensor13),
         status_get: "1",
       };
 
@@ -156,7 +156,7 @@ export async function POST(request: NextRequest) {
         "temp_prisma",
         prismaUpdate,
         "id_prisma",
-        sensorData.sensor1
+        String(sensorData.sensor1)
       );
       await prisma.$executeRawUnsafe(
         tempPrismaUpdate.sql,
