@@ -10,6 +10,7 @@ import {
   Box,
   Target,
   LogOut,
+  Database,
 } from "lucide-react";
 import {
   Sidebar,
@@ -59,6 +60,7 @@ const mainNavItems = [
   { title: "Hasil Pengukuran", href: "/hasil-pengukuran", icon: HasilPengukuranIcon },
   { title: "Visualisasi 3D", href: "/visualisasi-3d", icon: Visualisasi3DIcon },
   { title: "Prism Config", href: "/prism-config", icon: PrismConfigIcon },
+  { title: "Rekap Data", href: "/rekap-data", icon: Database },
 ];
 
 export function AppSidebar() {

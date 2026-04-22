@@ -15,6 +15,7 @@ const pageTitles: Record<string, string> = {
   "/prism-config": "Prism Configuration",
   "/hasil-pengukuran": "Hasil Pengukuran",
   "/visualisasi-3d": "Visualisasi 3D",
+  "/rekap-data": "Rekap Data Masuk",
 };
 
 export default function DashboardLayout({

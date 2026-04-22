@@ -31,7 +31,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { Download, Info, CalendarIcon } from "lucide-react";
+import { Download, Info, CalendarIcon, Loader2, MapPin } from "lucide-react";
 import { Calendar } from "@/components/ui/calendar";
 import {
   Popover,
@@ -46,19 +46,9 @@ import {
   SheetTrigger,
 } from "@/components/ui/sheet";
 import { cn } from "@/lib/utils";
+import { useLoggers } from "@/hooks/use-api";
 
-// ─── Mock Data Generator ───
-const generateHourlyData = (date: string) => {
-  const hours = Array.from({ length: 11 }, (_, i) => i);
-  return hours.map((h) => {
-    const label = `${String(h).padStart(2, "0")}:00`;
-    const base = 0.75 + Math.sin(h * 0.8) * 0.5;
-    const rerata = parseFloat(base.toFixed(2));
-    const min = parseFloat((rerata - 0.25).toFixed(2));
-    const maks = parseFloat((rerata + 0.25).toFixed(2));
-    return { waktu: label, rerata, min, maks };
-  });
-};
+// ─── API Data Fetching Config ───
 
 const PARAMETER_OPTIONS = [
   { value: "power_rts", label: "Power RTS" },
@@ -115,38 +105,80 @@ type LoggerInfo = {
 };
 
 // ─── Main Page ───
-const LOGGER_ID = "30002";
 
 export default function PowerRtsPage() {
   const router = useRouter();
+  const { loggers, isLoading: loggersLoading } = useLoggers();
+  const rtsLoggers = loggers.filter((l: any) => l.temp_data === "temp_rts" || l.tabel === "rts" || (l.nama_logger && l.nama_logger.toLowerCase().includes("rts")));
+  
+  const [selectedPos, setSelectedPos] = useState<string>("30002");
   const [parameter, setParameter] = useState("power_rts");
   const [analisaDalam, setAnalisaDalam] = useState("hari");
   const [selectedDate, setSelectedDate] = useState<Date | undefined>(new Date(2026, 3, 2));
   const [calOpen, setCalOpen] = useState(false);
-  const [chartData, setChartData] = useState(() =>
-    generateHourlyData("02-04-2026")
-  );
+  const [chartData, setChartData] = useState<any[]>([]);
+  const [isFetching, setIsFetching] = useState(false);
   const [loggerInfo, setLoggerInfo] = useState<LoggerInfo | null>(null);
   const [infoLoading, setInfoLoading] = useState(false);
   const [isConnected, setIsConnected] = useState(false);
 
-  // Fetch logger info from database on mount
+  // Auto-select first RTS logger if current is not in list
   useEffect(() => {
+    if (rtsLoggers.length > 0 && !rtsLoggers.find((l: any) => l.id_logger === selectedPos)) {
+      setSelectedPos(rtsLoggers[0].id_logger);
+    }
+  }, [rtsLoggers, selectedPos]);
+
+  // Fetch logger info from database when selectedPos changes
+  useEffect(() => {
+    if (!selectedPos) return;
     setInfoLoading(true);
-    fetch(`/api/loggers/${LOGGER_ID}/informasi`)
+    fetch(`/api/loggers/${selectedPos}/informasi`)
       .then((res) => res.json())
       .then((json) => {
         if (json.success) setLoggerInfo(json.data as LoggerInfo);
+        else setLoggerInfo(null);
       })
-      .catch((err) => console.error("Failed to fetch logger info:", err))
+      .catch((err) => {
+        console.error("Failed to fetch logger info:", err);
+        setLoggerInfo(null);
+      })
       .finally(() => setInfoLoading(false));
-  }, []);
+  }, [selectedPos]);
 
   const paramLabel =
     PARAMETER_OPTIONS.find((p) => p.value === parameter)?.label || "Power RTS";
 
+  const fetchData = async () => {
+    setIsFetching(true);
+    try {
+      const d = selectedDate || new Date();
+      const yyyy = d.getFullYear();
+      const mm = String(d.getMonth() + 1).padStart(2, "0");
+      const dd = String(d.getDate()).padStart(2, "0");
+      const queryDate = `${yyyy}-${mm}-${dd}`;
+
+      const res = await fetch(`/api/power-rts?date=${queryDate}&param=${parameter}&logger=${selectedPos}`);
+      const json = await res.json();
+      if (json.success) {
+        setChartData(json.data);
+      }
+    } catch (err) {
+      console.error("Fetch error:", err);
+    } finally {
+      setIsFetching(false);
+    }
+  };
+
+  useEffect(() => {
+    if (selectedPos) {
+      fetchData();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedPos]);
+
   const handleTampilData = () => {
-    setChartData(generateHourlyData(selectedDate ? formatDate(selectedDate) : "02-04-2026"));
+    fetchData();
   };
 
   const displayDate = selectedDate ? formatDate(selectedDate) : "-";
@@ -171,6 +203,8 @@ export default function PowerRtsPage() {
         </p>
       </div>
 
+
+
       {/* Header Card */}
       <div className="px-6 pb-4">
         <div className="bg-white border border-[#EAEAEA] rounded-[6px] shadow-sm px-5 py-3.5 flex items-center justify-between">
@@ -180,7 +214,7 @@ export default function PowerRtsPage() {
             </div>
             <div className="flex flex-col gap-0.5">
               <p className="font-bold text-black text-[15.5px] leading-tight">
-                {loggerInfo?.nama_lokasi || "Pos RTS Site MIP"}
+                {loggerInfo?.nama_lokasi || rtsLoggers.find((l: any) => l.id_logger === selectedPos)?.nama_logger || "Pos RTS Site MIP"}
               </p>
               <p className="text-[13px] text-gray-800 font-medium">
                 {isConnected ? "Koneksi Terhubung" : "Koneksi Terputus"}
@@ -307,9 +341,11 @@ export default function PowerRtsPage() {
               <button
                  type="button"
                  onClick={handleTampilData}
-                 className="w-full mt-6 bg-[#303481] hover:bg-[#1f2259] text-white rounded-lg h-[42px] text-sm font-medium transition-colors cursor-pointer"
+                 disabled={isFetching}
+                 className="w-full mt-6 bg-[#303481] hover:bg-[#1f2259] text-white rounded-lg h-[42px] text-sm font-medium transition-colors cursor-pointer disabled:opacity-50 flex items-center justify-center gap-2"
               >
-                 Tampil Data
+                 {isFetching && <Loader2 className="w-4 h-4 animate-spin" />}
+                 {isFetching ? "Memuat..." : "Tampil Data"}
               </button>
             </div>
           </div>
@@ -323,7 +359,7 @@ export default function PowerRtsPage() {
               {chartTitle}
             </h2>
             <p className="text-center text-xs text-gray-500 mb-4">
-              Pos RTS Site MIP
+              {loggerInfo?.nama_lokasi || rtsLoggers.find((l: any) => l.id_logger === selectedPos)?.nama_logger || "Pos RTS Site MIP"}
             </p>
 
             <ResponsiveContainer width="100%" height={300}>
@@ -433,28 +469,36 @@ export default function PowerRtsPage() {
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {chartData.map((row, i) => (
-                    <TableRow
-                      key={i}
-                      className={cn(
-                        "border-b border-gray-50 hover:bg-gray-50 transition-colors",
-                        i % 2 === 0 ? "bg-white" : "bg-white"
-                      )}
-                    >
-                      <TableCell className="py-3 pl-5 text-sm text-gray-700 font-medium">
-                        {row.waktu}
-                      </TableCell>
-                      <TableCell className="py-3 text-center text-sm text-gray-700">
-                        {row.rerata} V
-                      </TableCell>
-                      <TableCell className="py-3 text-center text-sm text-gray-700">
-                        {row.min} Volt
-                      </TableCell>
-                      <TableCell className="py-3 text-center text-sm text-gray-700">
-                        {row.maks} Volt
+                  {chartData.length === 0 ? (
+                    <TableRow>
+                      <TableCell colSpan={4} className="h-24 text-center text-gray-500 font-medium">
+                        Tidak ada data pada tanggal ini.
                       </TableCell>
                     </TableRow>
-                  ))}
+                  ) : (
+                    chartData.map((row, i) => (
+                      <TableRow
+                        key={i}
+                        className={cn(
+                          "border-b border-gray-50 hover:bg-gray-50 transition-colors",
+                          i % 2 === 0 ? "bg-white" : "bg-white"
+                        )}
+                      >
+                        <TableCell className="py-3 pl-5 text-sm text-gray-700 font-medium">
+                          {row.waktu}
+                        </TableCell>
+                        <TableCell className="py-3 text-center text-sm text-gray-700">
+                          {row.rerata}
+                        </TableCell>
+                        <TableCell className="py-3 text-center text-sm text-gray-700">
+                          {row.min}
+                        </TableCell>
+                        <TableCell className="py-3 text-center text-sm text-gray-700">
+                          {row.maks}
+                        </TableCell>
+                      </TableRow>
+                    ))
+                  )}
                 </TableBody>
               </Table>
             </div>

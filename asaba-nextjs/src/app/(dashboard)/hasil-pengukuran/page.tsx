@@ -14,6 +14,7 @@ import {
   Filter,
   Loader2,
   AlertCircle,
+  Check,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useRouter } from "next/navigation";
@@ -22,6 +23,76 @@ import { cn } from "@/lib/utils";
 import { RtsConnectionBadge } from "@/components/RtsConnectionBadge";
 import { useRtsConnectionStatus } from "@/hooks/use-api";
 import type { PrismaMarkerData } from "@/components/PrismaMap";
+import {
+  Popover,
+  PopoverTrigger,
+  PopoverContent,
+} from "@/components/ui/popover";
+
+const CustomCheckboxItem = ({
+  checked,
+  onCheckedChange,
+  label,
+  indeterminate
+}: {
+  checked: boolean;
+  onCheckedChange: (c: boolean) => void;
+  label: string;
+  indeterminate?: boolean;
+}) => (
+  <div
+    onClick={(e) => {
+      e.preventDefault();
+      onCheckedChange(!checked);
+    }}
+    className="flex items-center gap-4 px-4 py-2.5 cursor-pointer hover:bg-gray-50 rounded-lg transition-colors outline-none"
+  >
+    <div className={`flex-shrink-0 w-[18px] h-[18px] rounded-[4px] border flex items-center justify-center transition-colors ${
+      checked || indeterminate ? "bg-[#303481] border-[#303481]" : "border-gray-400 bg-white"
+    }`}>
+      {checked && <Check className="w-3.5 h-3.5 text-white" strokeWidth={3} />}
+      {indeterminate && !checked && <div className="w-2.5 h-[2px] bg-white rounded-full" />}
+    </div>
+    <span className="text-[14px] text-gray-800 select-none">{label}</span>
+  </div>
+);
+
+const FilterTab = ({
+  label,
+  isActive,
+  onClick,
+  checked,
+  onCheckedChange,
+}: {
+  label: string;
+  isActive: boolean;
+  onClick: () => void;
+  checked: boolean | "indeterminate";
+  onCheckedChange: (c: boolean) => void;
+}) => (
+  <div
+    className={`flex items-center gap-3 px-3 py-2.5 cursor-pointer rounded-lg transition-colors ${
+      isActive ? "bg-[#EFEFEF]" : "hover:bg-gray-100"
+    }`}
+    onClick={onClick}
+  >
+    <div
+      className={`flex-shrink-0 w-[18px] h-[18px] rounded-[4px] border flex items-center justify-center transition-colors cursor-pointer ${
+        checked === true || checked === "indeterminate" ? "bg-[#303481] border-[#303481]" : "border-gray-400 bg-white"
+      }`}
+      onClick={(e) => {
+        e.stopPropagation();
+        onCheckedChange(checked === true ? false : true);
+      }}
+    >
+      {checked === true && <Check className="w-3.5 h-3.5 text-white" strokeWidth={3} />}
+      {checked === "indeterminate" && <div className="w-2.5 h-[2px] bg-white rounded-full" />}
+    </div>
+    <span className="text-[14px] text-gray-800 flex-1 select-none">{label}</span>
+    {isActive && <ChevronRight className="w-4 h-4 text-gray-600" />}
+  </div>
+);
+
 
 const PrismaMap = dynamic(() => import("@/components/PrismaMap"), { ssr: false });
 
@@ -78,6 +149,29 @@ interface DataPengukuran {
   temp_tembak: TempTembak;
   daily: DailyData;
 }
+
+interface SubColVisibility {
+  X: boolean; Y: boolean; Z: boolean;
+  HA: boolean; VA: boolean; SD: boolean;
+}
+
+interface PergeseranVisibility {
+  DX: boolean; DY: boolean; DZ: boolean; Linier: boolean;
+}
+
+interface ColumnVisibility {
+  awal: SubColVisibility;
+  hasil: SubColVisibility;
+  pergeseran: PergeseranVisibility;
+  arah: boolean;
+}
+
+const DEFAULT_VISIBILITY: ColumnVisibility = {
+  awal: { X: true, Y: true, Z: true, HA: true, VA: true, SD: true },
+  hasil: { X: true, Y: true, Z: true, HA: true, VA: true, SD: true },
+  pergeseran: { DX: true, DY: true, DZ: true, Linier: true },
+  arah: true,
+};
 
 function Sparkline({ data }: { data: DailySeries[] }) {
   if (!data || data.length === 0) return <span className="text-gray-400 font-medium">-</span>;
@@ -157,6 +251,70 @@ function HasilPengukuranContent() {
   const [runs, setRuns] = useState<LogKontrol[]>([]);
   const [runsLoading, setRunsLoading] = useState(true);
   const [runsError, setRunsError] = useState("");
+  
+  // Filter state
+  const [colVis, setColVis] = useState<ColumnVisibility>(DEFAULT_VISIBILITY);
+  const [draftVis, setDraftVis] = useState<ColumnVisibility>(DEFAULT_VISIBILITY);
+  const [filterOpen, setFilterOpen] = useState(false);
+  const [activeFilterTab, setActiveFilterTab] = useState<"Awal" | "Hasil" | "Pergeseran" | "Arah">("Hasil");
+  
+  const handleFilterOpenChange = (open: boolean) => {
+    setFilterOpen(open);
+    if (open) {
+      setDraftVis(JSON.parse(JSON.stringify(colVis)));
+    }
+  };
+
+  const applyFilter = () => {
+    setColVis(JSON.parse(JSON.stringify(draftVis)));
+    setFilterOpen(false);
+  };
+
+  const cancelFilter = () => {
+    setFilterOpen(false);
+  };
+
+  const isAllGroupChecked = (group: keyof ColumnVisibility) => {
+    const g = draftVis[group];
+    if (typeof g === 'boolean') return g;
+    return Object.values(g).every(Boolean);
+  };
+
+  const isAllChecked = () => {
+    return isAllGroupChecked("awal") && isAllGroupChecked("hasil") && isAllGroupChecked("pergeseran") && draftVis.arah;
+  };
+
+  const toggleAll = (checked: boolean) => {
+    setDraftVis({
+      awal: { X: checked, Y: checked, Z: checked, HA: checked, VA: checked, SD: checked },
+      hasil: { X: checked, Y: checked, Z: checked, HA: checked, VA: checked, SD: checked },
+      pergeseran: { DX: checked, DY: checked, DZ: checked, Linier: checked },
+      arah: checked,
+    });
+  };
+
+  const toggleGroup = (group: keyof ColumnVisibility, checked: boolean) => {
+    if (group === "arah") {
+      setDraftVis(prev => ({ ...prev, arah: checked }));
+      return;
+    }
+    const newValue = group === "pergeseran" 
+      ? { DX: checked, DY: checked, DZ: checked, Linier: checked }
+      : { X: checked, Y: checked, Z: checked, HA: checked, VA: checked, SD: checked };
+      
+    setDraftVis(prev => ({ ...prev, [group]: newValue }));
+  };
+
+  const toggleCol = (group: keyof ColumnVisibility, col: string, checked: boolean) => {
+    setDraftVis(prev => ({
+      ...prev,
+      [group]: {
+        ...(prev[group] as any),
+        [col]: checked
+      }
+    }));
+  };
+
   const [currentPage, setCurrentPage] = useState(1);
   const [totalRuns, setTotalRuns] = useState(0);
   const [allRuns, setAllRuns] = useState<LogKontrol[]>([]);
@@ -235,6 +393,8 @@ function HasilPengukuranContent() {
   }, [selectedLog, fetchDeformasi]);
 
   const totalPages = Math.ceil(totalRuns / RUNS_PER_PAGE);
+
+  const countVis = (g: SubColVisibility | PergeseranVisibility) => Object.values(g).filter(Boolean).length;
 
   // ── R0 Modal Logic ──
   const availableDates = Array.from(new Set(allRuns.map((r) => formatDate(r.datetime).split(" ")[0])));
@@ -519,19 +679,23 @@ function HasilPengukuranContent() {
 
           {/* Tabs */}
           <div className="px-6 pt-3 flex gap-8 border-b border-gray-200">
-            {["Event", "Harian"].map((tab) => (
-              <button
-                key={tab}
-                onClick={() => setActiveTab(tab)}
-                className={`pb-3 text-[14px] font-bold border-b-4 transition-colors cursor-pointer ${
-                  activeTab === tab
-                    ? "border-[#303481] text-[#303481]"
-                    : "border-transparent text-gray-500 hover:text-gray-800"
-                }`}
-              >
-                {tab}
-              </button>
-            ))}
+            {["Event", "Harian"].map((tab) => {
+              if (activeView === "Peta" && tab === "Harian") return null;
+              
+              return (
+                <button
+                  key={tab}
+                  onClick={() => setActiveTab(tab)}
+                  className={`pb-3 text-[14px] font-bold border-b-4 transition-colors cursor-pointer ${
+                    activeTab === tab
+                      ? "border-[#303481] text-[#303481]"
+                      : "border-transparent text-gray-500 hover:text-gray-800"
+                  }`}
+                >
+                  {tab}
+                </button>
+              );
+            })}
           </div>
 
           {/* Toolbar */}
@@ -541,7 +705,12 @@ function HasilPengukuranContent() {
               {["Tabel", "Peta"].map((view, i) => (
                 <button
                   key={view}
-                  onClick={() => setActiveView(view)}
+                  onClick={() => {
+                    setActiveView(view);
+                    if (view === "Peta") {
+                      setActiveTab("Event");
+                    }
+                  }}
                   className={`flex items-center gap-2 px-5 py-2 text-[13px] font-bold transition-colors cursor-pointer ${
                     activeView === view
                       ? "bg-[#303481] text-white"
@@ -553,9 +722,91 @@ function HasilPengukuranContent() {
                 </button>
               ))}
             </div>
-            <Button variant="outline" className="h-[38px] border-[#EAEAEA] text-gray-700 font-bold text-[13px] shadow-sm cursor-pointer">
-              <Filter className="w-4 h-4 mr-2" /> Filter
-            </Button>
+            {/* Filter button - sembunyikan jika mode Peta */}
+            {activeView !== "Peta" && (
+              <Popover open={filterOpen} onOpenChange={handleFilterOpenChange}>
+                <PopoverTrigger className="inline-flex items-center justify-center whitespace-nowrap rounded-md text-[13px] font-bold h-[38px] px-4 border border-[#EAEAEA] bg-white text-gray-700 shadow-sm cursor-pointer hover:bg-gray-50 focus-visible:outline-none">
+                  <Filter className="w-4 h-4 mr-2" /> Filter
+                </PopoverTrigger>
+                <PopoverContent className="w-[460px] p-0 flex flex-row rounded-xl border-[#EAEAEA] shadow-xl overflow-hidden bg-white" align="start">
+                  {/* Left Column (Categories) */}
+                  <div className="w-[220px] border-r border-[#EAEAEA] bg-[#F8F9FA] p-3 flex flex-col gap-1">
+                    <FilterTab
+                      label="Awal Pengukuran"
+                      isActive={activeFilterTab === "Awal"}
+                      onClick={() => setActiveFilterTab("Awal")}
+                      checked={isAllGroupChecked("awal")}
+                      onCheckedChange={(c) => toggleGroup("awal", c)}
+                    />
+                    <FilterTab
+                      label="Hasil Pengukuran"
+                      isActive={activeFilterTab === "Hasil"}
+                      onClick={() => setActiveFilterTab("Hasil")}
+                      checked={isAllGroupChecked("hasil")}
+                      onCheckedChange={(c) => toggleGroup("hasil", c)}
+                    />
+                    <FilterTab
+                      label="Pergeseran"
+                      isActive={activeFilterTab === "Pergeseran"}
+                      onClick={() => setActiveFilterTab("Pergeseran")}
+                      checked={isAllGroupChecked("pergeseran")}
+                      onCheckedChange={(c) => toggleGroup("pergeseran", c)}
+                    />
+                    <FilterTab
+                      label="Arah Pergeseran"
+                      isActive={activeFilterTab === "Arah"}
+                      onClick={() => setActiveFilterTab("Arah")}
+                      checked={draftVis.arah}
+                      onCheckedChange={(c) => toggleGroup("arah", c)}
+                    />
+                  </div>
+
+                  {/* Right Column (Options) */}
+                  <div className="flex-1 flex flex-col bg-white">
+                    <div className="p-3 flex-1 flex flex-col gap-1 min-h-[300px]">
+                      {activeFilterTab === "Awal" && (
+                        <>
+                          <CustomCheckboxItem label="Semua" checked={isAllGroupChecked("awal") === true} onCheckedChange={(c) => toggleGroup("awal", c)} />
+                          {["X", "Y", "Z", "HA", "VA", "SD"].map((col) => (
+                            <CustomCheckboxItem key={col} label={col === "SD" ? "Slope Distance" : col} checked={(draftVis.awal as any)[col]} onCheckedChange={(c) => toggleCol("awal", col, c)} />
+                          ))}
+                        </>
+                      )}
+                      {activeFilterTab === "Hasil" && (
+                        <>
+                          <CustomCheckboxItem label="Semua" checked={isAllGroupChecked("hasil") === true} onCheckedChange={(c) => toggleGroup("hasil", c)} />
+                          {["X", "Y", "Z", "HA", "VA", "SD"].map((col) => (
+                            <CustomCheckboxItem key={col} label={col === "SD" ? "Slope Distance" : col} checked={(draftVis.hasil as any)[col]} onCheckedChange={(c) => toggleCol("hasil", col, c)} />
+                          ))}
+                        </>
+                      )}
+                      {activeFilterTab === "Pergeseran" && (
+                        <>
+                          <CustomCheckboxItem label="Semua" checked={isAllGroupChecked("pergeseran") === true} onCheckedChange={(c) => toggleGroup("pergeseran", c)} />
+                          {["DX", "DY", "DZ", "Linier"].map((col) => (
+                            <CustomCheckboxItem key={col} label={col === "DX" ? "Delta X" : col === "DY" ? "Delta Y" : col === "DZ" ? "Delta Z" : "Linier"} checked={(draftVis.pergeseran as any)[col]} onCheckedChange={(c) => toggleCol("pergeseran", col, c)} />
+                          ))}
+                        </>
+                      )}
+                      {activeFilterTab === "Arah" && (
+                        <div className="py-8 px-4 text-[13px] text-gray-500 italic text-center leading-relaxed">
+                          Tidak ada sub-opsi.
+                        </div>
+                      )}
+                    </div>
+
+                    <div className="px-4 py-4 flex items-center justify-end gap-3 mt-auto border-t border-gray-100">
+                      <Button variant="outline" size="sm" onClick={cancelFilter} className="w-[88px] text-[13px] h-9 border-[#303481] text-[#303481] rounded-lg font-semibold bg-white hover:bg-blue-50 cursor-pointer">
+                        Batal
+                      </Button>
+                      <Button size="sm" onClick={applyFilter} className="w-[88px] text-[13px] h-9 bg-[#303481] hover:bg-[#1f2259] text-white rounded-lg font-semibold shadow-sm cursor-pointer">
+                        Terapkan
+                      </Button>
+                    </div>
+                  </div>
+                </PopoverContent>
+              </Popover>
+            )}
             {/* Info badges */}
             <div className="flex items-center gap-4 ml-auto">
               <div className="flex items-center gap-2 text-[13px] font-semibold text-gray-700">
@@ -634,43 +885,51 @@ function HasilPengukuranContent() {
                       Nama Prisma
                     </th>
                     {/* Awal Pengukuran */}
-                    <th colSpan={6} className="py-2.5 px-2 border-b border-r border-gray-200 font-bold text-gray-700 text-[12px] text-center">
-                      Awal Pengukuran
-                    </th>
+                    {countVis(colVis.awal) > 0 && (
+                      <th colSpan={countVis(colVis.awal)} className="py-2.5 px-2 border-b border-r border-gray-200 font-bold text-gray-700 text-[12px] text-center">
+                        Awal Pengukuran
+                      </th>
+                    )}
                     {/* Hasil Pengukuran */}
-                    <th colSpan={6} className="py-2.5 px-2 border-b border-r border-gray-200 font-bold text-gray-700 text-[12px] text-center">
-                      Hasil Pengukuran
-                    </th>
+                    {countVis(colVis.hasil) > 0 && (
+                      <th colSpan={countVis(colVis.hasil)} className="py-2.5 px-2 border-b border-r border-gray-200 font-bold text-gray-700 text-[12px] text-center">
+                        Hasil Pengukuran
+                      </th>
+                    )}
                     {/* Pergeseran */}
-                    <th colSpan={4} className="py-2.5 px-2 border-b border-r border-gray-200 font-bold text-gray-700 text-[12px] text-center">
-                      Pergeseran
-                    </th>
+                    {countVis(colVis.pergeseran) > 0 && (
+                      <th colSpan={countVis(colVis.pergeseran)} className="py-2.5 px-2 border-b border-r border-gray-200 font-bold text-gray-700 text-[12px] text-center">
+                        Pergeseran
+                      </th>
+                    )}
                     {/* Arah Pergeseran */}
-                    <th rowSpan={2} className="py-3 px-4 font-bold text-gray-700 text-[12px] text-center whitespace-nowrap align-middle">
-                      Arah<br />Pergeseran
-                    </th>
+                    {colVis.arah && (
+                      <th rowSpan={2} className="py-3 px-4 font-bold text-gray-700 text-[12px] text-center whitespace-nowrap align-middle">
+                        Arah<br />Pergeseran
+                      </th>
+                    )}
                   </tr>
                   {/* Row 2 — Sub-column headers */}
                   <tr className="border-b border-gray-200">
                     {/* Awal Pengukuran sub-cols */}
-                    <th className="py-2 px-3 font-semibold text-gray-500 text-[11px] text-center whitespace-nowrap border-r border-gray-100">X</th>
-                    <th className="py-2 px-3 font-semibold text-gray-500 text-[11px] text-center whitespace-nowrap border-r border-gray-100">Y</th>
-                    <th className="py-2 px-3 font-semibold text-gray-500 text-[11px] text-center whitespace-nowrap border-r border-gray-100">Z</th>
-                    <th className="py-2 px-3 font-semibold text-gray-500 text-[11px] text-center whitespace-nowrap border-r border-gray-100">HA</th>
-                    <th className="py-2 px-3 font-semibold text-gray-500 text-[11px] text-center whitespace-nowrap border-r border-gray-100">VA</th>
-                    <th className="py-2 px-3 font-semibold text-gray-500 text-[11px] text-center whitespace-nowrap border-r border-gray-200">Slope Distance</th>
+                    {colVis.awal.X && <th className="py-2 px-3 font-semibold text-gray-500 text-[11px] text-center whitespace-nowrap border-r border-gray-100">X</th>}
+                    {colVis.awal.Y && <th className="py-2 px-3 font-semibold text-gray-500 text-[11px] text-center whitespace-nowrap border-r border-gray-100">Y</th>}
+                    {colVis.awal.Z && <th className="py-2 px-3 font-semibold text-gray-500 text-[11px] text-center whitespace-nowrap border-r border-gray-100">Z</th>}
+                    {colVis.awal.HA && <th className="py-2 px-3 font-semibold text-gray-500 text-[11px] text-center whitespace-nowrap border-r border-gray-100">HA</th>}
+                    {colVis.awal.VA && <th className="py-2 px-3 font-semibold text-gray-500 text-[11px] text-center whitespace-nowrap border-r border-gray-100">VA</th>}
+                    {colVis.awal.SD && <th className="py-2 px-3 font-semibold text-gray-500 text-[11px] text-center whitespace-nowrap border-r border-gray-200">Slope Distance</th>}
                     {/* Hasil Pengukuran sub-cols */}
-                    <th className="py-2 px-3 font-semibold text-gray-500 text-[11px] text-center whitespace-nowrap border-r border-gray-100">X</th>
-                    <th className="py-2 px-3 font-semibold text-gray-500 text-[11px] text-center whitespace-nowrap border-r border-gray-100">Y</th>
-                    <th className="py-2 px-3 font-semibold text-gray-500 text-[11px] text-center whitespace-nowrap border-r border-gray-100">Z</th>
-                    <th className="py-2 px-3 font-semibold text-gray-500 text-[11px] text-center whitespace-nowrap border-r border-gray-100">HA</th>
-                    <th className="py-2 px-3 font-semibold text-gray-500 text-[11px] text-center whitespace-nowrap border-r border-gray-100">VA</th>
-                    <th className="py-2 px-3 font-semibold text-gray-500 text-[11px] text-center whitespace-nowrap border-r border-gray-200">Slope Distance</th>
+                    {colVis.hasil.X && <th className="py-2 px-3 font-semibold text-gray-500 text-[11px] text-center whitespace-nowrap border-r border-gray-100">X</th>}
+                    {colVis.hasil.Y && <th className="py-2 px-3 font-semibold text-gray-500 text-[11px] text-center whitespace-nowrap border-r border-gray-100">Y</th>}
+                    {colVis.hasil.Z && <th className="py-2 px-3 font-semibold text-gray-500 text-[11px] text-center whitespace-nowrap border-r border-gray-100">Z</th>}
+                    {colVis.hasil.HA && <th className="py-2 px-3 font-semibold text-gray-500 text-[11px] text-center whitespace-nowrap border-r border-gray-100">HA</th>}
+                    {colVis.hasil.VA && <th className="py-2 px-3 font-semibold text-gray-500 text-[11px] text-center whitespace-nowrap border-r border-gray-100">VA</th>}
+                    {colVis.hasil.SD && <th className="py-2 px-3 font-semibold text-gray-500 text-[11px] text-center whitespace-nowrap border-r border-gray-200">Slope Distance</th>}
                     {/* Pergeseran sub-cols */}
-                    <th className="py-2 px-3 font-semibold text-gray-500 text-[11px] text-center whitespace-nowrap border-r border-gray-100">ΔX</th>
-                    <th className="py-2 px-3 font-semibold text-gray-500 text-[11px] text-center whitespace-nowrap border-r border-gray-100">ΔY</th>
-                    <th className="py-2 px-3 font-semibold text-gray-500 text-[11px] text-center whitespace-nowrap border-r border-gray-100">ΔZ</th>
-                    <th className="py-2 px-3 font-semibold text-gray-500 text-[11px] text-center whitespace-nowrap border-r border-gray-200">Linier</th>
+                    {colVis.pergeseran.DX && <th className="py-2 px-3 font-semibold text-gray-500 text-[11px] text-center whitespace-nowrap border-r border-gray-100">ΔX</th>}
+                    {colVis.pergeseran.DY && <th className="py-2 px-3 font-semibold text-gray-500 text-[11px] text-center whitespace-nowrap border-r border-gray-100">ΔY</th>}
+                    {colVis.pergeseran.DZ && <th className="py-2 px-3 font-semibold text-gray-500 text-[11px] text-center whitespace-nowrap border-r border-gray-100">ΔZ</th>}
+                    {colVis.pergeseran.Linier && <th className="py-2 px-3 font-semibold text-gray-500 text-[11px] text-center whitespace-nowrap border-r border-gray-200">Linier</th>}
                   </tr>
                 </thead>
                 <tbody>
@@ -712,42 +971,52 @@ function HasilPengukuranContent() {
                             {row.nama_prisma || "-"}
                           </td>
                           {/* Awal */}
-                          <td className="py-3.5 px-2 text-[12px] text-gray-600 font-mono">{fval(t?.E0)}</td>
-                          <td className="py-3.5 px-2 text-[12px] text-gray-600 font-mono">{fval(t?.N0)}</td>
-                          <td className="py-3.5 px-2 text-[12px] text-gray-600 font-mono">{fval(t?.Z0)}</td>
-                          <td className="py-3.5 px-2 text-[12px] text-gray-600 font-mono">{t?.HA0 || "-"}</td>
-                          <td className="py-3.5 px-2 text-[12px] text-gray-600 font-mono">{t?.VA0 || "-"}</td>
-                          <td className="py-3.5 px-2 text-[12px] text-gray-600 font-mono">{t?.SD0 || "-"}</td>
+                          {colVis.awal.X && <td className="py-3.5 px-2 text-[12px] text-gray-600 font-mono">{fval(t?.E0)}</td>}
+                          {colVis.awal.Y && <td className="py-3.5 px-2 text-[12px] text-gray-600 font-mono">{fval(t?.N0)}</td>}
+                          {colVis.awal.Z && <td className="py-3.5 px-2 text-[12px] text-gray-600 font-mono">{fval(t?.Z0)}</td>}
+                          {colVis.awal.HA && <td className="py-3.5 px-2 text-[12px] text-gray-600 font-mono">{t?.HA0 || "-"}</td>}
+                          {colVis.awal.VA && <td className="py-3.5 px-2 text-[12px] text-gray-600 font-mono">{t?.VA0 || "-"}</td>}
+                          {colVis.awal.SD && <td className="py-3.5 px-2 text-[12px] text-gray-600 font-mono">{t?.SD0 || "-"}</td>}
                           {/* Hasil */}
-                          <td className="py-3.5 px-2 text-[12px] text-gray-700 font-mono border-l border-gray-100 bg-[#F7F8FF]/40">{fval(t?.E1)}</td>
-                          <td className="py-3.5 px-2 text-[12px] text-gray-700 font-mono bg-[#F7F8FF]/40">{fval(t?.N1)}</td>
-                          <td className="py-3.5 px-2 text-[12px] text-gray-700 font-mono bg-[#F7F8FF]/40">{fval(t?.Z1)}</td>
-                          <td className="py-3.5 px-2 text-[12px] text-gray-700 font-mono bg-[#F7F8FF]/40">{t?.HA1 || "-"}</td>
-                          <td className="py-3.5 px-2 text-[12px] text-gray-700 font-mono bg-[#F7F8FF]/40">{t?.VA1 || "-"}</td>
-                          <td className="py-3.5 px-2 text-[12px] text-gray-700 font-mono bg-[#F7F8FF]/40">{t?.SD1 || "-"}</td>
+                          {colVis.hasil.X && <td className="py-3.5 px-2 text-[12px] text-gray-700 font-mono border-l border-gray-100 bg-[#F7F8FF]/40">{fval(t?.E1)}</td>}
+                          {colVis.hasil.Y && <td className="py-3.5 px-2 text-[12px] text-gray-700 font-mono bg-[#F7F8FF]/40">{fval(t?.N1)}</td>}
+                          {colVis.hasil.Z && <td className="py-3.5 px-2 text-[12px] text-gray-700 font-mono bg-[#F7F8FF]/40">{fval(t?.Z1)}</td>}
+                          {colVis.hasil.HA && <td className="py-3.5 px-2 text-[12px] text-gray-700 font-mono bg-[#F7F8FF]/40">{t?.HA1 || "-"}</td>}
+                          {colVis.hasil.VA && <td className="py-3.5 px-2 text-[12px] text-gray-700 font-mono bg-[#F7F8FF]/40">{t?.VA1 || "-"}</td>}
+                          {colVis.hasil.SD && <td className="py-3.5 px-2 text-[12px] text-gray-700 font-mono bg-[#F7F8FF]/40">{t?.SD1 || "-"}</td>}
                           {/* Pergeseran */}
-                          <td className="py-3.5 px-2 text-[12px] font-mono border-l border-gray-100 bg-[#F4F5F7]/30">
-                            <span className={`font-semibold ${Number(t?.DE) < 0 ? "text-red-500" : Number(t?.DE) > 0 ? "text-emerald-600" : "text-gray-500"}`}>
-                              {t?.DE || "-"}
-                            </span>
-                          </td>
-                          <td className="py-3.5 px-2 text-[12px] font-mono bg-[#F4F5F7]/30">
-                            <span className={`font-semibold ${Number(t?.DN) < 0 ? "text-red-500" : Number(t?.DN) > 0 ? "text-emerald-600" : "text-gray-500"}`}>
-                              {t?.DN || "-"}
-                            </span>
-                          </td>
-                          <td className="py-3.5 px-2 text-[12px] font-mono bg-[#F4F5F7]/30">
-                            <span className={`font-semibold ${Number(t?.DZ) < 0 ? "text-red-500" : Number(t?.DZ) > 0 ? "text-emerald-600" : "text-gray-500"}`}>
-                              {t?.DZ || "-"}
-                            </span>
-                          </td>
-                          <td className="py-3.5 px-2 text-[12px] font-semibold text-[#303481] font-mono bg-[#F4F5F7]/30">
-                            {t?.linear ? Number(t.linear).toFixed(4) : "-"}
-                          </td>
+                          {colVis.pergeseran.DX && (
+                            <td className="py-3.5 px-2 text-[12px] font-mono border-l border-gray-100 bg-[#F4F5F7]/30">
+                              <span className={`font-semibold ${Number(t?.DE) < 0 ? "text-red-500" : Number(t?.DE) > 0 ? "text-emerald-600" : "text-gray-500"}`}>
+                                {t?.DE || "-"}
+                              </span>
+                            </td>
+                          )}
+                          {colVis.pergeseran.DY && (
+                            <td className="py-3.5 px-2 text-[12px] font-mono bg-[#F4F5F7]/30">
+                              <span className={`font-semibold ${Number(t?.DN) < 0 ? "text-red-500" : Number(t?.DN) > 0 ? "text-emerald-600" : "text-gray-500"}`}>
+                                {t?.DN || "-"}
+                              </span>
+                            </td>
+                          )}
+                          {colVis.pergeseran.DZ && (
+                            <td className="py-3.5 px-2 text-[12px] font-mono bg-[#F4F5F7]/30">
+                              <span className={`font-semibold ${Number(t?.DZ) < 0 ? "text-red-500" : Number(t?.DZ) > 0 ? "text-emerald-600" : "text-gray-500"}`}>
+                                {t?.DZ || "-"}
+                              </span>
+                            </td>
+                          )}
+                          {colVis.pergeseran.Linier && (
+                            <td className="py-3.5 px-2 text-[12px] font-semibold text-[#303481] font-mono bg-[#F4F5F7]/30">
+                              {t?.linear ? Number(t.linear).toFixed(4) : "-"}
+                            </td>
+                          )}
                           {/* Arah */}
-                          <td className="py-3.5 px-3 text-[12px] text-gray-700 font-medium border-l border-gray-100">
-                            {t?.arah_pergeseran || "-"}
-                          </td>
+                          {colVis.arah && (
+                            <td className="py-3.5 px-3 text-[12px] text-gray-700 font-medium border-l border-gray-100">
+                              {t?.arah_pergeseran || "-"}
+                            </td>
+                          )}
                         </tr>
                       );
                     })

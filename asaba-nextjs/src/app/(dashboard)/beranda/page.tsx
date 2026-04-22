@@ -1,7 +1,14 @@
 "use client";
 
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import { useRouter } from "next/navigation";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { PageHeader } from "@/components/page-header";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -169,6 +176,8 @@ function RtsDashboard({ logger }: { logger: any }) {
   })();
 
   const statusRtsText = isRtsConnected ? "Connected" : "Disconnected";
+  const tiltX       = tempRts?.sensor24 ?? "000'000\"";
+  const tiltY       = tempRts?.sensor25 ?? "000'000\"";
   const powerRts    = tempRts?.sensor23 ?? 0;   // Power RTS (Volt)
   const humidity    = tempRts?.sensor20 ?? 0;   // Humidity (%)
   const battery     = tempRts?.sensor21 ?? 0;   // Battery (Volt)
@@ -193,7 +202,7 @@ function RtsDashboard({ logger }: { logger: any }) {
           <CardContent className="p-4 lg:p-4.5 flex flex-col h-full justify-center">
             <div className="mb-4">
               <div className="flex items-center gap-2 mb-1.5 relative w-max">
-                <h3 className="font-extrabold text-gray-900 text-[17px]">Pos RTS Site Map</h3>
+                <h3 className="font-extrabold text-gray-900 text-[17px]">{logger.nama_logger || "Pos RTS Site Map"}</h3>
                 <button 
                   onClick={() => setShowInfo(!showInfo)}
                   className="w-5 h-5 bg-[#2B3270] rounded-full flex items-center justify-center text-white text-[12px] font-bold hover:bg-[#1a1e4a] transition-colors cursor-pointer"
@@ -274,15 +283,47 @@ function RtsDashboard({ logger }: { logger: any }) {
               />
             </div>
             {/* Right Status */}
-            <div className="flex-1 min-w-0">
+            <div className="flex-1 min-w-0 pl-1 lg:pl-3">
               <p className="text-[10px] lg:text-[11px] uppercase tracking-wider text-gray-500 font-bold mb-1 lg:mb-1.5">STATUS RTS</p>
-              <div className="flex items-center gap-1.5 lg:gap-2 mb-1 lg:mb-1.5">
-                <div className={cn("h-4 w-4 lg:h-[20px] lg:w-[20px] rounded-full flex-shrink-0", isRtsConnected ? "bg-[#2DB77B]" : "bg-[#EF4444]")}></div>
-                <span className={cn("font-extrabold text-[22px] sm:text-2xl lg:text-[28px] xl:text-[32px] tracking-tight truncate", isRtsConnected ? "text-[#2DB77B]" : "text-[#EF4444]")}>
+              <div className="flex items-center gap-1.5 lg:gap-2 mb-2 lg:mb-2.5">
+                <div className={cn("h-4 w-4 lg:h-[18px] lg:w-[18px] rounded-full flex-shrink-0", isRtsConnected ? "bg-[#2DB77B]" : "bg-[#EF4444]")}></div>
+                <span className={cn("font-extrabold text-[22px] sm:text-2xl lg:text-[26px] xl:text-[28px] tracking-tight truncate", isRtsConnected ? "text-[#2DB77B]" : "text-[#EF4444]")}>
                   {statusRtsText}
                 </span>
+              </div>   
+              <p className="text-[10px] lg:text-[11px] uppercase tracking-wider text-gray-500 font-bold mb-1">TILT</p>
+              <div className="flex items-center gap-2">
+                <div className="relative w-[40px] h-[40px] flex-shrink-0">
+                  <Image 
+                    src="/tilt_off.svg" 
+                    fill
+                    alt="Tilt Safe" 
+                    className={cn(
+                      "object-contain transition-all duration-500 ease-[cubic-bezier(0.34,1.56,0.64,1)]",
+                      isRtsConnected ? "opacity-100 scale-100 rotate-0" : "opacity-0 scale-50 -rotate-45"
+                    )} 
+                  />
+                  <Image 
+                    src="/tilt_on.svg" 
+                    fill
+                    alt="Tilt Warning" 
+                    className={cn(
+                      "object-contain transition-all duration-500 ease-[cubic-bezier(0.34,1.56,0.64,1)]",
+                      !isRtsConnected ? "opacity-100 scale-100 rotate-0" : "opacity-0 scale-50 rotate-45"
+                    )} 
+                  />
+                </div>
+                <div className="flex flex-col text-[21px] lg:text-[21px] font-extrabold text-gray-900 leading-[1.15] tracking-tight">
+                  <div className="flex items-center gap-1">
+                    <span>{tiltX}</span>
+                    <span className="text-[#303481] text-[15px] lg:text-[16px] font-bold">X</span>
+                  </div>
+                  <div className="flex items-center gap-1">
+                    <span>{tiltY}</span>
+                    <span className="text-[#303481] text-[15px] lg:text-[16px] font-bold">Y</span>
+                  </div>
+                </div>
               </div>
-              <p className="text-[9px] lg:text-[11px] text-gray-800 font-medium truncate">Terakhir terhubung: {lastUpdateStr}</p>
             </div>
           </Card>
 
@@ -581,7 +622,18 @@ export default function BerandaPage() {
 
   const categories = useMemo(() => groupByCategory(loggers), [loggers]);
   const rtsCategory = categories.find((g) => g.kategori.toUpperCase().includes("RTS") || g.kategori.toUpperCase().includes("ADR"));
-  const firstRtsLogger = rtsCategory?.loggers?.[0]; 
+  const rtsLoggers = rtsCategory?.loggers || [];
+  
+  const [selectedPos, setSelectedPos] = useState<string>("");
+
+  // Auto select first
+  useEffect(() => {
+    if (rtsLoggers.length > 0 && !rtsLoggers.find(l => l.id_logger === selectedPos)) {
+      setSelectedPos(rtsLoggers[0].id_logger);
+    }
+  }, [rtsLoggers, selectedPos]);
+
+  const activeLogger = rtsLoggers.find(l => l.id_logger === selectedPos) || rtsLoggers[0];
 
   return (
     <div className="space-y-6">
@@ -608,8 +660,34 @@ export default function BerandaPage() {
         </Card>
       ) : (
         <>
-          {firstRtsLogger && (
-             <RtsDashboard logger={firstRtsLogger} />
+          {/* Top Controls: Pos Selector */}
+          <div className="flex items-center gap-3 bg-white border border-[#EAEAEA] rounded-[8px] px-4 py-2 w-max">
+            <span className="text-[13px] font-bold text-gray-800">Pos Aktif:</span>
+            {isLoading ? (
+              <div className="h-8 w-[200px] bg-gray-200 animate-pulse rounded-md" />
+            ) : (
+              <Select value={selectedPos} onValueChange={(val) => { if (val) setSelectedPos(val); }}>
+                <SelectTrigger className="w-[240px] h-8 bg-transparent border-none shadow-none text-[13px] font-semibold text-gray-800 focus:ring-0 p-0">
+                  <div className="flex items-center gap-2">
+                    <MapPin className="w-4 h-4 text-[#303481]" />
+                    <span className="truncate">
+                      {activeLogger?.nama_lokasi || activeLogger?.nama_logger || "Pilih Pos"}
+                    </span>
+                  </div>
+                </SelectTrigger>
+                <SelectContent alignItemWithTrigger={false} sideOffset={4} className="rounded-xl border-gray-100 shadow-lg">
+                  {rtsLoggers.map((l: any) => (
+                    <SelectItem key={l.id_logger} value={l.id_logger} className="text-[13px] font-medium cursor-pointer">
+                      {l.nama_lokasi || l.nama_logger || `Logger ${l.id_logger}`}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            )}
+          </div>
+
+          {activeLogger && (
+             <RtsDashboard logger={activeLogger} />
           )}
         </>
       )}

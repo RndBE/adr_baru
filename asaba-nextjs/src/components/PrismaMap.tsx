@@ -1,7 +1,8 @@
 "use client";
 
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import "leaflet/dist/leaflet.css";
+import { Maximize, Check } from "lucide-react";
 
 export interface PrismaMarkerData {
   id_prisma: string;
@@ -27,8 +28,14 @@ interface Props {
 }
 
 export default function PrismaMap({ markers, site }: Props) {
+  const containerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<HTMLDivElement>(null);
   const mapInstanceRef = useRef<import("leaflet").Map | null>(null);
+  const tileLayerRef = useRef<import("leaflet").TileLayer | null>(null);
+
+  const [mapType, setMapType] = useState<"Map" | "Satellite">("Map");
+  const [showTerrain, setShowTerrain] = useState(true);
+  const [showLabels, setShowLabels] = useState(true);
 
   const isCcp = (site || "").toLowerCase().includes("ccp");
 
@@ -57,11 +64,25 @@ export default function PrismaMap({ markers, site }: Props) {
 
     L.control.zoom({ position: "bottomright" }).addTo(map);
 
-    // Satellite tile (Esri World Imagery)
-    L.tileLayer(
-      "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",
-      { maxZoom: 22 }
+    // Initial layer URL
+    let initialLyrs = "m";
+    if (mapType === "Satellite") {
+      initialLyrs = showLabels ? "y" : "s";
+    } else if (showTerrain) {
+      initialLyrs = "p";
+    }
+
+    // Google Maps base layer
+    const googleLayer = L.tileLayer(
+      `https://mt{s}.google.com/vt/lyrs=${initialLyrs}&x={x}&y={y}&z={z}`,
+      {
+        maxZoom: 22,
+        maxNativeZoom: 22,
+        subdomains: ["0", "1", "2", "3"],
+      }
     ).addTo(map);
+
+    tileLayerRef.current = googleLayer;
 
     // ── ADR/RTS marker ──
     const rtsIcon = L.divIcon({
@@ -162,7 +183,8 @@ export default function PrismaMap({ markers, site }: Props) {
         .bindPopup(popupHtml, { maxWidth: 280, className: "prisma-popup" });
 
       // Label
-      L.marker([pr.lat0, pr.lon0], { opacity: 0 })
+      const emptyIcon = L.divIcon({ className: "", iconSize: [0, 0], iconAnchor: [0, 0] });
+      L.marker([pr.lat0, pr.lon0], { icon: emptyIcon })
         .addTo(map)
         .bindTooltip(namaBersih, {
           permanent: true,
@@ -180,16 +202,16 @@ export default function PrismaMap({ markers, site }: Props) {
         const endLon = pr.lon0 + dLon * scale;
 
         L.polyline([[pr.lat0, pr.lon0], [endLat, endLon]], {
-          color: "#60a5fa",
-          weight: 2,
-          opacity: 0.9,
+          color: "#2563eb",
+          weight: 3.5,
+          opacity: 1,
         }).addTo(map);
 
         const arrowIcon = L.divIcon({
           className: "",
-          html: `<div style="width:8px;height:8px;background:#60a5fa;border:1.5px solid white;border-radius:50%;box-shadow:0 1px 3px rgba(0,0,0,0.3);"></div>`,
-          iconSize: [8, 8],
-          iconAnchor: [4, 4],
+          html: `<div style="width:10px;height:10px;background:#2563eb;border:2px solid white;border-radius:50%;box-shadow:0 1px 4px rgba(0,0,0,0.4);"></div>`,
+          iconSize: [10, 10],
+          iconAnchor: [5, 5],
         });
         L.marker([endLat, endLon], { icon: arrowIcon }).addTo(map);
       }
@@ -211,11 +233,39 @@ export default function PrismaMap({ markers, site }: Props) {
         mapInstanceRef.current = null;
       }
     };
-  }, [markers, site]);
+  }, [markers, site]); // Dependencies: only recreate map if markers or site change
+
+  // Dynamically update tile layer when map type or terrain changes
+  useEffect(() => {
+    if (!tileLayerRef.current) return;
+    let lyrs = "m"; // Map (Roadmap)
+    if (mapType === "Satellite") {
+      lyrs = showLabels ? "y" : "s"; // Satellite with or without labels
+    } else if (mapType === "Map" && showTerrain) {
+      lyrs = "p"; // Terrain
+    }
+    const url = `https://mt{s}.google.com/vt/lyrs=${lyrs}&x={x}&y={y}&z={z}`;
+    tileLayerRef.current.setUrl(url);
+  }, [mapType, showTerrain, showLabels]);
+
+  const toggleFullscreen = () => {
+    if (!document.fullscreenElement) {
+      containerRef.current?.requestFullscreen().catch((err) => {
+        console.error(`Error attempting to enable fullscreen: ${err.message}`);
+      });
+    } else {
+      document.exitFullscreen();
+    }
+  };
 
   return (
-    <div className="relative w-full rounded-xl overflow-hidden" style={{ height: "520px" }}>
+    <div ref={containerRef} className="relative w-full rounded-xl overflow-hidden bg-white" style={{ height: "520px" }}>
       <style>{`
+        :fullscreen {
+          height: 100vh !important;
+          width: 100vw !important;
+          border-radius: 0 !important;
+        }
         .prisma-label {
           background: rgba(255,255,255,0.92) !important;
           border: none !important;
@@ -276,9 +326,70 @@ export default function PrismaMap({ markers, site }: Props) {
           Prisma Gagal
         </div>
         <div className="flex items-center gap-2 text-[11.5px] text-gray-700 font-medium">
-          <span className="inline-block w-5 border-t-2 border-blue-400" />
+          <span className="inline-block w-5 border-t-[3.5px] border-blue-600 rounded-full" />
           Arah Pergeseran
         </div>
+      </div>
+
+      {/* Custom Map UI Controls (Top Right) */}
+      <div className="absolute z-[1000] top-3 right-3 flex flex-col gap-2 items-end">
+        <div className="flex items-center gap-2">
+          {/* Map/Satellite Toggle */}
+          <div className="flex bg-white rounded-md shadow-sm border border-[#EAEAEA] overflow-hidden text-[13px] font-bold">
+            <button 
+              onClick={() => setMapType("Map")}
+              className={`px-4 py-1.5 transition-colors cursor-pointer ${mapType === "Map" ? "bg-[#303481] text-white" : "text-gray-600 hover:bg-gray-50"}`}
+            >
+              Map
+            </button>
+            <button 
+              onClick={() => setMapType("Satellite")}
+              className={`px-4 py-1.5 transition-colors cursor-pointer ${mapType === "Satellite" ? "bg-[#303481] text-white" : "text-gray-600 hover:bg-gray-50"}`}
+            >
+              Satellite
+            </button>
+          </div>
+          {/* Fullscreen Button */}
+          <button 
+            onClick={toggleFullscreen}
+            className="w-[34px] h-[32px] bg-white rounded-md shadow-sm border border-[#EAEAEA] flex items-center justify-center text-gray-500 hover:bg-gray-50 transition-colors cursor-pointer"
+          >
+            <Maximize className="w-4 h-4" />
+          </button>
+        </div>
+        
+        {/* Terrain Checkbox */}
+        {mapType === "Map" && (
+          <label className="flex items-center gap-2 bg-white rounded-md shadow-sm border border-[#EAEAEA] px-3 py-1.5 cursor-pointer text-[12px] font-bold text-gray-700 hover:bg-gray-50 transition-colors">
+            <div className={`flex items-center justify-center w-[15px] h-[15px] rounded-[3px] border ${showTerrain ? "bg-[#303481] border-[#303481]" : "bg-white border-gray-300"}`}>
+              {showTerrain && <Check className="w-3 h-3 text-white" strokeWidth={3} />}
+            </div>
+            Terrain
+            {/* hidden native checkbox to maintain accessibility */}
+            <input 
+              type="checkbox" 
+              checked={showTerrain}
+              onChange={(e) => setShowTerrain(e.target.checked)}
+              className="hidden"
+            />
+          </label>
+        )}
+
+        {/* Labels Checkbox for Satellite */}
+        {mapType === "Satellite" && (
+          <label className="flex items-center gap-2 bg-white rounded-md shadow-sm border border-[#EAEAEA] px-3 py-1.5 cursor-pointer text-[12px] font-bold text-gray-700 hover:bg-gray-50 transition-colors">
+            <div className={`flex items-center justify-center w-[15px] h-[15px] rounded-[3px] border ${showLabels ? "bg-[#303481] border-[#303481]" : "bg-white border-gray-300"}`}>
+              {showLabels && <Check className="w-3 h-3 text-white" strokeWidth={3} />}
+            </div>
+            Labels
+            <input 
+              type="checkbox" 
+              checked={showLabels}
+              onChange={(e) => setShowLabels(e.target.checked)}
+              className="hidden"
+            />
+          </label>
+        )}
       </div>
 
       <div ref={mapRef} className="w-full h-full" />

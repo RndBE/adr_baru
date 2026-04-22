@@ -151,12 +151,11 @@ export async function GET(request: NextRequest) {
         }
 
         // Compute map lat/lon using the SAME logic as PHP utm2ll()
-        // CCP: rotated E/N, zone 50, northern=true
-        // VP/others: raw E/N, zone 48, northern=false
+        // CCP dan Viewpoint sama-sama berada di area Tarakan (Zone 50 North)
         let mapLat0: number | null = null, mapLon0: number | null = null;
         let mapLat1: number | null = null, mapLon1: number | null = null;
-        const mapZone  = site === "ccp" ? 50 : 48;
-        const mapNorth = site === "ccp" ? true : false;
+        const mapZone  = 50;
+        const mapNorth = true;
         if (E0 !== 0 || N0 !== 0) {
           const ll0 = utm2ll(E0, N0, mapZone, mapNorth);
           mapLat0 = ll0.lat; mapLon0 = ll0.lon;
