@@ -67,12 +67,10 @@ export default function LoginPage() {
 
         <div className="relative z-10 w-full max-w-[600px] mx-auto aspect-square flex items-center justify-center">
           {/* We use the generated illustration or you can swap with the real SVG later */}
-          <Image
+          <img
             src="/logo_login.svg" 
             alt="Monitoring Illustration"
-            fill
-            className="object-contain"
-            priority
+            className="w-full h-full object-contain"
           />
         </div>
         
@@ -181,8 +179,8 @@ export default function LoginPage() {
         {/* Footer Logos */}
         <div className="absolute bottom-8 left-0 w-full flex flex-col items-center justify-center gap-3">
           <div className="flex items-center justify-center gap-4">
-            <Image src="/logo_be.png" alt="Beacon Engineering" width={80} height={30} className="object-contain" />
-            <Image src="/logostesy.png" alt="STESY" width={90} height={30} className="object-contain" />
+            <img src="/logo_be.png" alt="Beacon Engineering" style={{ width: 80, height: 30 }} className="object-contain" />
+            <img src="/logostesy.png" alt="STESY" style={{ width: 90, height: 30 }} className="object-contain" />
           </div>
           <p className="text-[11px] font-bold text-gray-500">
             © Beacon Engineering {new Date().getFullYear()}
