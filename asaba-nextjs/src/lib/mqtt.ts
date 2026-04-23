@@ -86,7 +86,8 @@ export async function sendRtsStartCommand(loggerId: string): Promise<boolean> {
   };
 
   const r1 = await publishMqtt("kontrol-asaba", sendKontrol);
-  const r2 = await publishMqtt("ADR_Tambang_Kaltara", dataMqtt);
+  const topicTarget = process.env.MQTT_TOPIC || "ADR_Tambang_Kaltara";
+  const r2 = await publishMqtt(topicTarget, dataMqtt);
 
   return r1 && r2;
 }

@@ -53,7 +53,7 @@ const NUMERIC_SENSORS = new Set([14, 15, 16, 17, 18, 19]);
 function buildSensorPayload(payload: PayloadMap) {
   const data: Record<string, string | number> = {};
 
-  for (let i = 1; i <= 23; i += 1) {
+  for (let i = 1; i <= 25; i += 1) {
     const val = payload[`sensor${i}`];
     if (NUMERIC_SENSORS.has(i)) {
       // Kolom integer/bit: pakai 0 jika tidak ada atau kosong
