@@ -70,14 +70,16 @@ export function AppSidebar() {
     <Sidebar variant="sidebar" collapsible="icon" className="border-r border-gray-100 bg-white">
       <SidebarHeader className="border-b-0 pt-6 pb-4 px-4 group-data-[collapsible=icon]:px-0 bg-white">
         <div className="flex items-center justify-between w-full h-8 group-data-[collapsible=icon]:justify-center">
-          <div className="flex items-center gap-2 overflow-hidden group-data-[collapsible=icon]:hidden">
+          <div className="flex flex-1 items-center justify-start overflow-hidden group-data-[collapsible=icon]:hidden">
             <img 
               src="/logo_be.png" 
               alt="Beacon Engineering Logo" 
-              className="h-9 object-contain"
+              className="h-9 w-auto object-contain"
+              style={{ imageRendering: "auto", WebkitFontSmoothing: "antialiased" }}
+              draggable={false}
             />
           </div>
-          <SidebarTrigger className="h-6 w-6 rounded-md border border-gray-300 flex-shrink-0 text-gray-500 hover:text-gray-900" />
+          <SidebarTrigger className="h-6 w-6 rounded-md border border-gray-300 flex-shrink-0 text-gray-500 hover:text-gray-900 cursor-pointer" />
         </div>
       </SidebarHeader>
 

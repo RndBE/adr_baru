@@ -18,6 +18,77 @@ import {
   RefreshCcw,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+
+// ── RTS Sprite Animation ──────────────────────────────────────────────────────
+const TOTAL_FRAMES = 65; // frames 1.png → 65.png
+const FRAME_MS     = 60; // ms per frame (~16 fps)
+
+function RTSAnimation({ isRunning }: { isRunning: boolean }) {
+  const [frame, setFrame]     = useState(1);
+  const directionRef          = useRef<1 | -1>(1);
+  const intervalRef           = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  useEffect(() => {
+    if (isRunning) {
+      intervalRef.current = setInterval(() => {
+        setFrame((prev) => {
+          const next = prev + directionRef.current;
+          if (next >= TOTAL_FRAMES) { directionRef.current = -1; return TOTAL_FRAMES; }
+          if (next <= 1)            { directionRef.current =  1; return 1; }
+          return next;
+        });
+      }, FRAME_MS);
+    } else {
+      if (intervalRef.current) clearInterval(intervalRef.current);
+      setFrame(1);
+      directionRef.current = 1;
+    }
+    return () => { if (intervalRef.current) clearInterval(intervalRef.current); };
+  }, [isRunning]);
+
+  if (!isRunning) {
+    return (
+      <Image
+        src="/65 2.svg"
+        width={90}
+        height={140}
+        alt="Sokkia Total Station"
+        className="object-contain w-[90px] h-[140px]"
+      />
+    );
+  }
+
+  return (
+    <div className="relative w-[140px] h-[140px]">
+      {/* Subtle scanning glow ring */}
+      <div className="absolute inset-0 rounded-full animate-ping opacity-10 bg-[#303481]" style={{ animationDuration: "2s" }} />
+      
+      {/* Static Base (Bagian bawah / Tribrach yang diam) */}
+      <img
+        src="/rts-frames/1.png"
+        alt="RTS Base"
+        style={{ height: '140px', width: 'auto' }}
+        className="absolute left-1/2 top-0 -translate-x-1/2 object-contain"
+        draggable={false}
+      />
+
+      {/* Animated Top (Bagian atas yang berputar, cut bagian bawah ~18.5%) */}
+      <img
+        src={`/rts-frames/${frame}.png`}
+        alt={`RTS frame ${frame}`}
+        style={{ 
+          height: '140px', 
+          width: 'auto',
+          clipPath: 'inset(0 0 18.5% 0)',
+          WebkitClipPath: 'inset(0 0 18.5% 0)'
+        }}
+        className="absolute left-1/2 top-0 -translate-x-1/2 object-contain"
+        draggable={false}
+      />
+    </div>
+  );
+}
+// ─────────────────────────────────────────────────────────────────────────────
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
 import { RtsConnectionBadge } from "@/components/RtsConnectionBadge";
@@ -575,15 +646,15 @@ export default function KontrolAdrPage() {
                 <h3 className="font-bold text-[#303481] text-[14px]">Robotic Total Station</h3>
               </div>
               <div className="p-5 flex gap-4">
-                 <div className="w-[100px] shrink-0 flex items-center justify-center">
-                   <Image src="/65 2.svg" width={90} height={140} alt="Sokkia Total Station" className="object-contain" />
+                 <div className="w-[140px] shrink-0 flex items-center justify-center">
+                   <RTSAnimation isRunning={isControlRunning} />
                  </div>
                  <div className="flex-1 flex flex-col">
                     <div className="flex gap-10 mb-5">
                       <div>
                         <p className="text-[13px] font-bold text-[#303481]">Retries</p>
                         <p className="text-[28px] font-bold text-gray-900 flex items-center gap-2 mt-1 leading-[1.1]">
-                          <RefreshCcw className={`w-6 h-6 text-[#F26522] ${isControlRunning ? 'animate-spin' : ''}`} strokeWidth={3} />
+                          <RefreshCcw className={`w-6 h-6 text-[#F26522] ${isControlRunning ? 'animate-spin' : ''}`} strokeWidth={3} style={{ animationDirection: 'reverse' }} />
                           {rtsConfig.retries || "1"}
                         </p>
                       </div>
@@ -595,7 +666,7 @@ export default function KontrolAdrPage() {
                    <div>
                       <p className="text-[12px] font-bold text-[#303481] mb-1.5 flex justify-between items-center">
                         Proses Log
-                        {isControlRunning && <span className="text-[10px] text-gray-400 font-normal italic flex items-center gap-1.5"><div className="w-1.5 h-1.5 rounded-full bg-blue-500 animate-pulse"></div> Live</span>}
+                        {isControlRunning && <span className="text-[10px] text-gray-400 font-normal italic flex items-center gap-1.5"><span className="w-1.5 h-1.5 rounded-full bg-blue-500 animate-pulse inline-block" />&nbsp;Live</span>}
                       </p>
                       <div className="text-[11px] font-medium text-gray-700 leading-snug flex flex-col gap-1">
                         {[

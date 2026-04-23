@@ -6,7 +6,7 @@ import { Separator } from "@/components/ui/separator";
 import { usePathname } from "next/navigation";
 
 const pageTitles: Record<string, string> = {
-  "/beranda": "Beranda",
+  "/beranda": "Dashboard",
   "/analisa": "Analisa",
   "/monitoring": "Monitoring",
   "/masterdata": "Masterdata",
