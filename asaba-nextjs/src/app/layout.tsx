@@ -9,7 +9,7 @@ const inter = Inter({
 });
 
 export const metadata: Metadata = {
-  title: "Sistem Monitoring Bendungan — ASABA",
+  title: "Sistem Monitoring Bendungan",
   description:
     "Sistem monitoring bendungan real-time dengan data sensor AWLR, ARR, ADR, dan instrumentasi keamanan bendungan.",
 };

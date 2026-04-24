@@ -496,9 +496,9 @@ function RtsDashboard({ logger }: { logger: any }) {
       </div>
 
       {/* ─── BOTTOM SEC: SUMMARIES & MAP PREVIEWS ─── */}
-      <div className="grid grid-cols-1 lg:grid-cols-[2fr_3fr_3fr] gap-4">
+      <div className="grid grid-cols-1 xl:grid-cols-12 gap-5">
         {/* Ringkasan Harian */}
-        <Card className="rounded-lg shadow-sm border-[#EAEAEA] bg-white lg:col-span-1">
+        <Card className="rounded-lg shadow-sm border-[#EAEAEA] bg-white xl:col-span-3">
           <CardHeader className="p-4 2xl:px-5 pb-0">
             <CardTitle className="text-[15px] font-extrabold text-gray-900">Ringkasan Harian</CardTitle>
           </CardHeader>
@@ -549,8 +549,10 @@ function RtsDashboard({ logger }: { logger: any }) {
           </CardContent>
         </Card>
 
-        {/* Peta Prisma Preview */}
-        <Card className="rounded-lg shadow-sm border-[#EAEAEA] bg-white lg:col-span-1 min-h-[160px] relative overflow-hidden flex flex-col">
+        {/* Wrapper Peta & 3D */}
+        <div className="xl:col-span-9 grid grid-cols-1 lg:grid-cols-2 gap-5">
+          {/* Peta Prisma Preview */}
+          <Card className="rounded-lg shadow-sm border-[#EAEAEA] bg-white min-h-[160px] relative overflow-hidden flex flex-col">
            <div className="p-4 2xl:p-5 flex-1 z-10 relative w-[35%]">
               <h3 className="font-extrabold text-[15px] text-gray-900 mb-0.5">Peta Prisma</h3>
               <p className="text-[11px] text-gray-500 font-medium leading-tight mb-4 pr-1">Preview persebaran titik prisma</p>
@@ -574,7 +576,7 @@ function RtsDashboard({ logger }: { logger: any }) {
         </Card>
 
         {/* Visualisasi 3D Preview */}
-        <Card className="rounded-lg shadow-sm border-[#EAEAEA] bg-white lg:col-span-1 min-h-[160px] relative overflow-hidden flex flex-col">
+        <Card className="rounded-lg shadow-sm border-[#EAEAEA] bg-white min-h-[160px] relative overflow-hidden flex flex-col">
            <div className="p-4 2xl:p-5 flex-1 z-10 relative w-[35%]">
               <h3 className="font-extrabold text-[15px] text-gray-900 mb-0.5">Visualisasi 3D</h3>
               <p className="text-[11px] text-gray-500 font-medium leading-tight mb-4 pr-1">Preview visualisasi deformasi prisma</p>
@@ -596,6 +598,7 @@ function RtsDashboard({ logger }: { logger: any }) {
               </div>
            </div>
         </Card>
+        </div>
 
       </div>
     </div>
@@ -652,7 +655,7 @@ export default function BerandaPage() {
   const activeLogger = rtsLoggers.find(l => l.id_logger === selectedPos) || rtsLoggers[0];
 
   return (
-    <div className="space-y-6">
+    <div className="-m-4 md:-m-6 bg-[#F4F6F9] min-h-[calc(100vh-3.5rem)] p-4 md:p-6 space-y-4 md:space-y-6">
 
       {isLoading ? (
         <div className="space-y-6">

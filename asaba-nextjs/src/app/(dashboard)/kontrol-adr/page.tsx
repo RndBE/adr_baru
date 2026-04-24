@@ -545,10 +545,10 @@ export default function KontrolAdrPage() {
 
   return (
     <main className="min-h-screen">
-      <div className="-m-4 md:-m-6 bg-[#F4F6F9] min-h-[calc(100vh-3.5rem)] flex flex-col">
+      <div className="-m-4 md:-m-6 bg-[#F4F6F9] min-h-[calc(100vh-3.5rem)] flex flex-col p-4 md:p-6 gap-7">
 
         {/* Header Section */}
-        <div className="p-6 pb-2">
+        <div>
           <div className="flex flex-wrap items-center justify-between gap-4">
             <div className="flex items-center gap-4">
               <div className="w-10 h-10 rounded-full border border-gray-200 bg-[#E5E5E5] flex items-center justify-center shadow-inner relative">
@@ -580,10 +580,10 @@ export default function KontrolAdrPage() {
         </div>
 
         {/* Main Content Layout */}
-        <div className="px-6 pb-6 grid grid-cols-1 xl:grid-cols-[360px_1fr] gap-6 items-start">
+        <div className="grid grid-cols-1 xl:grid-cols-[360px_1fr] gap-6 items-start">
 
           {/* Left Column (Kontrol + RTS Image + Riwayat) */}
-          <div className="flex flex-col gap-6 w-full">
+          <div className="flex flex-col gap-4 w-full">
 
             {/* Kontrol ADR Card */}
             <div className="bg-white border border-[#EAEAEA] rounded-[8px] shadow-sm overflow-hidden text-slate-800">
@@ -736,10 +736,10 @@ export default function KontrolAdrPage() {
           </div>
 
           {/* Right Column (Metrics + Prisma Data) */}
-          <div className="flex flex-col gap-6 w-full">
+          <div className="flex flex-col gap-4 w-full">
             
             {/* 5 Status Cards */}
-            <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-5 gap-2.5">
+            <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-5 gap-5">
               {TOP_METRICS.map((metric, i) => {
                 let finalValue = metric.value;
                 let valueColor = "#0f172a";
