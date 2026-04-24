@@ -60,9 +60,6 @@ function RTSAnimation({ isRunning }: { isRunning: boolean }) {
 
   return (
     <div className="relative w-[140px] h-[140px]">
-      {/* Subtle scanning glow ring */}
-      <div className="absolute inset-0 rounded-full animate-ping opacity-10 bg-[#303481]" style={{ animationDuration: "2s" }} />
-      
       {/* Static Base (Bagian bawah / Tribrach yang diam) */}
       <img
         src="/rts-frames/1.png"
