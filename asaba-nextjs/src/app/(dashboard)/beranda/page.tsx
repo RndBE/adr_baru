@@ -169,10 +169,18 @@ function RtsDashboard({ logger }: { logger: any }) {
     return waktuMs >= Date.now() - 60 * 60 * 1000;
   })();
 
-  // Status RTS dari payload sensor 14 (0 = disconnected, 1 = connected)
+  // Status RTS: sensor14 harus = 1 DAN data terakhir masuk dalam 1 jam terakhir
+  // Jika tidak ada data baru (timeout), otomatis Disconnected meskipun sensor14 = 1
   const isRtsConnected = (() => {
     if (!tempRts || tempRts.sensor14 === undefined || tempRts.sensor14 === null) return false;
-    return Number(tempRts.sensor14) === 1;
+    if (Number(tempRts.sensor14) !== 1) return false;
+    // Cek waktu data terakhir — harus dalam 1 jam terakhir
+    const isoStr = parseWaktuToIso(tempRts.waktu);
+    if (!isoStr) return false;
+    const normalized = isoStr.replace(/Z$/, "").replace(/\+\d{2}:\d{2}$/, "");
+    const waktuMs = new Date(normalized + "+07:00").getTime();
+    if (isNaN(waktuMs)) return false;
+    return waktuMs >= Date.now() - 60 * 60 * 1000;
   })();
 
   const statusRtsText = isRtsConnected ? "Connected" : "Disconnected";

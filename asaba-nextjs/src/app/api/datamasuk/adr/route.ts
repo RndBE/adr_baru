@@ -114,6 +114,8 @@ export async function POST(request: NextRequest) {
     let idLog = "";
     let mqttPrismaSent = false;
     let mqttKontrolSent = false;
+    const mqttPrismaTopic = `Logger_${idAlat}`;
+    const mqttKontrolTopic = "kontrol-asaba";
 
     // DEBUG: log apa yang diterima dari logger
     console.log("[datamasuk/adr] payload.id_alat:", idAlat);
@@ -169,7 +171,7 @@ export async function POST(request: NextRequest) {
         WHERE id_prisma = ${sensorData.sensor1}
       `;
 
-      mqttPrismaSent = await publishMqtt(`rts-${idAlat}`, prismaUpdate);
+      mqttPrismaSent = await publishMqtt(mqttPrismaTopic, prismaUpdate);
     }
 
     const rtsPayload: PayloadMap = {
@@ -229,7 +231,7 @@ export async function POST(request: NextRequest) {
           WHERE id_logger = ${idAlat}
         `;
 
-        mqttKontrolSent = await publishMqtt("kontrol-asaba", kontrolPayload);
+        mqttKontrolSent = await publishMqtt(mqttKontrolTopic, kontrolPayload);
       }
     }
 
@@ -259,7 +261,9 @@ export async function POST(request: NextRequest) {
         waktu,
         prisma: sensorData.sensor1 || null,
         mqtt_prisma_sent: mqttPrismaSent,
+        mqtt_prisma_topic: mqttPrismaTopic,
         mqtt_kontrol_sent: mqttKontrolSent,
+        mqtt_kontrol_topic: mqttKontrolTopic,
       },
     });
   } catch (error) {
