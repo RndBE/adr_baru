@@ -232,22 +232,17 @@ export default function KontrolAdrPage() {
   const [runningDate, setRunningDate] = useState<string>("-");
   const [isControlRunning, setIsControlRunning] = useState(false);
   const [accessCodeError, setAccessCodeError] = useState("");
-  const [logStep, setLogStep] = useState(0); // 0=idle, 1=direct, 2=search, 3=measuring, 4=record
   const pollingRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const [totalPrisma, setTotalPrisma] = useState(0);
 
-  // Simulasi step visual saat `isControlRunning` true
-  useEffect(() => {
-    let interval: any;
-    if (isControlRunning) {
-      setLogStep(1);
-      interval = setInterval(() => {
-        setLogStep((prev) => (prev % 4) + 1);
-      }, 1500); // Pindah fase tiap 1.5 detik
-    } else {
-      setLogStep(0);
-    }
-    return () => clearInterval(interval);
-  }, [isControlRunning]);
+  // --- Data-driven Proses Log ---
+  // Hitung progress berdasarkan status prisma card yang diterima dari logger
+  const successCount = prismaCards.filter(c => c.status === "Success").length;
+  const failedCount = prismaCards.filter(c => c.status === "Failed").length;
+  const runningCount = prismaCards.filter(c => c.status === "Running...").length;
+  const respondedCount = successCount + failedCount; // prisma yang sudah dijawab logger
+  const allDone = totalPrisma > 0 && runningCount === 0 && isControlRunning;
+  const hasAnyResponse = respondedCount > 0;
 
   // Sinkronkan isControlRunning dengan sensor16 dari hardware
   // sensor16=1 → RTS sedang running, sensor16=0 → selesai/idle
@@ -460,7 +455,15 @@ export default function KontrolAdrPage() {
         if (dbCards.length > 0 && json.data[0].waktu) {
           setRunningDate(json.data[0].waktu);
         }
+        setTotalPrisma(dbCards.length);
         setPrismaCards(dbCards);
+
+        // Auto-stop polling ketika semua prisma sudah selesai (tidak ada Running lagi)
+        const stillRunning = dbCards.some(c => c.status === "Running...");
+        if (!stillRunning && dbCards.length > 0 && pollingRef.current) {
+          // Semua sudah dijawab logger, stop polling
+          // (isControlRunning akan berubah lewat sensor16)
+        }
       }
     } catch (err) {
       console.error("Failed to fetch prisma data:", err);
@@ -672,30 +675,44 @@ export default function KontrolAdrPage() {
                         {isControlRunning && <span className="text-[10px] text-gray-400 font-normal italic flex items-center gap-1.5"><span className="w-1.5 h-1.5 rounded-full bg-blue-500 animate-pulse inline-block" />&nbsp;Live</span>}
                       </p>
                       <div className="text-[11px] font-medium text-gray-700 leading-snug flex flex-col gap-1">
-                        {[
-                          { step: 1, label: "Directing to Target" },
-                          { step: 2, label: "Search Target" },
-                          { step: 3, label: "Measuring Target" },
-                          { step: 4, label: "Recording Data" },
-                        ].map((log) => {
-                           const active = logStep === log.step;
-                           const done = logStep > log.step || (!isControlRunning && isConnected);
-                           
-                           return (
-                             <p key={log.step} className="flex justify-between items-center group">
-                               <span className={`truncate flex-1 tracking-tight ${active ? 'text-[#303481] font-bold drop-shadow-sm' : ''}`}>
-                                 {log.label} <span className="text-gray-300">{".".repeat(35 - log.label.length)}</span>
-                               </span>
-                               {active ? (
-                                 <Loader2 className="w-[14px] h-[14px] animate-spin text-[#303481] ml-2 shrink-0" />
-                               ) : done ? (
-                                 <span className="font-bold text-emerald-500 ml-2 shrink-0">OK!</span>
-                               ) : (
-                                 <span className="font-bold text-gray-300 ml-2 shrink-0">-</span>
-                               )}
-                             </p>
-                           );
-                        })}
+                        {(() => {
+                          const step1Done = isControlRunning || allDone;
+                          const step1Active = isControlRunning && !hasAnyResponse && runningCount > 0;
+                          const step2Done = hasAnyResponse;
+                          const step2Active = isControlRunning && !hasAnyResponse && runningCount > 0;
+                          const step3Done = respondedCount === totalPrisma && totalPrisma > 0;
+                          const step3Active = isControlRunning && hasAnyResponse && runningCount > 0;
+                          const step4Done = respondedCount === totalPrisma && totalPrisma > 0 && runningCount === 0;
+                          const step4Active = false;
+                          const steps = [
+                            { step: 1, label: "Directing to Target", active: step1Active, done: step1Done && !step1Active, showProgress: false },
+                            { step: 2, label: "Search Target", active: step2Active, done: step2Done && !step2Active, showProgress: false },
+                            { step: 3, label: "Measuring Target", active: step3Active, done: step3Done && !step3Active, showProgress: true },
+                            { step: 4, label: "Recording Data", active: step4Active, done: step4Done, showProgress: false },
+                          ];
+                          return steps.map((log) => (
+                            <p key={log.step} className="flex justify-between items-center group">
+                              <span className={`truncate flex-1 tracking-tight ${log.active ? 'text-[#303481] font-bold drop-shadow-sm' : ''}`}>
+                                {log.label}
+                                {log.showProgress && isControlRunning && totalPrisma > 0
+                                  ? <span className="text-gray-400 text-[10px] ml-1">({respondedCount}/{totalPrisma})</span>
+                                  : <span className="text-gray-300">{".".repeat(Math.max(0, 35 - log.label.length))}</span>
+                                }
+                              </span>
+                              {log.active ? (
+                                <Loader2 className="w-[14px] h-[14px] animate-spin text-[#303481] ml-2 shrink-0" />
+                              ) : log.done ? (
+                                failedCount > 0 && log.step === 4 ? (
+                                  <span className="font-bold text-amber-500 ml-2 shrink-0">{successCount} OK / {failedCount} Fail</span>
+                                ) : (
+                                  <span className="font-bold text-emerald-500 ml-2 shrink-0">OK!</span>
+                                )
+                              ) : (
+                                <span className="font-bold text-gray-300 ml-2 shrink-0">-</span>
+                              )}
+                            </p>
+                          ));
+                        })()}
                       </div>
                    </div>
                  </div>

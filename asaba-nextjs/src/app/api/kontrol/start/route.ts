@@ -56,14 +56,14 @@ export async function POST(request: NextRequest) {
       },
     });
 
-    // Reset prisma status_get
+    // Reset prisma status_get ke 2 (Running) — menunggu data dari logger
     const dataPrisma = await prisma.prismaTarget.findMany({
       where: { id_logger: parseInt(id_logger) },
     });
     for (const p of dataPrisma) {
       await prisma.tempPrisma.updateMany({
         where: { id_prisma: p.id_prisma },
-        data: { status_get: 0 },
+        data: { status_get: 2 },
       });
     }
 
