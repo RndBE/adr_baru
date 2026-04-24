@@ -149,6 +149,14 @@ function RtsDashboard({ logger }: { logger: any }) {
   const [selectedLog, setSelectedLog] = useState<string | null>(null);
   const [showInfo, setShowInfo] = useState(false);
 
+  // Tick setiap 60 detik → paksa re-render supaya Date.now() dievaluasi ulang
+  // Tanpa ini, status Connected/Disconnected tidak berubah otomatis saat data berhenti masuk
+  const [, setTick] = useState(0);
+  useEffect(() => {
+    const id = setInterval(() => setTick((t) => t + 1), 60_000);
+    return () => clearInterval(id);
+  }, []);
+
   const activeLog = selectedLog || (logs.length > 0 ? logs[0].id_log : null);
   const { deformasi, isLoading: defLoading } = useDeformasi(activeLog);
 

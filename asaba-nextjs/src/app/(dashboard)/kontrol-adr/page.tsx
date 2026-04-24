@@ -217,7 +217,13 @@ const DEFAULT_SCHEDULES: DaySchedule[] = [1, 2, 3, 4, 5, 6, 7].map(d => ({
 export default function KontrolAdrPage() {
   const { isConnected, lastUpdate, sensor14, sensor16, sensor5, sensor6, sensor7 } = useRtsConnectionStatus();
 
-
+  // Tick setiap 60 detik → paksa re-render supaya isConnected (Date.now()) dievaluasi ulang
+  // Tanpa ini, status Connected/Disconnected tidak berubah otomatis saat data berhenti masuk
+  const [, setTick] = useState(0);
+  useEffect(() => {
+    const id = setInterval(() => setTick((t) => t + 1), 60_000);
+    return () => clearInterval(id);
+  }, []);
 
   const [accessCode, setAccessCode] = useState("");
   const [showPassword, setShowPassword] = useState(false);
