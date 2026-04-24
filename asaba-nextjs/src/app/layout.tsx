@@ -9,9 +9,9 @@ const inter = Inter({
 });
 
 export const metadata: Metadata = {
-  title: "Sistem Monitoring Bendungan",
+  title: "Sistem Monitoring Deformasi",
   description:
-    "Sistem monitoring bendungan real-time dengan data sensor AWLR, ARR, ADR, dan instrumentasi keamanan bendungan.",
+    "Sistem monitoring deformasi real-time dengan data sensor RTS, dan instrumentasi keamanan bendungan.",
 };
 
 export default function RootLayout({
