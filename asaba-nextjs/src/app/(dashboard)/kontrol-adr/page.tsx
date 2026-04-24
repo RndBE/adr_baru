@@ -737,9 +737,9 @@ export default function KontrolAdrPage() {
               {TOP_METRICS.map((metric, i) => {
                 let finalValue = metric.value;
                 let valueColor = "#0f172a";
-                // Prioritas: sensor16=1 → Running, sensor14=1 → Connected, else → Disconnected
+                // Prioritas: sensor16=1 → Running, sensor14=1 + data < 1jam → Connected, else → Disconnected
                 const isRtsRunning   = String(sensor16) === "1";
-                const isRtsConnected = !isRtsRunning && String(sensor14) === "1";
+                const isRtsConnected = !isRtsRunning && String(sensor14) === "1" && isConnected;
 
                 if (metric.title === "Status RTS") {
                   if (isRtsRunning) {
