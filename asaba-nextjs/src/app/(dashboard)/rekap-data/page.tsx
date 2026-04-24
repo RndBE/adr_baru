@@ -24,18 +24,31 @@ interface RtsRow {
   code_logger: string;
   id_kontrol: string;
   waktu: string;
-  sensor1: string;  // id prisma
+  sensor1: string;
   sensor2: string;
-  sensor3: string;  // nama prisma
-  sensor5: string;  // HA
-  sensor6: string;  // VA
-  sensor7: string;  // Slope Distance
-  sensor8: string;  // N1
-  sensor9: string;  // E1
-  sensor10: string; // Z1
-  sensor14: number; // RTS connection
-  sensor16: number; // running
-  sensor17: number; // SD Card
+  sensor3: string;
+  sensor4: string;
+  sensor5: string;
+  sensor6: string;
+  sensor7: string;
+  sensor8: string;
+  sensor9: string;
+  sensor10: string;
+  sensor11: string;
+  sensor12: string;
+  sensor13: string;
+  sensor14: number;
+  sensor15: number;
+  sensor16: number;
+  sensor17: number;
+  sensor18: string;
+  sensor19: string;
+  sensor20: string;
+  sensor21: string;
+  sensor22: string;
+  sensor23: string;
+  sensor24: string;
+  sensor25: string;
 }
 
 interface Pagination {
@@ -44,6 +57,37 @@ interface Pagination {
   limit: number;
   totalPages: number;
 }
+
+// ─────────── Sensor Labels ───────────
+const SENSOR_LABELS: Record<string, string> = {
+  sensor1: "ID Prisma",
+  sensor2: "Sensor 2",
+  sensor3: "Nama Prisma",
+  sensor4: "Sensor 4",
+  sensor5: "HA",
+  sensor6: "VA",
+  sensor7: "Slope Dis",
+  sensor8: "N1 (Y)",
+  sensor9: "E1 (X)",
+  sensor10: "Z1",
+  sensor11: "N0",
+  sensor12: "E0",
+  sensor13: "Z0",
+  sensor14: "Koneksi",
+  sensor15: "Sensor 15",
+  sensor16: "Running",
+  sensor17: "SD Card",
+  sensor18: "Sensor 18",
+  sensor19: "Sensor 19",
+  sensor20: "Sensor 20",
+  sensor21: "Sensor 21",
+  sensor22: "Sensor 22",
+  sensor23: "Sensor 23",
+  sensor24: "Tilt X",
+  sensor25: "Tilt Y",
+};
+
+const ALL_SENSORS = Array.from({ length: 25 }, (_, i) => `sensor${i + 1}`);
 
 // ─────────── Helpers ───────────
 function fmtWaktu(dt: any) {
@@ -144,22 +188,15 @@ export default function RekapDataPage() {
   // Download current data as CSV
   const handleDownload = () => {
     if (filtered.length === 0) return;
-    const headers = ["Waktu", "Logger", "ID Prisma", "Nama Prisma", "HA", "VA", "Slope Dis", "N1", "E1", "Z1", "Koneksi", "Running", "SD Card"];
-    const dataRows = filtered.map((r) => [
-      fmtWaktu(r.waktu),
-      r.code_logger,
-      r.sensor1 || "-",
-      r.sensor3 || "-",
-      r.sensor5 || "-",
-      r.sensor6 || "-",
-      fval(r.sensor7),
-      fval(r.sensor8),
-      fval(r.sensor9),
-      fval(r.sensor10),
-      Number(r.sensor14) === 1 ? "Connected" : "Disconnected",
-      Number(r.sensor16) === 1 ? "Running" : "Stand By",
-      Number(r.sensor17) === 1 ? "OK" : "Error",
-    ]);
+    const headers = ["#", "Waktu", "Logger", "ID Kontrol", ...ALL_SENSORS.map(s => SENSOR_LABELS[s] || s)];
+    const dataRows = filtered.map((r, idx) => {
+      const rowNum = (pagination ? (page - 1) * limit : 0) + idx + 1;
+      const sensorVals = ALL_SENSORS.map(s => {
+        const val = (r as any)[s];
+        return val !== null && val !== undefined ? String(val) : "-";
+      });
+      return [rowNum, fmtWaktu(r.waktu), r.code_logger, r.id_kontrol || "-", ...sensorVals];
+    });
     const csv = [headers, ...dataRows].map((row) => row.join(",")).join("\n");
     const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
     const url  = URL.createObjectURL(blob);
@@ -172,6 +209,62 @@ export default function RekapDataPage() {
     URL.revokeObjectURL(url);
   };
 
+  // Render sensor cell with special formatting for known sensors
+  function renderSensorCell(row: RtsRow, sensorKey: string) {
+    const val = (row as any)[sensorKey];
+
+    if (sensorKey === "sensor14") {
+      const isConn = Number(val) === 1;
+      return isConn ? (
+        <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-emerald-50 text-emerald-700 rounded-full text-[10px] font-bold whitespace-nowrap">
+          <Wifi className="w-3 h-3" /> ON
+        </span>
+      ) : (
+        <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-gray-100 text-gray-500 rounded-full text-[10px] font-bold whitespace-nowrap">
+          <WifiOff className="w-3 h-3" /> OFF
+        </span>
+      );
+    }
+
+    if (sensorKey === "sensor16") {
+      const isRunning = Number(val) === 1;
+      return isRunning ? (
+        <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-blue-50 text-[#303481] rounded-full text-[10px] font-bold whitespace-nowrap">
+          <Loader2 className="w-2.5 h-2.5 animate-spin" /> Run
+        </span>
+      ) : (
+        <span className="px-2 py-0.5 bg-gray-100 text-gray-500 rounded-full text-[10px] font-bold">Idle</span>
+      );
+    }
+
+    if (sensorKey === "sensor17") {
+      const isSdOk = Number(val) === 1;
+      return isSdOk ? (
+        <span className="px-2 py-0.5 bg-emerald-50 text-emerald-700 rounded-full text-[10px] font-bold">OK</span>
+      ) : (
+        <span className="px-2 py-0.5 bg-red-50 text-red-600 rounded-full text-[10px] font-bold">Err</span>
+      );
+    }
+
+    // Numeric sensor values with decimals (coordinates, angles, etc.)
+    if (["sensor5", "sensor6", "sensor7", "sensor8", "sensor9", "sensor10", "sensor11", "sensor12", "sensor13", "sensor24", "sensor25"].includes(sensorKey)) {
+      return <span className="font-mono">{fval(val)}</span>;
+    }
+
+    // ID Prisma badge
+    if (sensorKey === "sensor1" && val) {
+      return (
+        <span className="px-2 py-0.5 bg-blue-100 text-blue-700 rounded text-[10.5px] font-bold whitespace-nowrap">
+          {val}
+        </span>
+      );
+    }
+
+    // Default
+    if (val === null || val === undefined || val === "") return <span className="text-gray-300">-</span>;
+    return <span>{String(val)}</span>;
+  }
+
   return (
     <div className="flex flex-col gap-6 w-full pb-10">
 
@@ -183,7 +276,7 @@ export default function RekapDataPage() {
           </div>
           <div>
             <h2 className="font-extrabold text-[#1f2937] text-[18px] leading-tight">Rekap Data Masuk</h2>
-            <p className="text-[12px] text-gray-500 font-medium">Riwayat data yang masuk dari hardware RTS</p>
+            <p className="text-[12px] text-gray-500 font-medium">Riwayat data yang masuk dari hardware RTS — semua sensor</p>
           </div>
         </div>
         <button
@@ -328,29 +421,27 @@ export default function RekapDataPage() {
 
         {/* Table */}
         <div className="overflow-x-auto w-full">
-          <table className="w-full text-center border-collapse min-w-[1100px]">
-            <thead className="bg-[#FAFAFB]">
+          <table className="w-full text-center border-collapse">
+            <thead className="bg-[#FAFAFB] sticky top-0 z-10">
               <tr className="border-b border-gray-200">
-                <th className="py-3 px-3 font-bold text-gray-600 text-[11px] whitespace-nowrap text-left">#</th>
-                <th className="py-3 px-3 font-bold text-gray-600 text-[11px] whitespace-nowrap text-left">Waktu</th>
-                <th className="py-3 px-3 font-bold text-gray-600 text-[11px] whitespace-nowrap">Logger</th>
-                <th className="py-3 px-3 font-bold text-gray-600 text-[11px] whitespace-nowrap">ID Prisma</th>
-                <th className="py-3 px-3 font-bold text-gray-600 text-[11px] whitespace-nowrap">Nama Prisma</th>
-                <th className="py-3 px-3 font-bold text-gray-600 text-[11px] whitespace-nowrap">HA</th>
-                <th className="py-3 px-3 font-bold text-gray-600 text-[11px] whitespace-nowrap">VA</th>
-                <th className="py-3 px-3 font-bold text-gray-600 text-[11px] whitespace-nowrap">Slop Dis</th>
-                <th className="py-3 px-3 font-bold text-gray-600 text-[11px] whitespace-nowrap">N1</th>
-                <th className="py-3 px-3 font-bold text-gray-600 text-[11px] whitespace-nowrap">E1</th>
-                <th className="py-3 px-3 font-bold text-gray-600 text-[11px] whitespace-nowrap">Z1</th>
-                <th className="py-3 px-3 font-bold text-gray-600 text-[11px] whitespace-nowrap">Koneksi</th>
-                <th className="py-3 px-3 font-bold text-gray-600 text-[11px] whitespace-nowrap">Status</th>
-                <th className="py-3 px-3 font-bold text-gray-600 text-[11px] whitespace-nowrap">SD Card</th>
+                <th className="py-3 px-3 font-bold text-gray-600 text-[10.5px] whitespace-nowrap text-left sticky left-0 bg-[#FAFAFB] z-20 min-w-[40px]">#</th>
+                <th className="py-3 px-3 font-bold text-gray-600 text-[10.5px] whitespace-nowrap text-left sticky left-[40px] bg-[#FAFAFB] z-20 min-w-[140px]">Waktu</th>
+                <th className="py-3 px-3 font-bold text-gray-600 text-[10.5px] whitespace-nowrap min-w-[70px]">Logger</th>
+                <th className="py-3 px-3 font-bold text-gray-600 text-[10.5px] whitespace-nowrap min-w-[70px]">ID Kontrol</th>
+                {ALL_SENSORS.map((s) => (
+                  <th key={s} className="py-3 px-2 font-bold text-gray-600 text-[10.5px] whitespace-nowrap min-w-[75px]">
+                    <div className="flex flex-col items-center gap-0.5">
+                      <span className="text-[#303481]">{SENSOR_LABELS[s]}</span>
+                      <span className="text-[9px] text-gray-400 font-normal">{s}</span>
+                    </div>
+                  </th>
+                ))}
               </tr>
             </thead>
             <tbody>
               {loading ? (
                 <tr>
-                  <td colSpan={14} className="py-20 text-center">
+                  <td colSpan={4 + ALL_SENSORS.length} className="py-20 text-center">
                     <div className="flex flex-col items-center gap-3 text-gray-400">
                       <Loader2 className="w-8 h-8 animate-spin text-[#303481]" />
                       <span className="text-[13px] font-medium">Memuat data...</span>
@@ -359,7 +450,7 @@ export default function RekapDataPage() {
                 </tr>
               ) : filtered.length === 0 ? (
                 <tr>
-                  <td colSpan={14} className="py-20 text-center">
+                  <td colSpan={4 + ALL_SENSORS.length} className="py-20 text-center">
                     <div className="flex flex-col items-center gap-2 text-gray-400">
                       <Database className="w-10 h-10 text-gray-300" />
                       <p className="text-[13px] font-medium">Tidak ada data ditemukan</p>
@@ -369,72 +460,30 @@ export default function RekapDataPage() {
                 </tr>
               ) : (
                 filtered.map((row, idx) => {
-                  const isConn    = Number(row.sensor14) === 1;
-                  const isRunning = Number(row.sensor16) === 1;
-                  const isSdOk    = Number(row.sensor17) === 1;
-                  const rowNum    = (pagination ? (page - 1) * limit : 0) + idx + 1;
+                  const rowNum = (pagination ? (page - 1) * limit : 0) + idx + 1;
 
                   return (
                     <tr
                       key={row.id}
                       className="border-b border-gray-100 last:border-0 hover:bg-blue-50/30 transition-colors"
                     >
-                      <td className="py-3 px-3 text-[11.5px] text-gray-500 text-left">{rowNum}</td>
-                      <td className="py-3 px-3 text-[11.5px] font-medium text-gray-800 whitespace-nowrap text-left">
+                      <td className="py-2.5 px-3 text-[11px] text-gray-500 text-left sticky left-0 bg-white z-10">{rowNum}</td>
+                      <td className="py-2.5 px-3 text-[11px] font-medium text-gray-800 whitespace-nowrap text-left sticky left-[40px] bg-white z-10">
                         {fmtWaktu(row.waktu)}
                       </td>
-                      <td className="py-3 px-3">
-                        <span className="px-2 py-0.5 bg-[#EEF2FC] text-[#303481] rounded text-[10.5px] font-bold">
+                      <td className="py-2.5 px-3">
+                        <span className="px-2 py-0.5 bg-[#EEF2FC] text-[#303481] rounded text-[10px] font-bold">
                           {row.code_logger || "-"}
                         </span>
                       </td>
-                      <td className="py-3 px-3">
-                        {row.sensor1 ? (
-                          <span className="px-2 py-0.5 bg-blue-100 text-blue-700 rounded text-[10.5px] font-bold">
-                            {row.sensor1}
-                          </span>
-                        ) : (
-                          <span className="text-gray-300 text-[11.5px]">-</span>
-                        )}
+                      <td className="py-2.5 px-3 text-[10.5px] text-gray-600 font-medium">
+                        {row.id_kontrol || "-"}
                       </td>
-                      <td className="py-3 px-3 text-[11.5px] text-gray-700 font-medium">
-                        {row.sensor3 || "-"}
-                      </td>
-                      <td className="py-3 px-3 text-[11.5px] font-mono text-gray-600">{row.sensor5 || "-"}</td>
-                      <td className="py-3 px-3 text-[11.5px] font-mono text-gray-600">{row.sensor6 || "-"}</td>
-                      <td className="py-3 px-3 text-[11.5px] font-mono text-gray-600">{fval(row.sensor7)}</td>
-                      <td className="py-3 px-3 text-[11.5px] font-mono text-gray-700">{fval(row.sensor8)}</td>
-                      <td className="py-3 px-3 text-[11.5px] font-mono text-gray-700">{fval(row.sensor9)}</td>
-                      <td className="py-3 px-3 text-[11.5px] font-mono text-gray-700">{fval(row.sensor10)}</td>
-                      <td className="py-3 px-3">
-                        {isConn ? (
-                          <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-emerald-50 text-emerald-700 rounded-full text-[10px] font-bold">
-                            <Wifi className="w-3 h-3" /> Connected
-                          </span>
-                        ) : (
-                          <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-gray-100 text-gray-500 rounded-full text-[10px] font-bold">
-                            <WifiOff className="w-3 h-3" /> Disconnected
-                          </span>
-                        )}
-                      </td>
-                      <td className="py-3 px-3">
-                        {isRunning ? (
-                          <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-blue-50 text-[#303481] rounded-full text-[10px] font-bold">
-                            <Loader2 className="w-2.5 h-2.5 animate-spin" /> Running
-                          </span>
-                        ) : (
-                          <span className="px-2 py-0.5 bg-gray-100 text-gray-500 rounded-full text-[10px] font-bold">
-                            Stand By
-                          </span>
-                        )}
-                      </td>
-                      <td className="py-3 px-3">
-                        {isSdOk ? (
-                          <span className="px-2 py-0.5 bg-emerald-50 text-emerald-700 rounded-full text-[10px] font-bold">OK</span>
-                        ) : (
-                          <span className="px-2 py-0.5 bg-red-50 text-red-600 rounded-full text-[10px] font-bold">Error</span>
-                        )}
-                      </td>
+                      {ALL_SENSORS.map((s) => (
+                        <td key={s} className="py-2.5 px-2 text-[10.5px] text-gray-700">
+                          {renderSensorCell(row, s)}
+                        </td>
+                      ))}
                     </tr>
                   );
                 })

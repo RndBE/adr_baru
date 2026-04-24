@@ -63,10 +63,11 @@ export async function GET(request: NextRequest) {
     const dataSql = `
       SELECT 
         id, code_logger, id_kontrol, waktu,
-        sensor1, sensor2, sensor3,
-        sensor5, sensor6, sensor7,
-        sensor8, sensor9, sensor10,
-        sensor14, sensor16, sensor17
+        sensor1, sensor2, sensor3, sensor4, sensor5,
+        sensor6, sensor7, sensor8, sensor9, sensor10,
+        sensor11, sensor12, sensor13, sensor14, sensor15,
+        sensor16, sensor17, sensor18, sensor19, sensor20,
+        sensor21, sensor22, sensor23, sensor24, sensor25
       FROM rts 
       ${whereClause}
       ORDER BY waktu DESC
