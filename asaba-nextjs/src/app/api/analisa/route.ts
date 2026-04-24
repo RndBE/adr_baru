@@ -64,12 +64,10 @@ export async function GET(request: NextRequest) {
     const namaParameter = paramRows?.[0]?.nama_parameter ?? kolom;
     const satuan = paramRows?.[0]?.satuan ?? "";
 
-    // Ambil first run (baseline) untuk selisih deformasi
-    const firstRunRows = await prisma.$queryRaw<Array<{ id_kontrol: string }>>`
-      SELECT id_kontrol FROM rts WHERE sensor1 = ${id_prisma}
-      ORDER BY waktu ASC LIMIT 1
-    `;
-    const firstRun = firstRunRows?.[0] ?? null;
+    console.log("[analisa] id_prisma:", id_prisma, "kolom:", kolom, "type:", type);
+
+    // Skip slow baseline query - not critical for chart display
+    const firstRun = null;
 
     // ===== BUILD QUERY BERDASARKAN TYPE =====
     let rawData: Array<Record<string, unknown>> = [];
@@ -77,12 +75,11 @@ export async function GET(request: NextRequest) {
     if (type === "hari") {
       const tanggal = tgl ?? new Date().toISOString().split("T")[0];
       rawData = await prisma.$queryRawUnsafe(
-        `SELECT waktu, ${kolom} as nilai,
-          HOUR(waktu) as jam, DAY(waktu) as hari,
-          MONTH(waktu) as bulan, YEAR(waktu) as tahun
+        `SELECT waktu, ${kolom} as nilai
          FROM rts
          WHERE sensor1 = ? AND waktu >= ? AND waktu <= ?
-         ORDER BY waktu ASC`,
+         ORDER BY waktu ASC
+         LIMIT 500`,
         id_prisma,
         `${tanggal} 00:00:00`,
         `${tanggal} 23:59:59`
@@ -91,12 +88,11 @@ export async function GET(request: NextRequest) {
     } else if (type === "bulan") {
       const bulanVal = bulan ?? new Date().toISOString().slice(0, 7);
       rawData = await prisma.$queryRawUnsafe(
-        `SELECT waktu, AVG(${kolom}) as nilai,
-          DAY(waktu) as hari, MONTH(waktu) as bulan, YEAR(waktu) as tahun
+        `SELECT waktu, ${kolom} as nilai
          FROM rts
          WHERE sensor1 = ? AND waktu >= ? AND waktu <= ?
-         GROUP BY DAY(waktu), MONTH(waktu), YEAR(waktu)
-         ORDER BY waktu ASC`,
+         ORDER BY waktu ASC
+         LIMIT 500`,
         id_prisma,
         `${bulanVal}-01 00:00:00`,
         `${bulanVal}-31 23:59:59`
@@ -105,12 +101,11 @@ export async function GET(request: NextRequest) {
     } else if (type === "tahun") {
       const tahunVal = tahun ?? new Date().getFullYear().toString();
       rawData = await prisma.$queryRawUnsafe(
-        `SELECT waktu, AVG(${kolom}) as nilai,
-          MONTH(waktu) as bulan, YEAR(waktu) as tahun
+        `SELECT waktu, ${kolom} as nilai
          FROM rts
          WHERE sensor1 = ? AND waktu >= ? AND waktu <= ?
-         GROUP BY MONTH(waktu), YEAR(waktu)
-         ORDER BY waktu ASC`,
+         ORDER BY waktu ASC
+         LIMIT 500`,
         id_prisma,
         `${tahunVal}-01-01 00:00:00`,
         `${tahunVal}-12-31 23:59:59`
@@ -124,13 +119,11 @@ export async function GET(request: NextRequest) {
         );
       }
       rawData = await prisma.$queryRawUnsafe(
-        `SELECT waktu, AVG(${kolom}) as nilai,
-          HOUR(waktu) as jam, DAY(waktu) as hari,
-          MONTH(waktu) as bulan, YEAR(waktu) as tahun
+        `SELECT waktu, ${kolom} as nilai
          FROM rts
          WHERE sensor1 = ? AND waktu >= ? AND waktu <= ?
-         GROUP BY HOUR(waktu), DAY(waktu), MONTH(waktu), YEAR(waktu)
-         ORDER BY waktu ASC`,
+         ORDER BY waktu ASC
+         LIMIT 500`,
         id_prisma,
         dari,
         sampai
