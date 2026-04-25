@@ -216,12 +216,12 @@ export default function RekapDataPage() {
     if (sensorKey === "sensor14") {
       const isConn = Number(val) === 1;
       return isConn ? (
-        <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-emerald-50 text-emerald-700 rounded-full text-[10px] font-bold whitespace-nowrap">
-          <Wifi className="w-3 h-3" /> ON
+        <span className="inline-flex items-center gap-1.5 px-2 py-0.5 bg-[#E5F7E7] text-[#06C022] border border-green-200 rounded-full text-[10px] font-bold whitespace-nowrap">
+          <div className="w-1.5 h-1.5 rounded-full bg-[#06C022]"></div> Connected
         </span>
       ) : (
-        <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-gray-100 text-gray-500 rounded-full text-[10px] font-bold whitespace-nowrap">
-          <WifiOff className="w-3 h-3" /> OFF
+        <span className="inline-flex items-center gap-1.5 px-2 py-0.5 bg-gray-100 text-gray-500 border border-gray-200 rounded-full text-[10px] font-bold whitespace-nowrap">
+          <div className="w-1.5 h-1.5 rounded-full bg-gray-400"></div> Disconnected
         </span>
       );
     }
@@ -233,7 +233,7 @@ export default function RekapDataPage() {
           <Loader2 className="w-2.5 h-2.5 animate-spin" /> Run
         </span>
       ) : (
-        <span className="px-2 py-0.5 bg-gray-100 text-gray-500 rounded-full text-[10px] font-bold">Idle</span>
+        <span className="px-2 py-0.5 bg-gray-100 text-gray-500 rounded-full text-[10px] font-bold">Standby</span>
       );
     }
 

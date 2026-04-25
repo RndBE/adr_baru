@@ -172,13 +172,20 @@ type PrismaCard = {
   waktu?: string;
 };
 
-function mapStatus(status_get: number | string, n1: string, e1: string, z1: string): "Success" | "Failed" | "Running..." {
+function mapStatus(status_get: number | string, n1: string | number, e1: string | number, z1: string | number): "Success" | "Failed" | "Running..." {
   // Di DB: status_get = 0 artinya Waiting/Running, 1 artinya Done
   // Gunakan String() karena dari raw query Prisma bisa berupa number atau string
   if (String(status_get) === "0") return "Running...";
   
-  // Jika sudah Done (1) tapi nilainya 0 semua, berarti Failed / Not Found
-  if (Number(n1) === 0 && Number(e1) === 0 && Number(z1) === 0) {
+  // Jika sudah Done tapi nilainya 0 atau "000,00,00" semua, berarti Failed / Not Found
+  const parseVal = (val: string | number) => {
+    if (!val) return 0;
+    const cleanStr = String(val).replace(/,/g, '');
+    const num = Number(cleanStr);
+    return isNaN(num) ? 0 : num;
+  };
+
+  if (parseVal(n1) === 0 && parseVal(e1) === 0 && parseVal(z1) === 0) {
     return "Failed";
   }
   
@@ -327,7 +334,15 @@ export default function KontrolAdrPage() {
           // Data prisma individual: {id_prisma: "P1", N1: "...", E1: "...", Z1: "...", ...}
           if (data.id_prisma) {
             console.log(`[KontrolADR] ${topic}:`, data.id_prisma, data.N1, data.E1, data.Z1);
-            const isFailed = Number(data.N1) === 0 && Number(data.E1) === 0 && Number(data.Z1) === 0;
+            
+            const parseVal = (val: any) => {
+              if (!val) return 0;
+              const num = Number(String(val).replace(/,/g, ''));
+              return isNaN(num) ? 0 : num;
+            };
+            
+            const isFailed = parseVal(data.N1) === 0 && parseVal(data.E1) === 0 && parseVal(data.Z1) === 0;
+            
             setPrismaCards(prev => prev.map(c =>
               c.name === data.id_prisma
                 ? {
