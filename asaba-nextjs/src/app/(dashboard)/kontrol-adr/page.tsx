@@ -172,10 +172,17 @@ type PrismaCard = {
   waktu?: string;
 };
 
-function mapStatus(status_get: number): "Success" | "Failed" | "Running..." {
-  if (status_get === 1) return "Success";
-  if (status_get === 2) return "Running...";
-  return "Failed";
+function mapStatus(status_get: number | string, n1: string, e1: string, z1: string): "Success" | "Failed" | "Running..." {
+  // Di DB: status_get = 0 artinya Waiting/Running, 1 artinya Done
+  // Gunakan String() karena dari raw query Prisma bisa berupa number atau string
+  if (String(status_get) === "0") return "Running...";
+  
+  // Jika sudah Done (1) tapi nilainya 0 semua, berarti Failed / Not Found
+  if (Number(n1) === 0 && Number(e1) === 0 && Number(z1) === 0) {
+    return "Failed";
+  }
+  
+  return "Success";
 }
 
 // --- RTS Config Types ---
@@ -548,7 +555,7 @@ export default function KontrolAdrPage() {
       if (json.success && Array.isArray(json.data)) {
         const dbCards: PrismaCard[] = (json.data as TempPrisma[]).map((row) => ({
           name: row.id_prisma,
-          status: mapStatus(row.status_get),
+          status: mapStatus(row.status_get, row.N1, row.E1, row.Z1),
           y: row.N1,
           x: row.E1,
           z: row.Z1,
@@ -640,11 +647,6 @@ export default function KontrolAdrPage() {
       // Kode benar — set semua prisma card ke "Running..." (seperti PHP)
       setPrismaCards(prev => prev.map(c => ({ ...c, status: "Running..." as const, y: "-", x: "-", z: "-" })));
       // Data akan masuk real-time via MQTT rts-30002, jadi tidak perlu polling
-      // Tapi tetap polling sebagai fallback
-      await fetchPrisma();
-      pollingRef.current = setInterval(() => {
-        fetchPrisma();
-      }, 10000);
     } catch (err) {
       setAccessCodeError("Terjadi kesalahan jaringan. Coba lagi.");
       setIsControlRunning(false);
