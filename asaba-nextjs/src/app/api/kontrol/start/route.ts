@@ -51,39 +51,30 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    // Update set_tempkontrol — gunakan id_logger_int (Int) bukan string
+    // Update set_tempkontrol — sama dengan PHP: WHERE id_logger = '30002'
     const dateNow = new Date();
-    await prisma.setTempkontrol.updateMany({
-      where: { id_logger: String(id_logger_int) },
-      data: {
-        status: "1",
-        status_manual: "1",
-        datetime: dateNow,
-      },
-    });
+    await prisma.$executeRaw`
+      UPDATE set_tempkontrol 
+      SET status = '1', status_manual = '1', datetime = ${dateNow}
+      WHERE id_logger = ${id_logger}
+    `;
 
-    // Reset prisma status_get ke 2 (Running) — menunggu data dari logger
-    const dataPrisma = await prisma.prismaTarget.findMany({
-      where: { id_logger: id_logger_int ?? parseInt(id_logger) },
-    });
+    // Reset prisma status_get ke 0 — sama dengan PHP asli
+    const dataPrisma = await prisma.$queryRaw<Array<{ id_prisma: string }>>`
+      SELECT id_prisma FROM t_prisma WHERE id_logger = ${id_logger}
+    `;
     for (const p of dataPrisma) {
-      await prisma.tempPrisma.updateMany({
-        where: { id_prisma: p.id_prisma },
-        data: { status_get: 2 },
-      });
+      await prisma.$executeRaw`
+        UPDATE temp_prisma SET status_get = 0 WHERE id_prisma = ${p.id_prisma}
+      `;
     }
 
-    // Create log_kontrol entry
+    // Create log_kontrol entry — sama dengan PHP: id_log, id_logger, datetime
     const idLog = dateNow.toTimeString().slice(0, 8).replace(/:/g, "");
-    await prisma.logKontrol.create({
-      data: {
-        id_log: idLog,
-        id_logger: id_logger,
-        prisma: "",
-        datetime: dateNow,
-        r0: 0,
-      },
-    });
+    await prisma.$executeRaw`
+      INSERT INTO log_kontrol (id_log, id_logger, datetime)
+      VALUES (${idLog}, ${id_logger}, ${dateNow})
+    `;
 
     // ── Ambil config RTS dari config_adr ──
     const configRows = await prisma.$queryRaw<Array<{
