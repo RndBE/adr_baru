@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect, useCallback } from "react";
+import React, { useState, useEffect, useCallback, useRef } from "react";
 import {
   Search, Pencil, ChevronLeft, ChevronRight,
   SlidersHorizontal, Plus, Loader2, X, Check, AlertCircle,
@@ -12,6 +12,7 @@ import Image from "next/image";
 import { cn } from "@/lib/utils";
 import { RtsConnectionBadge } from "@/components/RtsConnectionBadge";
 import { useRtsConnectionStatus } from "@/hooks/use-api";
+import mqtt from "mqtt";
 
 // =================== TYPES ===================
 interface PrismaSlot {
@@ -56,6 +57,22 @@ function PrismaModal({
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
 
+  // HA/VA dari response logger (MQTT subscribe)
+  const [capturedHA, setCapturedHA] = useState(slot.HA || "0");
+  const [capturedVA, setCapturedVA] = useState(slot.VA || "0");
+  const [autoSearchDone, setAutoSearchDone] = useState(false);
+  const mqttClientRef = useRef<mqtt.MqttClient | null>(null);
+
+  // Cleanup MQTT saat modal ditutup
+  useEffect(() => {
+    return () => {
+      if (mqttClientRef.current) {
+        mqttClientRef.current.end(true);
+        mqttClientRef.current = null;
+      }
+    };
+  }, []);
+
   const doRequest = async (method: string, body: object) => {
     setLoading(true);
     setError("");
@@ -76,10 +93,61 @@ function PrismaModal({
     }
   };
 
+  // Subscribe MQTT untuk tangkap response auto_search dari logger
+  const subscribeForAutoSearchResponse = () => {
+    const topic = process.env.NEXT_PUBLIC_MQTT_TOPIC || "ADR_Tambang_Kaltara";
+    const wsUrl = `wss://${process.env.NEXT_PUBLIC_MQTT_HOST || "mqtt.beacontelemetry.com"}:${process.env.NEXT_PUBLIC_MQTT_WS_PORT || "8084"}/mqtt`;
+
+    const client = mqtt.connect(wsUrl, {
+      username: process.env.NEXT_PUBLIC_MQTT_USERNAME || "userlog",
+      password: process.env.NEXT_PUBLIC_MQTT_PASSWORD || "b34c0n",
+      rejectUnauthorized: false,
+      connectTimeout: 10000,
+    });
+
+    mqttClientRef.current = client;
+
+    client.on("connect", () => {
+      console.log("[PrismaModal] MQTT connected, subscribing to", topic);
+      client.subscribe(topic);
+    });
+
+    client.on("message", (_topic: string, message: Buffer) => {
+      try {
+        const data = JSON.parse(message.toString());
+        // Logger response format: { "recordTarget": { "TargetName": "P2", "HA": "...", "VA": "..." } }
+        const rt = data?.recordTarget;
+        if (rt && rt.HA && rt.VA) {
+          console.log("[PrismaModal] Captured HA/VA:", rt.HA, rt.VA);
+          setCapturedHA(String(rt.HA));
+          setCapturedVA(String(rt.VA));
+          setAutoSearchDone(true);
+          // Juga update nama jika ada
+          if (rt.TargetName && !namaPrisma) {
+            setNamaPrisma(rt.TargetName);
+          }
+          // Disconnect setelah dapat data
+          client.end();
+          mqttClientRef.current = null;
+        }
+      } catch {
+        // Ignore non-JSON messages
+      }
+    });
+
+    client.on("error", (err: Error) => {
+      console.error("[PrismaModal] MQTT error:", err);
+    });
+  };
+
   const handleAutoSearch = async () => {
     setLoading(true);
     setError("");
+    setAutoSearchDone(false);
     try {
+      // Start MQTT subscribe dulu untuk tangkap response
+      subscribeForAutoSearchResponse();
+
       const res = await fetch("/api/kontrol/auto-search", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -121,6 +189,8 @@ function PrismaModal({
       slot_id: slot.slot,
       nama_prisma: namaPrisma,
       target_height: targetHeight,
+      HA: capturedHA,
+      VA: capturedVA,
     });
     if (ok) onSuccess();
   };

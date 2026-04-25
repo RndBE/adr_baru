@@ -47,7 +47,10 @@ export async function POST(request: NextRequest) {
       },
     };
 
+    console.log(`[Power] Sending ${action} to topic=${topicTarget}`, JSON.stringify(payload));
+    const t0 = Date.now();
     const mqttSent = await publishMqtt(topicTarget, payload);
+    console.log(`[Power] MQTT result: ${mqttSent}, took ${Date.now() - t0}ms`);
 
     return NextResponse.json({
       success: true,
