@@ -224,7 +224,7 @@ const DEFAULT_SCHEDULES: DaySchedule[] = [1, 2, 3, 4, 5, 6, 7].map(d => ({
 
 
 export default function KontrolAdrPage() {
-  const { isConnected, lastUpdate, sensor14, sensor16, sensor5, sensor6, sensor7 } = useRtsConnectionStatus();
+  const { isConnected, lastUpdate, sensor14, sensor16, sensor5, sensor6, sensor7, idLogger } = useRtsConnectionStatus();
 
   // Tick setiap 60 detik → paksa re-render supaya isConnected (Date.now()) dievaluasi ulang
   // Tanpa ini, status Connected/Disconnected tidak berubah otomatis saat data berhenti masuk
@@ -272,12 +272,12 @@ export default function KontrolAdrPage() {
   const respondedCount = successCount + failedCount; // prisma yang sudah dijawab logger
   const hasAnyResponse = respondedCount > 0;
 
-  // sensor16 hanya dipakai untuk Status RTS card display,
-  // BUKAN untuk override isControlRunning.
-  // isControlRunning diatur oleh:
-  //   - handleMulaiKontrol → true
-  //   - kontrol-asaba status=0 → false
-  //   - AutoTrack done → false
+  // Sinkronkan isControlRunning dengan sensor16 dari hardware (PENTING untuk saat page di-refresh)
+  useEffect(() => {
+    if (String(sensor16) === "1") {
+      setIsControlRunning(true);
+    }
+  }, [sensor16]);
 
   // --- MQTT WebSocket subscription (seperti Paho.js di PHP) ---
   const mqttRef = useRef<mqtt.MqttClient | null>(null);
@@ -296,8 +296,9 @@ export default function KontrolAdrPage() {
 
     client.on("connect", () => {
       console.log("[KontrolADR] MQTT connected");
-      // Subscribe ke 3 topic sama seperti PHP
-      client.subscribe("rts-30002", { qos: 0 }); // data prisma
+      // Subscribe ke 3 topic
+      const targetTopic = `Logger_${idLogger || "30002"}`;
+      client.subscribe(targetTopic, { qos: 0 }); // data prisma
       client.subscribe("kontrol-asaba", { qos: 0 }); // status kontrol
       client.subscribe(process.env.NEXT_PUBLIC_MQTT_TOPIC || "ADR_Tambang_Kaltara", { qos: 0 }); // AutoTrack
     });
@@ -322,10 +323,10 @@ export default function KontrolAdrPage() {
             // Refresh data final
             fetchPrisma();
           }
-        } else if (topic === "rts-30002") {
+        } else if (topic.startsWith("Logger_")) {
           // Data prisma individual: {id_prisma: "P1", N1: "...", E1: "...", Z1: "...", ...}
           if (data.id_prisma) {
-            console.log("[KontrolADR] rts-30002:", data.id_prisma, data.N1, data.E1, data.Z1);
+            console.log(`[KontrolADR] ${topic}:`, data.id_prisma, data.N1, data.E1, data.Z1);
             const isFailed = Number(data.N1) === 0 && Number(data.E1) === 0 && Number(data.Z1) === 0;
             setPrismaCards(prev => prev.map(c =>
               c.name === data.id_prisma

@@ -114,7 +114,7 @@ export async function POST(request: NextRequest) {
     let idLog = "";
     let mqttPrismaSent = false;
     let mqttKontrolSent = false;
-    const mqttPrismaTopic = `rts-${idAlat}`;
+    const mqttPrismaTopic = `Logger_${idAlat}`;
     const mqttKontrolTopic = "kontrol-asaba";
 
     // DEBUG: log apa yang diterima dari logger
