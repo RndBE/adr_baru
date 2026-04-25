@@ -179,9 +179,12 @@ function RtsDashboard({ logger }: { logger: any }) {
 
   // Status RTS: sensor14 harus = 1 DAN data terakhir masuk dalam 1 jam terakhir
   // Jika tidak ada data baru (timeout), otomatis Disconnected meskipun sensor14 = 1
+  // Tambahan: Jika sensor16 = 1 (sedang running), anggap RTS connected
   const isRtsConnected = (() => {
-    if (!tempRts || tempRts.sensor14 === undefined || tempRts.sensor14 === null) return false;
-    if (Number(tempRts.sensor14) !== 1) return false;
+    if (!tempRts) return false;
+    const isRunning = Number(tempRts.sensor16) === 1;
+    const isPowerOn = Number(tempRts.sensor14) === 1;
+    if (!isRunning && !isPowerOn) return false;
     // Cek waktu data terakhir — harus dalam 1 jam terakhir
     const isoStr = parseWaktuToIso(tempRts.waktu);
     if (!isoStr) return false;
