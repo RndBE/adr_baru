@@ -118,16 +118,46 @@ export async function GET(request: NextRequest) {
           { status: 400 }
         );
       }
-      rawData = await prisma.$queryRawUnsafe(
-        `SELECT waktu, ${kolom} as nilai
-         FROM rts
-         WHERE sensor1 = ? AND waktu >= ? AND waktu <= ?
-         ORDER BY waktu ASC
-         LIMIT 500`,
-        id_prisma,
-        dari,
-        sampai
-      ) as Array<Record<string, unknown>>;
+
+      // Hitung jumlah hari dalam range
+      const dariDate = new Date(dari);
+      const sampaiDate = new Date(sampai);
+      const diffDays = Math.ceil(Math.abs(sampaiDate.getTime() - dariDate.getTime()) / (1000 * 60 * 60 * 24));
+
+      if (diffDays > 2) {
+        // Multi-hari: group per jam agar chart tidak terlalu padat
+        rawData = await prisma.$queryRawUnsafe(
+          `SELECT 
+             DATE_FORMAT(waktu, '%Y-%m-%d %H:00:00') as waktu_jam,
+             AVG(CAST(${kolom} AS DECIMAL(20,6))) as nilai_avg
+           FROM rts
+           WHERE sensor1 = ? AND waktu >= ? AND waktu <= ?
+           GROUP BY waktu_jam
+           ORDER BY waktu_jam ASC
+           LIMIT 500`,
+          id_prisma,
+          dari,
+          sampai
+        ) as Array<Record<string, unknown>>;
+
+        // Rename fields to match expected format
+        rawData = rawData.map(r => ({
+          waktu: r.waktu_jam,
+          nilai: r.nilai_avg,
+        }));
+      } else {
+        // 1-2 hari: tampilkan semua data point
+        rawData = await prisma.$queryRawUnsafe(
+          `SELECT waktu, ${kolom} as nilai
+           FROM rts
+           WHERE sensor1 = ? AND waktu >= ? AND waktu <= ?
+           ORDER BY waktu ASC
+           LIMIT 500`,
+          id_prisma,
+          dari,
+          sampai
+        ) as Array<Record<string, unknown>>;
+      }
 
     } else {
       return NextResponse.json(

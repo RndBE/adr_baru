@@ -589,7 +589,7 @@ export default function KontrolAdrPage() {
           <div className="flex flex-col gap-4 w-full">
 
             {/* Kontrol ADR Card */}
-            <div className="bg-white border border-[#EAEAEA] rounded-[8px] shadow-sm overflow-hidden text-slate-800">
+            <div className={`bg-white border rounded-[8px] shadow-sm overflow-hidden text-slate-800 transition-all ${!isConnected ? 'border-gray-200 opacity-75' : 'border-[#EAEAEA]'}`}>
               <div className="border-b border-gray-100 px-4 py-3 flex items-center gap-2.5">
                 <Image
                   src="/kontrol_adr_fill.svg"
@@ -601,28 +601,31 @@ export default function KontrolAdrPage() {
                 <h3 className="font-bold text-[#303481] text-[14px]">Kontrol ADR</h3>
               </div>
               <div className="px-4 py-4">
-                <label className="block text-[12.5px] font-bold text-gray-900 mb-2">Masukkan Kode Akses</label>
+                <label className={`block text-[12.5px] font-bold mb-2 ${!isConnected ? 'text-gray-400' : 'text-gray-900'}`}>Masukkan Kode Akses</label>
                 <div className="flex items-center gap-3">
                   <div className="relative flex-1">
                     <Input
                       type={showPassword ? "text" : "password"}
                       value={accessCode}
                       onChange={(e) => { setAccessCode(e.target.value); setAccessCodeError(""); }}
-                      onKeyDown={(e) => e.key === "Enter" && handleMulaiKontrol()}
-                      placeholder="Masukkan kode..."
-                      className={`h-[38px] pr-10 text-[13px] rounded-md font-medium ${accessCodeError ? "border-red-400 focus-visible:ring-red-400" : "border-gray-300 focus-visible:ring-[#303481]"}`}
+                      onKeyDown={(e) => e.key === "Enter" && isConnected && handleMulaiKontrol()}
+                      placeholder={!isConnected ? "Logger tidak terhubung..." : "Masukkan kode..."}
+                      disabled={!isConnected}
+                      autoComplete="new-password"
+                      className={`h-[38px] pr-10 text-[13px] rounded-md font-medium ${!isConnected ? 'bg-gray-100 cursor-not-allowed text-gray-400 border-gray-200' : accessCodeError ? "border-red-400 focus-visible:ring-red-400" : "border-gray-300 focus-visible:ring-[#303481]"}`}
                     />
                     <button
                       type="button"
                       onClick={() => setShowPassword(!showPassword)}
-                      className="absolute right-3.5 top-1/2 -translate-y-1/2 text-gray-500 hover:text-gray-800 focus:outline-none transition-colors"
+                      disabled={!isConnected}
+                      className="absolute right-3.5 top-1/2 -translate-y-1/2 text-gray-500 hover:text-gray-800 focus:outline-none transition-colors disabled:opacity-40"
                     >
                       {showPassword ? <EyeOff className="w-[16px] h-[16px]" /> : <Lock className="w-[16px] h-[16px]" />}
                     </button>
                   </div>
                   <Button
                     onClick={handleMulaiKontrol}
-                    disabled={!accessCode.trim() || isControlRunning}
+                    disabled={!accessCode.trim() || isControlRunning || !isConnected}
                     className="shrink-0 h-[38px] px-6 bg-[#303481] hover:bg-[#1f2259] text-white font-medium text-[13px] rounded-lg transition-colors border-none cursor-pointer disabled:opacity-60"
                   >
                     {isControlRunning

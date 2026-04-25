@@ -968,7 +968,12 @@ function HasilPengukuranContent() {
                             </span>
                           </td>
                           <td className="py-3.5 px-4 text-[12px] text-gray-700 font-medium border-r border-gray-200 whitespace-nowrap">
-                            {row.nama_prisma || "-"}
+                            <button
+                              onClick={() => router.push(`/hasil-pengukuran/${encodeURIComponent(row.nama_prisma)}?log=${selectedLog?.id_log}`)}
+                              className="text-[#303481] hover:underline font-semibold cursor-pointer bg-transparent border-none p-0"
+                            >
+                              {row.nama_prisma || "-"}
+                            </button>
                           </td>
                           {/* Awal */}
                           {colVis.awal.X && <td className="py-3.5 px-2 text-[12px] text-gray-600 font-mono">{fval(t?.E0)}</td>}
@@ -1077,7 +1082,12 @@ function HasilPengukuranContent() {
                             {idx + 1}
                           </td>
                           <td className="py-3.5 px-4 text-[12.5px] text-gray-800 font-semibold text-left border-l border-gray-100 whitespace-nowrap">
-                            {row.nama_prisma || "-"}
+                            <button
+                              onClick={() => router.push(`/hasil-pengukuran/${encodeURIComponent(row.nama_prisma)}?log=${selectedLog?.id_log}`)}
+                              className="text-[#303481] hover:underline font-semibold cursor-pointer bg-transparent border-none p-0"
+                            >
+                              {row.nama_prisma || "-"}
+                            </button>
                           </td>
                           <td className="py-3.5 px-4 text-[13px] text-gray-700 font-mono border-l border-gray-100">
                             {hasData ? Number(d.pergeseran_mm).toFixed(2) : "-"}

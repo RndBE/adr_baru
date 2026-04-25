@@ -236,6 +236,7 @@ function AccessCodeModal({
               value={code}
               onChange={(e) => setCode(e.target.value)}
               className="pl-[42px] pr-[42px] h-[48px] text-[20px] tracking-[4px] font-bold text-black border-[#C0C4DF] rounded-[10px] bg-white focus-visible:ring-1 focus-visible:ring-[#303481]"
+              autoComplete="new-password"
               autoFocus
             />
             <button 
@@ -286,6 +287,7 @@ export default function PrismConfigPage() {
     slot: PrismaSlot | null;
   }>({ open: false, mode: "set", slot: null });
   const [accessModalOpen, setAccessModalOpen] = useState(false);
+  const [isConfigUnlocked, setIsConfigUnlocked] = useState(false);
 
   // ── Fetch data dari /api/prism-config ──
   const fetchData = useCallback(async () => {
@@ -345,13 +347,23 @@ export default function PrismConfigPage() {
             <RtsConnectionBadge />
           </div>
         </div>
-        <Button 
-          onClick={() => setAccessModalOpen(true)}
-          className="bg-[#303481] hover:bg-[#1f2259] text-white px-5 py-5 rounded-lg shadow-sm font-medium text-[13.5px] transition-colors border-none flex items-center gap-2.5 cursor-pointer"
-        >
-          <Image src="/mulai_konfigurasi.svg" alt="Mulai Konfigurasi" width={18} height={18} />
-          Mulai Konfigurasi
-        </Button>
+        {isConfigUnlocked ? (
+          <Button 
+            onClick={() => setIsConfigUnlocked(false)}
+            className="bg-red-50 hover:bg-red-100 text-red-600 border border-red-200 px-5 py-5 rounded-lg shadow-sm font-bold text-[13.5px] transition-colors flex items-center gap-2.5 cursor-pointer"
+          >
+            <Lock className="w-4 h-4" strokeWidth={2.5} />
+            Selesai Konfigurasi
+          </Button>
+        ) : (
+          <Button 
+            onClick={() => setAccessModalOpen(true)}
+            className="bg-[#303481] hover:bg-[#1f2259] text-white px-5 py-5 rounded-lg shadow-sm font-medium text-[13.5px] transition-colors border-none flex items-center gap-2.5 cursor-pointer"
+          >
+            <Image src="/mulai_konfigurasi.svg" alt="Mulai Konfigurasi" width={18} height={18} />
+            Mulai Konfigurasi
+          </Button>
+        )}
       </div>
 
       {/* Main Table Card */}
@@ -374,6 +386,7 @@ export default function PrismConfigPage() {
               placeholder="Cari nama/ID prisma..."
               value={searchTerm}
               onChange={(e) => { setSearchTerm(e.target.value); setCurrentPage(1); }}
+              autoComplete="off"
               className="pl-9 pr-4 h-[38px] text-[13px] border-gray-300 focus-visible:ring-[#303481] rounded-lg bg-white"
             />
           </div>
@@ -453,7 +466,12 @@ export default function PrismConfigPage() {
                         {!isNotSet ? (
                           <button
                             onClick={() => setModal({ open: true, mode: "edit", slot: row })}
-                            className="flex items-center gap-1.5 px-4 py-1.5 border border-[#303481] text-[#303481] hover:bg-[#303481] hover:text-white transition-colors rounded-md text-[12px] font-bold cursor-pointer"
+                            disabled={!isConfigUnlocked}
+                            className={`flex items-center gap-1.5 px-4 py-1.5 border rounded-md text-[12px] font-bold transition-colors ${
+                              !isConfigUnlocked
+                                ? "border-gray-200 text-gray-400 bg-gray-50 cursor-not-allowed"
+                                : "border-[#303481] text-[#303481] hover:bg-[#303481] hover:text-white cursor-pointer"
+                            }`}
                           >
                             <Pencil className="w-[12px] h-[12px]" strokeWidth={2.5} />
                             Edit
@@ -461,7 +479,12 @@ export default function PrismConfigPage() {
                         ) : (
                           <button
                             onClick={() => setModal({ open: true, mode: "set", slot: row })}
-                            className="flex items-center gap-1 px-4 py-1.5 border border-[#303481] text-[#303481] hover:bg-[#303481] hover:text-white transition-colors rounded-md text-[12px] font-bold cursor-pointer"
+                            disabled={!isConfigUnlocked}
+                            className={`flex items-center gap-1 px-4 py-1.5 border rounded-md text-[12px] font-bold transition-colors ${
+                              !isConfigUnlocked
+                                ? "border-gray-200 text-gray-400 bg-gray-50 cursor-not-allowed"
+                                : "border-[#303481] text-[#303481] hover:bg-[#303481] hover:text-white cursor-pointer"
+                            }`}
                           >
                             <Plus className="w-[12px] h-[12px]" strokeWidth={3} />
                             Set
@@ -542,8 +565,7 @@ export default function PrismConfigPage() {
           onClose={() => setAccessModalOpen(false)}
           onSuccess={() => {
             setAccessModalOpen(false);
-            // Optionally refresh state or do something else after success
-            alert("Sistem berhasil dikonfigurasi.");
+            setIsConfigUnlocked(true);
           }}
         />
       )}
