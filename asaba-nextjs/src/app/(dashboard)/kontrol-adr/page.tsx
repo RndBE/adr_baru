@@ -326,15 +326,15 @@ export default function KontrolAdrPage() {
           // Data prisma individual: {id_prisma: "P1", N1: "...", E1: "...", Z1: "...", ...}
           if (data.id_prisma) {
             console.log("[KontrolADR] rts-30002:", data.id_prisma, data.N1, data.E1, data.Z1);
-            const isFailed = data.N1 === "0" && data.E1 === "0" && data.Z1 === "0";
+            const isFailed = Number(data.N1) === 0 && Number(data.E1) === 0 && Number(data.Z1) === 0;
             setPrismaCards(prev => prev.map(c =>
               c.name === data.id_prisma
                 ? {
                     ...c,
                     status: isFailed ? "Failed" as const : "Success" as const,
-                    y: data.N1 || "0",
-                    x: data.E1 || "0",
-                    z: data.Z1 || "0",
+                    y: String(data.N1) || "0",
+                    x: String(data.E1) || "0",
+                    z: String(data.Z1) || "0",
                   }
                 : c
             ));
