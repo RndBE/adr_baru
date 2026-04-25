@@ -238,7 +238,7 @@ function AccessCodeModal({
     setLoading(true);
     setError("");
     try {
-      const res = await fetch("/api/kontrol/start", {
+      const res = await fetch("/api/kontrol/verify-access", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ kode_akses: code }),
