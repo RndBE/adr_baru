@@ -5,12 +5,10 @@ import mqtt from "mqtt";
 
 /**
  * POST /api/kontrol/auto-search
- * Kirim auto_search ke logger, lalu subscribe MQTT
- * untuk menangkap response HA/VA dari logger.
+ * Kirim auto_search ke logger, tunggu konfirmasi (AutoSearch.nilai),
+ * lalu background-listen untuk recordTarget HA/VA dan simpan ke t_prisma.
  *
  * Body: { slot_id?: number }
- *
- * Response: { success, data: { HA, VA, TargetName, ... } }
  */
 export async function POST(request: NextRequest) {
   try {
@@ -32,44 +30,17 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Kirim auto_search ke logger
     const topicTarget = process.env.MQTT_TOPIC || "ADR_Tambang_Kaltara";
-    const payload = {
-      [`set_${id_logger}`]: {
-        command: "set_rts",
-        auto_search: true,
-      },
-    };
-    const mqttSent = await publishMqtt(topicTarget, payload);
 
-    if (!mqttSent) {
-      return NextResponse.json(
-        { success: false, error: "Gagal mengirim auto_search ke logger" },
-        { status: 500 }
-      );
-    }
-
-    // Subscribe dan tunggu response dari logger (max 30 detik)
-    const responseData = await waitForAutoSearchResponse(topicTarget, 30000);
-
-    if (responseData) {
-      // Simpan HA/VA ke t_prisma
-      const id_prisma = body.slot_id ? `P${body.slot_id}` : responseData.TargetName;
-      if (id_prisma) {
-        await prisma.$executeRaw`
-          UPDATE t_prisma
-          SET HA = ${responseData.HA || "0"}, VA = ${responseData.VA || "0"}
-          WHERE id_prisma = ${id_prisma}
-        `;
-      }
-    }
+    // Subscribe MQTT dulu, lalu kirim auto_search
+    const result = await subscribeAndSend(topicTarget, id_logger, body.slot_id);
 
     return NextResponse.json({
       success: true,
       data: {
         slot_id: body.slot_id ?? null,
-        mqtt_sent: mqttSent,
-        response: responseData,
+        mqtt_sent: true,
+        response: result,
       },
     });
   } catch (error) {
@@ -82,12 +53,21 @@ export async function POST(request: NextRequest) {
 }
 
 /**
- * Subscribe ke topic MQTT dan tunggu response recordTarget dari logger.
+ * Subscribe ke topic MQTT, kirim auto_search, tunggu:
+ * 1. Konfirmasi AutoSearch.nilai (cepat, ~5 detik)
+ * 2. recordTarget dengan HA/VA (tunggu max 30 detik setelah konfirmasi)
+ * Return segera setelah recordTarget datang atau timeout.
  */
-function waitForAutoSearchResponse(
+function subscribeAndSend(
   topic: string,
-  timeoutMs: number
-): Promise<{ TargetName?: string; TgHigh?: string; HA?: string; VA?: string } | null> {
+  id_logger: string,
+  slot_id?: number
+): Promise<{
+  confirmed: boolean;
+  HA?: string;
+  VA?: string;
+  TargetName?: string;
+} | null> {
   return new Promise((resolve) => {
     const host = process.env.MQTT_HOST || "mqtt.beacontelemetry.com";
     const port = parseInt(process.env.MQTT_PORT || "8883", 10);
@@ -100,41 +80,79 @@ function waitForAutoSearchResponse(
       connectTimeout: 10000,
     });
 
-    const timer = setTimeout(() => {
-      console.log("[AutoSearch] Timeout waiting for logger response");
+    let confirmed = false;
+    let haVaReceived = false;
+
+    // Timeout total: 35 detik
+    const totalTimer = setTimeout(() => {
+      console.log("[AutoSearch] Total timeout");
       client.end(true);
-      resolve(null);
-    }, timeoutMs);
+      resolve(confirmed ? { confirmed: true } : null);
+    }, 35000);
 
     client.on("connect", () => {
-      console.log("[AutoSearch] MQTT connected, subscribing to", topic);
-      client.subscribe(topic);
+      console.log("[AutoSearch] Connected, subscribing to", topic);
+      client.subscribe(topic, () => {
+        // Kirim auto_search setelah subscribe
+        const payload = {
+          [`set_${id_logger}`]: {
+            command: "set_rts",
+            auto_search: true,
+          },
+        };
+        client.publish(topic, JSON.stringify(payload), { qos: 0 });
+        console.log("[AutoSearch] Sent auto_search command");
+      });
     });
 
-    client.on("message", (_t: string, message: Buffer) => {
+    client.on("message", async (_t: string, message: Buffer) => {
       try {
         const data = JSON.parse(message.toString());
-        // Logger response: { "recordTarget": { "TargetName": "P2", "HA": "115,45,59", "VA": "294,02,67" } }
+
+        // 1. Konfirmasi: { "AutoSearch": { "nilai": 1 } }
+        if (data?.AutoSearch?.nilai !== undefined && !confirmed) {
+          confirmed = true;
+          console.log("[AutoSearch] Confirmed by logger, nilai:", data.AutoSearch.nilai);
+        }
+
+        // 2. recordTarget dengan HA/VA
         const rt = data?.recordTarget;
-        if (rt && rt.HA && rt.VA) {
-          console.log("[AutoSearch] Got response:", rt);
-          clearTimeout(timer);
+        if (rt && rt.HA && rt.VA && !haVaReceived) {
+          haVaReceived = true;
+          console.log("[AutoSearch] Got HA/VA:", rt.HA, rt.VA);
+
+          // Simpan ke t_prisma
+          const id_prisma = slot_id ? `P${slot_id}` : rt.TargetName;
+          if (id_prisma) {
+            try {
+              await prisma.$executeRaw`
+                UPDATE t_prisma
+                SET HA = ${String(rt.HA)}, VA = ${String(rt.VA)}
+                WHERE id_prisma = ${id_prisma}
+              `;
+              console.log("[AutoSearch] Saved HA/VA to t_prisma for", id_prisma);
+            } catch (dbErr) {
+              console.error("[AutoSearch] DB save error:", dbErr);
+            }
+          }
+
+          clearTimeout(totalTimer);
           client.end();
           resolve({
-            TargetName: rt.TargetName,
-            TgHigh: rt.TgHigh,
+            confirmed: true,
             HA: String(rt.HA),
             VA: String(rt.VA),
+            TargetName: rt.TargetName,
           });
         }
       } catch {
-        // Ignore non-JSON
+        // Ignore
       }
     });
 
     client.on("error", (err: Error) => {
       console.error("[AutoSearch] MQTT error:", err);
-      clearTimeout(timer);
+      clearTimeout(totalTimer);
       client.end();
       resolve(null);
     });

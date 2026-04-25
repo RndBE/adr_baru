@@ -98,15 +98,20 @@ function PrismaModal({
       // Ambil HA/VA dari response logger (server sudah tangkap)
       const resp = json.data?.response;
       if (resp?.HA && resp?.VA) {
+        // Logger sudah kirim HA/VA
         setCapturedHA(resp.HA);
         setCapturedVA(resp.VA);
         setAutoSearchStatus("done");
         if (resp.TargetName && !namaPrisma) {
           setNamaPrisma(resp.TargetName);
         }
+      } else if (resp?.confirmed) {
+        // Logger konfirmasi auto_search berjalan, tapi belum kirim HA/VA
+        // HA/VA sudah disimpan ke t_prisma oleh server saat datang nanti
+        setAutoSearchStatus("done");
       } else {
         setAutoSearchStatus("idle");
-        setError("Logger tidak merespon dalam waktu yang ditentukan");
+        setError("Logger tidak merespon");
       }
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : "Terjadi kesalahan");
@@ -139,13 +144,16 @@ function PrismaModal({
       setError("Nama Prisma wajib diisi.");
       return;
     }
-    const ok = await doRequest(mode === "set" ? "POST" : "PUT", {
+    const body: Record<string, unknown> = {
       slot_id: slot.slot,
       nama_prisma: namaPrisma,
       target_height: targetHeight,
-      HA: capturedHA,
-      VA: capturedVA,
-    });
+    };
+    // Hanya kirim HA/VA jika ada nilai (bukan "0"), biar backend baca dari t_prisma
+    if (capturedHA && capturedHA !== "0") body.HA = capturedHA;
+    if (capturedVA && capturedVA !== "0") body.VA = capturedVA;
+
+    const ok = await doRequest(mode === "set" ? "POST" : "PUT", body);
     if (ok) onSuccess();
   };
 
