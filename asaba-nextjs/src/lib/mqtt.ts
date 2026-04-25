@@ -71,7 +71,10 @@ export async function publishMqtt(
  * Send RTS start command via MQTT.
  * Ported from PHP Kontrol::lanjut_kontrol().
  */
-export async function sendRtsStartCommand(loggerId: string): Promise<boolean> {
+export async function sendRtsStartCommand(
+  loggerId: string,
+  config?: { retries?: number; stepRecord?: number; cycleTime?: number }
+): Promise<boolean> {
   const sendKontrol = {
     status: "1",
     status_manual: "1",
@@ -82,6 +85,9 @@ export async function sendRtsStartCommand(loggerId: string): Promise<boolean> {
     [`set_${loggerId}`]: {
       command: "set_rts",
       AutoTrackingStart: true,
+      ...(config?.retries   !== undefined && { retries:    config.retries }),
+      ...(config?.stepRecord !== undefined && { step_record: config.stepRecord }),
+      ...(config?.cycleTime  !== undefined && { cycle_time:  config.cycleTime }),
     },
   };
 

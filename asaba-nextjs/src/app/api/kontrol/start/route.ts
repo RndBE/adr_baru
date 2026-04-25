@@ -16,10 +16,16 @@ export async function POST(request: NextRequest) {
     const { kode_akses } = body;
 
     // Ambil logger ID ADR secara dinamis dari DB
-    const loggers = await prisma.$queryRaw<Array<{ id_logger: string }>>`
-      SELECT id_logger FROM t_logger WHERE kategori_log = '1' LIMIT 1
+    // Cari logger dengan kategori yang mengandung "ADR" atau "RTS"
+    const loggers = await prisma.$queryRaw<Array<{ id: number; id_logger: string }>>`
+      SELECT l.id, l.id_logger 
+      FROM t_logger l
+      JOIN kategori_logger kl ON l.kategori_log = kl.id_katlogger
+      WHERE kl.nama_kategori LIKE '%ADR%' OR kl.nama_kategori LIKE '%RTS%'
+      LIMIT 1
     `;
     const id_logger = loggers?.[0]?.id_logger;
+    const id_logger_int = loggers?.[0]?.id;
     if (!id_logger) {
       return NextResponse.json(
         { success: false, error: "ADR logger not found in database" },
@@ -27,17 +33,17 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Verify access code
+    // Verify access code — cari dari semua user, tidak hardcoded id_user: 2
     if (kode_akses) {
       const { createHash } = await import("crypto");
 
       const hashedInput = createHash("md5").update(kode_akses).digest("hex");
       
       const accessCode = await prisma.kodeAkses.findFirst({
-        where: { id_user: 2 },
+        where: { kode_akses: hashedInput },
       });
 
-      if (!accessCode || accessCode.kode_akses !== hashedInput) {
+      if (!accessCode) {
         return NextResponse.json(
           { success: false, error: "Invalid access code" },
           { status: 403 }
@@ -45,20 +51,20 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    // Update set_tempkontrol
+    // Update set_tempkontrol — gunakan id_logger_int (Int) bukan string
     const dateNow = new Date();
     await prisma.setTempkontrol.updateMany({
-      where: { id_logger: id_logger },
+      where: { id_logger: id_logger_int },
       data: {
-        status: "1",
-        status_manual: "1",
+        status: 1,
+        status_manual: 1,
         datetime: dateNow,
       },
     });
 
     // Reset prisma status_get ke 2 (Running) — menunggu data dari logger
     const dataPrisma = await prisma.prismaTarget.findMany({
-      where: { id_logger: parseInt(id_logger) },
+      where: { id_logger: id_logger_int ?? parseInt(id_logger) },
     });
     for (const p of dataPrisma) {
       await prisma.tempPrisma.updateMany({
@@ -79,8 +85,22 @@ export async function POST(request: NextRequest) {
       },
     });
 
-    // Send MQTT command
-    const mqttSuccess = await sendRtsStartCommand(id_logger);
+    // Ambil config (retries, step_record, cycle_time) dari config_adr
+    const configRows = await prisma.$queryRaw<Array<{
+      retries: number | null;
+      step_record: number | null;
+      cycle_time: number | null;
+    }>>`
+      SELECT retries, step_record, cycle_time FROM config_adr LIMIT 1
+    `;
+    const cfg = configRows?.[0];
+
+    // Send MQTT command — sertakan retries, step_record, cycle_time
+    const mqttSuccess = await sendRtsStartCommand(id_logger, {
+      retries:    cfg?.retries    != null ? Number(cfg.retries)    : undefined,
+      stepRecord: cfg?.step_record != null ? Number(cfg.step_record) : undefined,
+      cycleTime:  cfg?.cycle_time  != null ? Number(cfg.cycle_time)  : undefined,
+    });
 
     return NextResponse.json({
       success: true,
@@ -98,6 +118,7 @@ export async function POST(request: NextRequest) {
     );
   }
 }
+
 
 /**
  * GET /api/kontrol/start?id_logger=XXXX
