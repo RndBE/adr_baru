@@ -216,12 +216,30 @@ function PrismaModal({
       setError("Nama Prisma wajib diisi.");
       return;
     }
-    const ok = await doRequest(mode === "set" ? "POST" : "PUT", {
-      slot_id: slot.slot,
-      nama_prisma: namaPrisma,
-      target_height: targetHeight,
-    });
-    if (ok) onSuccess();
+    setLoading(true);
+    setError("");
+    setStatusText("Menyimpan...");
+    try {
+      const res = await fetch("/api/prism-config", {
+        method: mode === "set" ? "POST" : "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          slot_id: slot.slot,
+          nama_prisma: namaPrisma,
+          target_height: targetHeight,
+        }),
+      });
+      const json = await res.json();
+      if (!json.success) throw new Error(json.error || "Gagal");
+      // Jangan close modal — tunggu browser MQTT tangkap recordTarget response
+      // Browser MQTT handler akan panggil prism-set → onSuccess()
+      setStatusText("Menunggu feedback MQTT…");
+      console.log("Menunggu feedback MQTT…");
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : "Terjadi kesalahan");
+      setLoading(false);
+      setStatusText("");
+    }
   };
 
   return (

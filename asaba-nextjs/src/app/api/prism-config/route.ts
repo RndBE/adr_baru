@@ -254,26 +254,14 @@ export async function PUT(request: NextRequest) {
       },
     };
 
-    // Subscribe → Publish → Tunggu response (satu koneksi)
-    const loggerResponse = await subscribePublishAndWait(topic, mqttPayload, 15000);
-
-    // Simpan HA/VA dari response logger ke t_prisma
-    if (loggerResponse) {
-      console.log(`[PUT prism-config] Logger responded HA=${loggerResponse.HA}, VA=${loggerResponse.VA}`);
-      await prisma.$executeRaw`
-        UPDATE t_prisma
-        SET HA = ${loggerResponse.HA}, VA = ${loggerResponse.VA}
-        WHERE id_prisma = ${id_prisma}
-      `;
-    } else {
-      console.log("[PUT prism-config] No logger response (timeout)");
-    }
+    // Fire-and-forget: kirim recordTarget, browser MQTT akan tangkap response
+    const mqttSent = await publishMqtt(topic, mqttPayload);
+    console.log("[PUT prism-config] recordTarget sent, waiting for browser MQTT to catch response");
 
     return NextResponse.json({
       success: true,
       message: "Prisma berhasil diperbarui",
-      mqtt_sent: true,
-      ha_va_saved: !!loggerResponse,
+      mqtt_sent: mqttSent,
     });
   } catch (error) {
     console.error("[PUT /api/prism-config]", error);
@@ -282,97 +270,6 @@ export async function PUT(request: NextRequest) {
       { status: 500 }
     );
   }
-}
-
-/**
- * Satu koneksi MQTT:
- * 1. Connect
- * 2. Subscribe ke topic (tunggu konfirmasi)
- * 3. Publish recordTarget
- * 4. Tunggu response dari logger (yang TANPA key "set_")
- */
-function subscribePublishAndWait(
-  topic: string,
-  payload: object,
-  timeoutMs: number
-): Promise<{ TargetName: string; HA: string; VA: string } | null> {
-  return new Promise((resolve) => {
-    const host = process.env.MQTT_HOST || "mqtt.beacontelemetry.com";
-    const port = parseInt(process.env.MQTT_PORT || "8883", 10);
-
-    const mqttLib = require("mqtt");
-    const client = mqttLib.connect(`mqtts://${host}:${port}`, {
-      username: process.env.MQTT_USERNAME || "userlog",
-      password: process.env.MQTT_PASSWORD || "b34c0n",
-      rejectUnauthorized: process.env.MQTT_REJECT_UNAUTHORIZED === "true",
-      connectTimeout: 10000,
-      clientId: `prism-rw-${Date.now()}`,
-    });
-
-    let resolved = false;
-
-    const timer = setTimeout(() => {
-      if (!resolved) {
-        resolved = true;
-        console.log("[subscribePublishAndWait] Timeout after", timeoutMs, "ms");
-        client.end(true);
-        resolve(null);
-      }
-    }, timeoutMs);
-
-    client.on("connect", () => {
-      console.log("[subscribePublishAndWait] Connected");
-      // Step 1: Subscribe dan tunggu konfirmasi
-      client.subscribe(topic, { qos: 0 }, (err: Error | null) => {
-        if (err) {
-          console.error("[subscribePublishAndWait] Subscribe error:", err);
-          if (!resolved) { resolved = true; clearTimeout(timer); client.end(true); resolve(null); }
-          return;
-        }
-        console.log("[subscribePublishAndWait] Subscribed OK, now publishing...");
-        // Step 2: Baru publish SETELAH subscribe confirmed
-        client.publish(topic, JSON.stringify(payload), { qos: 0 }, () => {
-          console.log("[subscribePublishAndWait] Published, waiting for logger response...");
-        });
-      });
-    });
-
-    // Step 3: Tunggu response
-    client.on("message", (_t: string, message: Buffer) => {
-      if (resolved) return;
-      try {
-        const data = JSON.parse(message.toString());
-        const keys = Object.keys(data);
-
-        // Abaikan pesan kita sendiri (punya key set_XXXX)
-        if (keys.some((k: string) => k.startsWith("set_"))) {
-          console.log("[subscribePublishAndWait] Skipping own message");
-          return;
-        }
-
-        // Tangkap recordTarget dari logger
-        const rt = data?.recordTarget;
-        if (rt && rt.HA && rt.VA) {
-          resolved = true;
-          console.log("[subscribePublishAndWait] Got HA/VA:", rt.HA, rt.VA);
-          clearTimeout(timer);
-          client.end(true);
-          resolve({
-            TargetName: rt.TargetName || "",
-            HA: String(rt.HA),
-            VA: String(rt.VA),
-          });
-        }
-      } catch {
-        // Ignore
-      }
-    });
-
-    client.on("error", (err: Error) => {
-      console.error("[subscribePublishAndWait] Error:", err.message);
-      if (!resolved) { resolved = true; clearTimeout(timer); client.end(true); resolve(null); }
-    });
-  });
 }
 
 
