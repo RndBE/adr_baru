@@ -56,80 +56,101 @@ function PrismaModal({
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
 
-  const handleSubmit = async () => {
-    if (!namaPrisma.trim()) {
-      setError("Nama Prisma wajib diisi.");
-      return;
-    }
+  const doRequest = async (method: string, body: object) => {
     setLoading(true);
     setError("");
     try {
-      const method = mode === "set" ? "POST" : "PUT";
-      const body =
-        mode === "set"
-          ? { slot_id: slot.slot, nama_prisma: namaPrisma, target_height: targetHeight }
-          : { slot_id: slot.slot, nama_prisma: namaPrisma, target_height: targetHeight };
-
       const res = await fetch("/api/prism-config", {
         method,
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(body),
       });
       const json = await res.json();
-      if (!json.success) throw new Error(json.error || "Gagal menyimpan");
-      onSuccess();
+      if (!json.success) throw new Error(json.error || "Gagal");
+      return true;
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : "Terjadi kesalahan");
+      return false;
     } finally {
       setLoading(false);
     }
   };
 
+  const handleAutoSearch = async () => {
+    const ok = await doRequest(mode === "set" ? "POST" : "PUT", {
+      slot_id: slot.slot,
+      nama_prisma: namaPrisma || slot.id_prisma,
+      target_height: targetHeight,
+    });
+    if (ok) onSuccess();
+  };
+
+  const handleGoToTarget = async () => {
+    await doRequest("PUT", {
+      slot_id: slot.slot,
+      target_height: targetHeight,
+    });
+  };
+
+  const handleSimpan = async () => {
+    if (!namaPrisma.trim()) {
+      setError("Nama Prisma wajib diisi.");
+      return;
+    }
+    const ok = await doRequest(mode === "set" ? "POST" : "PUT", {
+      slot_id: slot.slot,
+      nama_prisma: namaPrisma,
+      target_height: targetHeight,
+    });
+    if (ok) onSuccess();
+  };
+
   return (
-    <div 
+    <div
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm"
       onClick={onClose}
     >
-      <div 
-        className="bg-white rounded-xl shadow-2xl w-full max-w-[420px] mx-4 overflow-hidden"
+      <div
+        className="bg-white rounded-xl shadow-2xl w-full max-w-[360px] mx-4 overflow-hidden"
         onClick={(e) => e.stopPropagation()}
       >
         {/* Header */}
-        <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100">
-          <div>
-            <h3 className="font-bold text-gray-900 text-[15px]">
-              {mode === "set" ? "Set Prisma Baru" : "Edit Prisma"}
-            </h3>
-            <p className="text-[12px] text-gray-500 mt-0.5">Slot {slot.id_prisma}</p>
-          </div>
+        <div className="flex items-center justify-between px-6 py-4">
+          <h3 className="font-bold text-gray-900 text-[16px]">
+            {mode === "set" ? "Set Prisma" : "Edit Prisma"}
+          </h3>
           <button
             onClick={onClose}
             className="w-8 h-8 flex items-center justify-center rounded-lg hover:bg-gray-100 transition-colors text-gray-500 cursor-pointer"
           >
-            <X className="w-4 h-4" />
+            <X className="w-5 h-5" />
           </button>
         </div>
 
         {/* Body */}
-        <div className="px-6 py-5 flex flex-col gap-4">
+        <div className="px-6 pb-4 flex flex-col gap-4">
           {error && (
             <div className="flex items-center gap-2 text-red-600 bg-red-50 rounded-lg px-3 py-2.5 text-[13px]">
               <AlertCircle className="w-4 h-4 flex-shrink-0" />
               {error}
             </div>
           )}
+
+          {/* Nama Prisma */}
           <div className="flex flex-col gap-1.5">
-            <label className="text-[12.5px] font-bold text-gray-700">Nama Prisma</label>
+            <label className="text-[12.5px] font-semibold text-gray-600">Nama Prisma</label>
             <Input
               value={namaPrisma}
               onChange={(e) => setNamaPrisma(e.target.value)}
-              placeholder="cth: BS_1, PC_4, C1 ..."
+              placeholder="cth: P1"
               className="h-[38px] text-[13px] border-gray-300 focus-visible:ring-[#303481]"
               autoFocus
             />
           </div>
+
+          {/* Target Height */}
           <div className="flex flex-col gap-1.5">
-            <label className="text-[12.5px] font-bold text-gray-700">Target Height</label>
+            <label className="text-[12.5px] font-semibold text-gray-600">Target Height</label>
             <Input
               type="number"
               value={targetHeight}
@@ -138,33 +159,46 @@ function PrismaModal({
               className="h-[38px] text-[13px] border-gray-300 focus-visible:ring-[#303481]"
             />
           </div>
+
+          {/* Go To Target — hanya di Edit */}
+          {mode === "edit" && (
+            <button
+              onClick={handleGoToTarget}
+              disabled={loading}
+              className="w-full h-[40px] rounded-lg bg-[#E86A1F] hover:bg-[#c55a18] text-white text-[13.5px] font-bold flex items-center justify-center gap-2 transition-colors cursor-pointer disabled:opacity-60 border-none"
+            >
+              {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Search className="w-4 h-4" />}
+              Go To Target
+            </button>
+          )}
+
+          {/* Auto Search */}
+          <button
+            onClick={handleAutoSearch}
+            disabled={loading}
+            className="w-full h-[40px] rounded-lg bg-[#2563EB] hover:bg-[#1d4ed8] text-white text-[13.5px] font-bold flex items-center justify-center gap-2 transition-colors cursor-pointer disabled:opacity-60 border-none"
+          >
+            {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Search className="w-4 h-4" />}
+            Auto Search
+          </button>
         </div>
 
-        {/* Footer */}
-        <div className="flex gap-3 px-6 py-4 bg-gray-50 border-t border-gray-100">
+        {/* Footer — Simpan */}
+        <div className="px-6 pb-5 flex justify-end">
           <button
-            onClick={onClose}
-            className="flex-1 h-[38px] border border-gray-300 rounded-lg text-[13px] font-semibold text-gray-600 hover:bg-gray-100 transition-colors cursor-pointer bg-white"
-          >
-            Batal
-          </button>
-          <button
-            onClick={handleSubmit}
+            onClick={handleSimpan}
             disabled={loading}
-            className="flex-1 h-[38px] bg-[#303481] hover:bg-[#1f2259] text-white rounded-lg text-[13px] font-semibold transition-colors flex items-center justify-center gap-2 disabled:opacity-70 cursor-pointer border-none"
+            className="h-[38px] px-7 rounded-lg bg-gray-100 hover:bg-gray-200 text-gray-700 text-[13px] font-semibold transition-colors cursor-pointer disabled:opacity-60 border-none"
           >
-            {loading ? (
-              <Loader2 className="w-4 h-4 animate-spin" />
-            ) : (
-              <Check className="w-4 h-4" />
-            )}
-            {mode === "set" ? "Simpan" : "Update"}
+            {loading && <Loader2 className="w-4 h-4 animate-spin inline mr-1.5" />}
+            Simpan
           </button>
         </div>
       </div>
     </div>
   );
 }
+
 
 // =================== MODAL AKSES KODE ===================
 function AccessCodeModal({

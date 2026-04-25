@@ -76,63 +76,10 @@ export async function POST(request: NextRequest) {
       VALUES (${idLog}, ${id_logger}, ${dateNow})
     `;
 
-    // ── Ambil config RTS dari config_adr ──
-    const configRows = await prisma.$queryRaw<Array<{
-      job_name: string | null;
-      prisma_cons: string | null;
-      ts_high: string | null;
-      coor_x: string | null;
-      coor_y: string | null;
-      coor_z: string | null;
-      step_record: number | null;
-      retries: number | null;
-      cycle_time: number | null;
-    }>>`
-      SELECT job_name, prisma_cons, ts_high, coor_x, coor_y, coor_z,
-             step_record, retries, cycle_time
-      FROM config_adr LIMIT 1
-    `;
-    const cfg = configRows?.[0];
-
-    const rtsConfig = {
-      jobName:    cfg?.job_name    || "",
-      prismConst: cfg?.prisma_cons || "0",
-      tsHigh:     cfg?.ts_high     || "0",
-      locCoor:    [
-        String(cfg?.coor_x || "0"),
-        String(cfg?.coor_y || "0"),
-        String(cfg?.coor_z || "0"),
-      ] as [string, string, string],
-      stepRecord: Number(cfg?.step_record ?? 5),
-      retries:    Number(cfg?.retries     ?? 2),
-      cycleTime:  Number(cfg?.cycle_time  ?? 15),
-    };
-
-    // ── Ambil daftar prisma targets dari t_prisma ──
-    const prismaRows = await prisma.$queryRaw<Array<{
-      id: number;
-      id_prisma: string;
-      nama_prisma: string;
-      target_height: string | null;
-      HA: string | null;
-      VA: string | null;
-    }>>`
-      SELECT id, id_prisma, nama_prisma, target_height, HA, VA
-      FROM t_prisma
-      WHERE id_logger = ${id_logger}
-      ORDER BY id ASC
-    `;
-
-    const prismaTargets = prismaRows.map((p, idx) => ({
-      slot:       idx + 1,
-      name:       p.nama_prisma || p.id_prisma,
-      targetHigh: String(p.target_height ?? "0"),
-      HA:         String(p.HA ?? "0"),
-      VA:         String(p.VA ?? "0"),
-    }));
-
-    // ── Kirim MQTT: config → recordTarget per prisma → AutoTrackingStart ──
-    const mqttSuccess = await sendRtsStartCommand(id_logger, rtsConfig, prismaTargets);
+    // ── Kirim MQTT: hanya AutoTrackingStart ──
+    // Config (jobName, prismConst, dll) dikirim dari RTS Config saat save
+    // recordTarget dikirim dari Prism Config saat Auto Search
+    const mqttSuccess = await sendRtsStartCommand(id_logger);
 
     return NextResponse.json({
       success: true,

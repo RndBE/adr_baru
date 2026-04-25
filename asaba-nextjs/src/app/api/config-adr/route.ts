@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
+import { sendRtsConfig } from "@/lib/mqtt";
 
 
 /**
@@ -7,7 +8,7 @@ import { prisma } from "@/lib/prisma";
  * Fetch konfigurasi ADR dari tabel config_adr (row pertama).
  *
  * PUT /api/config-adr
- * Update konfigurasi ADR (berdasarkan id).
+ * Update konfigurasi ADR (berdasarkan id) + kirim ke logger via MQTT.
  */
 export async function GET() {
   try {
@@ -48,6 +49,7 @@ export async function PUT(request: Request) {
       cycle_time,
     } = body;
 
+    // Simpan ke DB
     await prisma.$executeRaw`
       UPDATE config_adr
       SET
@@ -63,7 +65,31 @@ export async function PUT(request: Request) {
       WHERE id = ${id}
     `;
 
-    return NextResponse.json({ success: true });
+    // Ambil id_logger ADR untuk MQTT
+    const loggers = await prisma.$queryRaw<Array<{ id_logger: string }>>`
+      SELECT l.id_logger
+      FROM t_logger l
+      JOIN kategori_logger kl ON l.kategori_log = kl.id_katlogger
+      WHERE kl.nama_kategori LIKE '%ADR%' OR kl.nama_kategori LIKE '%RTS%'
+      LIMIT 1
+    `;
+    const loggerId = loggers?.[0]?.id_logger;
+
+    // Kirim config ke logger via MQTT
+    let mqttSent = false;
+    if (loggerId) {
+      mqttSent = await sendRtsConfig(loggerId, {
+        jobName:    job_name || "",
+        prismConst: String(prisma_cons ?? "0"),
+        tsHigh:     String(ts_high ?? "0"),
+        locCoor:    [String(coor_x ?? "0"), String(coor_y ?? "0"), String(coor_z ?? "0")],
+        stepRecord: parseInt(step_record) || 5,
+        retries:    parseInt(retries) || 2,
+        cycleTime:  parseInt(cycle_time) || 15,
+      });
+    }
+
+    return NextResponse.json({ success: true, mqtt_sent: mqttSent });
   } catch (error) {
     console.error("[PUT /api/config-adr]", error);
     return NextResponse.json(
@@ -72,3 +98,4 @@ export async function PUT(request: Request) {
     );
   }
 }
+

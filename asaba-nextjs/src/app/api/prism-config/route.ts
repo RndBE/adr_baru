@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { publishMqtt } from "@/lib/mqtt";
+import { sendRtsRecordTarget } from "@/lib/mqtt";
 
 
 /**
@@ -168,18 +168,14 @@ export async function POST(request: NextRequest) {
       VALUES (${id_prisma}, 'Elevation', 'sensor10', '1', 'spline', 'elevation_z')
     `;
 
-    // 4. Publish MQTT
-    const dataMqtt = {
-      [`set_${id_logger}`]: {
-        command: "set_rts",
-        recordTarget: {
-          slot: parseInt(String(slot_id)),
-          name: nama_prisma,
-          targetHigh: target_height ?? 0,
-        },
-      },
-    };
-    const mqttSent = await publishMqtt("ADR_Tambang_Kaltara", dataMqtt);
+    // 4. Kirim recordTarget ke logger via MQTT
+    const mqttSent = await sendRtsRecordTarget(id_logger, {
+      slot: parseInt(String(slot_id)),
+      name: nama_prisma,
+      targetHigh: String(target_height ?? "0"),
+      HA: "0",
+      VA: "0",
+    });
 
     return NextResponse.json({
       success: true,
@@ -238,20 +234,21 @@ export async function PUT(request: NextRequest) {
       );
     }
 
-    // Publish MQTT
-    const recordTarget: Record<string, unknown> = {
-      slot: parseInt(String(slot_id)),
-    };
-    if (nama_prisma !== undefined) recordTarget.name = nama_prisma;
-    if (target_height !== undefined) recordTarget.targetHigh = target_height;
+    // Ambil HA/VA terbaru dari DB untuk dikirim ke MQTT
+    const prismaData = await prisma.$queryRaw<Array<{ HA: string | null; VA: string | null }>>`
+      SELECT HA, VA FROM t_prisma WHERE id_prisma = ${id_prisma} LIMIT 1
+    `;
+    const currentHA = HA ?? prismaData?.[0]?.HA ?? "0";
+    const currentVA = VA ?? prismaData?.[0]?.VA ?? "0";
 
-    const dataMqtt = {
-      [`set_${id_logger}`]: {
-        command: "set_rts",
-        recordTarget,
-      },
-    };
-    const mqttSent = await publishMqtt("ADR_Tambang_Kaltara", dataMqtt);
+    // Kirim recordTarget ke logger via MQTT
+    const mqttSent = await sendRtsRecordTarget(id_logger, {
+      slot: parseInt(String(slot_id)),
+      name: nama_prisma ?? id_prisma,
+      targetHigh: String(target_height ?? "0"),
+      HA: String(currentHA),
+      VA: String(currentVA),
+    });
 
     return NextResponse.json({
       success: true,

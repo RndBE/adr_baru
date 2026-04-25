@@ -120,3 +120,35 @@ export async function GET(
     );
   }
 }
+
+// PUT /api/loggers/[id] - update logger
+export async function PUT(req: Request, { params }: { params: Promise<{ id: string }> }) {
+  try {
+    const { id } = await params;
+    const body = await req.json();
+    const { id_logger, nama_logger, lokasi_logger, kategori_log, tabel } = body;
+    if (!id_logger || !nama_logger || !lokasi_logger || !kategori_log || !tabel) {
+      return NextResponse.json({ success: false, error: "Semua field wajib diisi" }, { status: 400 });
+    }
+    const updated = await prisma.logger.update({
+      where: { id: parseInt(id) },
+      data: { id_logger, nama_logger, lokasi_logger: String(lokasi_logger), kategori_log: String(kategori_log), tabel },
+    });
+    return NextResponse.json({ success: true, data: updated });
+  } catch (error) {
+    console.error("[PUT /api/loggers/:id]", error);
+    return NextResponse.json({ success: false, error: "Gagal mengupdate logger" }, { status: 500 });
+  }
+}
+
+// DELETE /api/loggers/[id] - hapus logger
+export async function DELETE(_req: Request, { params }: { params: Promise<{ id: string }> }) {
+  try {
+    const { id } = await params;
+    await prisma.logger.delete({ where: { id: parseInt(id) } });
+    return NextResponse.json({ success: true, message: "Logger berhasil dihapus" });
+  } catch (error) {
+    console.error("[DELETE /api/loggers/:id]", error);
+    return NextResponse.json({ success: false, error: "Gagal menghapus logger" }, { status: 500 });
+  }
+}

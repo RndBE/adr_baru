@@ -93,13 +93,14 @@
 				caption-side: top;
 			}
 		</style>
-		<script src="https://stesy.beacontelemetry.com/assets/code/tom-select.base.min.js" defer></script>
-		<script src="https://stesy.beacontelemetry.com/assets/code/tabler.min.js" defer></script>
-		<script src="https://stesy.beacontelemetry.com/assets/code/demo.min.js" defer></script>
-
 		<script src="https://code.jquery.com/jquery-3.6.0.js"></script>
 		<script src="https://code.jquery.com/ui/1.13.2/jquery-ui.js"></script> 
 		<script src="<?php echo base_url()?>plugin/datetimepicker/build/jquery.datetimepicker.full.min.js"></script> 
+
+		<!-- Tabler Core (HARUS setelah jQuery) -->
+		<script src="https://stesy.beacontelemetry.com/assets/code/tom-select.base.min.js"></script>
+		<script src="https://stesy.beacontelemetry.com/assets/code/tabler.min.js"></script>
+		<script src="https://stesy.beacontelemetry.com/assets/code/demo.min.js"></script>
 
 		<!-- mQtt -->
 		<script src="https://cdnjs.cloudflare.com/ajax/libs/paho-mqtt/1.0.1/mqttws31.js" type="text/javascript"></script>

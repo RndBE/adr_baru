@@ -1,4 +1,4 @@
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 
 export async function GET() {
@@ -23,5 +23,26 @@ export async function GET() {
       { success: false, error: "Failed to fetch loggers" },
       { status: 500 }
     );
+  }
+}
+
+// POST /api/loggers - tambah logger baru
+export async function POST(req: NextRequest) {
+  try {
+    const body = await req.json();
+    const { id_logger, nama_logger, lokasi_logger, kategori_log, tabel } = body;
+    if (!id_logger || !nama_logger || !lokasi_logger || !kategori_log || !tabel) {
+      return NextResponse.json({ success: false, error: "Semua field wajib diisi" }, { status: 400 });
+    }
+    const existing = await prisma.logger.findFirst({ where: { id_logger } });
+    if (existing) return NextResponse.json({ success: false, error: "ID Logger sudah digunakan" }, { status: 409 });
+
+    const created = await prisma.logger.create({
+      data: { id_logger, nama_logger, lokasi_logger: String(lokasi_logger), kategori_log: String(kategori_log), tabel },
+    });
+    return NextResponse.json({ success: true, data: created }, { status: 201 });
+  } catch (error) {
+    console.error("[POST /api/loggers]", error);
+    return NextResponse.json({ success: false, error: "Gagal menambah logger" }, { status: 500 });
   }
 }

@@ -11,6 +11,7 @@ import {
   Target,
   LogOut,
   Database,
+  Settings2,
 } from "lucide-react";
 import {
   Sidebar,
@@ -61,6 +62,7 @@ const mainNavItems = [
   { title: "Visualisasi 3D", href: "/visualisasi-3d", icon: Visualisasi3DIcon },
   { title: "Prism Config", href: "/prism-config", icon: PrismConfigIcon },
   { title: "Rekap Data", href: "/rekap-data", icon: Database },
+  { title: "Master Data", href: "/master-data", icon: Settings2 },
 ];
 
 export function AppSidebar() {

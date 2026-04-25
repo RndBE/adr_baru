@@ -255,69 +255,6 @@ export default function KontrolAdrPage() {
     }
   };
 
-  // --- Set / Edit Prisma Modal ---
-  type PrismaModal = { type: "set" | "edit"; slotId: number; namaPrisma: string; targetHeight: string };
-  const [prismaModal, setPrismaModal] = useState<PrismaModal | null>(null);
-  const [prismaModalSaving, setPrismaModalSaving] = useState(false);
-  const [prismaModalError, setPrismaModalError] = useState("");
-
-  const openSetModal = (slotId: number) => setPrismaModal({ type: "set", slotId, namaPrisma: "", targetHeight: "" });
-  const openEditModal = (slotId: number, namaPrisma: string, targetHeight: string) =>
-    setPrismaModal({ type: "edit", slotId, namaPrisma, targetHeight });
-  const closePrismaModal = () => { setPrismaModal(null); setPrismaModalError(""); };
-
-  const handleAutoSearch = async () => {
-    if (!prismaModal) return;
-    setPrismaModalSaving(true);
-    try {
-      const res = await fetch("/api/prism-config", {
-        method: prismaModal.type === "set" ? "POST" : "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          slot_id: prismaModal.slotId,
-          nama_prisma: prismaModal.namaPrisma || `P${prismaModal.slotId}`,
-          target_height: parseFloat(prismaModal.targetHeight) || 0,
-        }),
-      }).then(r => r.json());
-      if (!res.success) setPrismaModalError(res.error || "Gagal mengirim perintah Auto Search");
-      else { closePrismaModal(); fetchPrisma(); }
-    } catch { setPrismaModalError("Terjadi kesalahan jaringan"); }
-    finally { setPrismaModalSaving(false); }
-  };
-
-  const handleGoToTarget = async () => {
-    if (!prismaModal) return;
-    setPrismaModalSaving(true);
-    try {
-      const res = await fetch("/api/prism-config", {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ slot_id: prismaModal.slotId, target_height: parseFloat(prismaModal.targetHeight) || 0 }),
-      }).then(r => r.json());
-      if (!res.success) setPrismaModalError(res.error || "Gagal Go To Target");
-    } catch { setPrismaModalError("Terjadi kesalahan jaringan"); }
-    finally { setPrismaModalSaving(false); }
-  };
-
-  const handleSavePrisma = async () => {
-    if (!prismaModal) return;
-    if (!prismaModal.namaPrisma.trim()) { setPrismaModalError("Nama Prisma wajib diisi"); return; }
-    setPrismaModalSaving(true);
-    try {
-      const res = await fetch("/api/prism-config", {
-        method: prismaModal.type === "set" ? "POST" : "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          slot_id: prismaModal.slotId,
-          nama_prisma: prismaModal.namaPrisma,
-          target_height: parseFloat(prismaModal.targetHeight) || 0,
-        }),
-      }).then(r => r.json());
-      if (!res.success) setPrismaModalError(res.error || "Gagal menyimpan");
-      else { closePrismaModal(); fetchPrisma(); }
-    } catch { setPrismaModalError("Terjadi kesalahan jaringan"); }
-    finally { setPrismaModalSaving(false); }
-  };
 
   // --- Data-driven Proses Log ---
   // Hitung progress berdasarkan status prisma card yang diterima dari logger
@@ -1019,21 +956,6 @@ export default function KontrolAdrPage() {
                           </div>
                         </div>
                       </div>
-                      {/* Card Footer — Set / Edit buttons */}
-                      <div className="border-t border-gray-100 px-3 py-2 flex gap-2 mt-auto">
-                        <button
-                          onClick={() => openSetModal(idx + 1)}
-                          className="flex-1 h-[28px] rounded-[5px] border border-[#303481] text-[#303481] text-[11px] font-semibold hover:bg-[#303481] hover:text-white transition-colors cursor-pointer"
-                        >
-                          Set
-                        </button>
-                        <button
-                          onClick={() => openEditModal(idx + 1, prisma.name, "")}
-                          className="flex-1 h-[28px] rounded-[5px] bg-[#303481] text-white text-[11px] font-semibold hover:bg-[#1f2259] transition-colors cursor-pointer"
-                        >
-                          Edit
-                        </button>
-                      </div>
                     </div>
                   ))
                 )}
@@ -1354,91 +1276,6 @@ export default function KontrolAdrPage() {
               <Button onClick={saveScheduling} disabled={jadwalSaving} className="h-[38px] px-6 text-[13px] font-medium bg-[#303481] hover:bg-[#1f2259] text-white border-none cursor-pointer disabled:opacity-60">
                 {jadwalSaving ? <><Loader2 className="w-4 h-4 animate-spin mr-1.5"/>Menyimpan...</> : "Simpan"}
               </Button>
-            </div>
-          </div>
-        </div>
-      )}
-      {/* ─── Set / Edit Prisma Modal ─── */}
-      {prismaModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center">
-          {/* Backdrop */}
-          <div className="absolute inset-0 bg-black/30 backdrop-blur-[2px]" onClick={closePrismaModal} />
-
-          {/* Modal Panel */}
-          <div className="relative z-10 bg-white rounded-[10px] shadow-2xl w-full max-w-[340px] mx-4 overflow-hidden">
-            {/* Header */}
-            <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100">
-              <h2 className="text-[15px] font-bold text-gray-900">
-                {prismaModal.type === "set" ? "Set Prisma" : "Edit Prisma"}
-              </h2>
-              <button onClick={closePrismaModal} className="text-gray-400 hover:text-gray-700 transition-colors cursor-pointer">
-                <X className="w-5 h-5" />
-              </button>
-            </div>
-
-            {/* Body */}
-            <div className="px-5 py-4 flex flex-col gap-4">
-              {/* Nama Prisma */}
-              <div className="flex flex-col gap-1.5">
-                <label className="text-[12px] font-semibold text-gray-600">Nama Prisma</label>
-                <Input
-                  value={prismaModal.namaPrisma}
-                  onChange={e => setPrismaModal(m => m ? { ...m, namaPrisma: e.target.value } : m)}
-                  placeholder="cth: P1"
-                  className="h-9 text-[13px] border-gray-200"
-                />
-              </div>
-
-              {/* Target Height */}
-              <div className="flex flex-col gap-1.5">
-                <label className="text-[12px] font-semibold text-gray-600">Target Height</label>
-                <Input
-                  type="number"
-                  value={prismaModal.targetHeight}
-                  onChange={e => setPrismaModal(m => m ? { ...m, targetHeight: e.target.value } : m)}
-                  placeholder="0"
-                  className="h-9 text-[13px] border-gray-200"
-                />
-              </div>
-
-              {/* Error */}
-              {prismaModalError && (
-                <p className="text-[12px] text-red-500 font-medium">{prismaModalError}</p>
-              )}
-
-              {/* Go To Target — hanya di Edit */}
-              {prismaModal.type === "edit" && (
-                <button
-                  onClick={handleGoToTarget}
-                  disabled={prismaModalSaving}
-                  className="w-full h-[38px] rounded-[6px] bg-[#E86A1F] hover:bg-[#c55a18] text-white text-[13px] font-semibold flex items-center justify-center gap-2 transition-colors cursor-pointer disabled:opacity-60"
-                >
-                  {prismaModalSaving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Navigation className="w-4 h-4" />}
-                  Go To Target
-                </button>
-              )}
-
-              {/* Auto Search */}
-              <button
-                onClick={handleAutoSearch}
-                disabled={prismaModalSaving}
-                className="w-full h-[38px] rounded-[6px] bg-[#2563EB] hover:bg-[#1d4ed8] text-white text-[13px] font-semibold flex items-center justify-center gap-2 transition-colors cursor-pointer disabled:opacity-60"
-              >
-                {prismaModalSaving ? <Loader2 className="w-4 h-4 animate-spin" /> : <RefreshCcw className="w-4 h-4" />}
-                Auto Search
-              </button>
-            </div>
-
-            {/* Footer */}
-            <div className="px-5 pb-4 flex justify-end">
-              <button
-                onClick={handleSavePrisma}
-                disabled={prismaModalSaving}
-                className="h-[36px] px-6 rounded-[6px] bg-gray-100 hover:bg-gray-200 text-gray-700 text-[13px] font-semibold transition-colors cursor-pointer disabled:opacity-60"
-              >
-                {prismaModalSaving ? <Loader2 className="w-4 h-4 animate-spin inline mr-1" /> : null}
-                Simpan
-              </button>
             </div>
           </div>
         </div>
