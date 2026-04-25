@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useState, useEffect, useRef, useCallback } from "react";
+import mqtt from "mqtt";
 import Image from "next/image";
 import {
   Settings2,
@@ -262,7 +263,6 @@ export default function KontrolAdrPage() {
   const failedCount = prismaCards.filter(c => c.status === "Failed").length;
   const runningCount = prismaCards.filter(c => c.status === "Running...").length;
   const respondedCount = successCount + failedCount; // prisma yang sudah dijawab logger
-  const allDone = totalPrisma > 0 && runningCount === 0 && isControlRunning;
   const hasAnyResponse = respondedCount > 0;
 
   // Sinkronkan isControlRunning dengan sensor16 dari hardware
@@ -276,6 +276,92 @@ export default function KontrolAdrPage() {
       pollingRef.current = null;
     }
   }, [sensor16]);
+
+  // --- MQTT WebSocket subscription (seperti Paho.js di PHP) ---
+  const mqttRef = useRef<mqtt.MqttClient | null>(null);
+  useEffect(() => {
+    const broker = process.env.NEXT_PUBLIC_MQTT_HOST || "mqtt.beacontelemetry.com";
+    const wsPort = process.env.NEXT_PUBLIC_MQTT_WS_PORT || "8083";
+    const wsUrl = `wss://${broker}:${wsPort}/mqtt`;
+
+    const client = mqtt.connect(wsUrl, {
+      username: process.env.NEXT_PUBLIC_MQTT_USERNAME || "userlog",
+      password: process.env.NEXT_PUBLIC_MQTT_PASSWORD || "b34c0n",
+      rejectUnauthorized: false,
+      connectTimeout: 10000,
+    });
+    mqttRef.current = client;
+
+    client.on("connect", () => {
+      console.log("[KontrolADR] MQTT connected");
+      // Subscribe ke 3 topic sama seperti PHP
+      client.subscribe("rts-30002", { qos: 0 }); // data prisma
+      client.subscribe("kontrol-asaba", { qos: 0 }); // status kontrol
+      client.subscribe(process.env.NEXT_PUBLIC_MQTT_TOPIC || "ADR_Tambang_Kaltara", { qos: 0 }); // AutoTrack
+    });
+
+    client.on("message", (topic: string, message: Buffer) => {
+      try {
+        const data = JSON.parse(message.toString());
+
+        if (topic === "kontrol-asaba") {
+          // Status kontrol: {status: "1", datetime: "..."} → Running
+          //                  {status: "0"} → Selesai
+          if (data.status === "1" || data.status === 1) {
+            console.log("[KontrolADR] kontrol-asaba: Running", data.datetime);
+            setIsControlRunning(true);
+            if (data.datetime) setRunningDate(data.datetime);
+            // Set semua prisma ke Running
+            setPrismaCards(prev => prev.map(c => ({ ...c, status: "Running..." as const, y: "-", x: "-", z: "-" })));
+          } else {
+            console.log("[KontrolADR] kontrol-asaba: Done");
+            setIsControlRunning(false);
+            if (pollingRef.current) { clearInterval(pollingRef.current); pollingRef.current = null; }
+            // Refresh data final
+            fetchPrisma();
+          }
+        } else if (topic === "rts-30002") {
+          // Data prisma individual: {id_prisma: "P1", N1: "...", E1: "...", Z1: "...", ...}
+          if (data.id_prisma) {
+            console.log("[KontrolADR] rts-30002:", data.id_prisma, data.N1, data.E1, data.Z1);
+            const isFailed = data.N1 === "0" && data.E1 === "0" && data.Z1 === "0";
+            setPrismaCards(prev => prev.map(c =>
+              c.name === data.id_prisma
+                ? {
+                    ...c,
+                    status: isFailed ? "Failed" as const : "Success" as const,
+                    y: data.N1 || "0",
+                    x: data.E1 || "0",
+                    z: data.Z1 || "0",
+                  }
+                : c
+            ));
+          }
+        } else {
+          // ADR_Tambang_Kaltara topic
+          // AutoTrack done: {"AutoTrack":{"nilai":"done"}}
+          if (data.AutoTrack && data.AutoTrack.nilai === "done") {
+            console.log("[KontrolADR] AutoTrack done");
+            setIsControlRunning(false);
+            if (pollingRef.current) { clearInterval(pollingRef.current); pollingRef.current = null; }
+            fetchPrisma();
+          }
+        }
+      } catch {
+        // Ignore non-JSON
+      }
+    });
+
+    client.on("error", (err: Error) => {
+      console.error("[KontrolADR] MQTT error:", err);
+    });
+
+    return () => {
+      if (client) client.end(true);
+      mqttRef.current = null;
+    };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
   const [showRtsConfig, setShowRtsConfig] = useState(false);
   const [configId, setConfigId] = useState<number>(1);
   const [configLoading, setConfigLoading] = useState(false);
@@ -556,11 +642,14 @@ export default function KontrolAdrPage() {
         return;
       }
 
-      // Kode benar — fetch data langsung, lalu polling tiap 5 detik
+      // Kode benar — set semua prisma card ke "Running..." (seperti PHP)
+      setPrismaCards(prev => prev.map(c => ({ ...c, status: "Running..." as const, y: "-", x: "-", z: "-" })));
+      // Data akan masuk real-time via MQTT rts-30002, jadi tidak perlu polling
+      // Tapi tetap polling sebagai fallback
       await fetchPrisma();
       pollingRef.current = setInterval(() => {
         fetchPrisma();
-      }, 5000);
+      }, 10000);
     } catch (err) {
       setAccessCodeError("Terjadi kesalahan jaringan. Coba lagi.");
       setIsControlRunning(false);
@@ -729,14 +818,27 @@ export default function KontrolAdrPage() {
                       </p>
                       <div className="text-[11px] font-medium text-gray-700 leading-snug flex flex-col gap-1">
                         {(() => {
-                          const step1Done = isControlRunning || allDone;
-                          const step1Active = isControlRunning && !hasAnyResponse && runningCount > 0;
+                          // Fase:
+                          // 1. Directing to Target: semua prisma masih Running, belum ada response
+                          // 2. Search Target: transisi, data pertama mulai masuk
+                          // 3. Measuring Target: beberapa prisma sudah response, beberapa masih Running
+                          // 4. Recording Data: semua prisma selesai (tidak ada Running lagi)
+                          const wasRunning = isControlRunning || respondedCount > 0;
+                          const measuring = runningCount > 0 && respondedCount > 0;
+                          const allResponded = respondedCount === totalPrisma && totalPrisma > 0;
+                          const finished = allResponded && runningCount === 0;
+
+                          const step1Active = isControlRunning && runningCount > 0 && !hasAnyResponse;
+                          const step1Done = wasRunning && (hasAnyResponse || finished);
+
+                          const step2Active = isControlRunning && runningCount > 0 && !hasAnyResponse;
                           const step2Done = hasAnyResponse;
-                          const step2Active = isControlRunning && !hasAnyResponse && runningCount > 0;
-                          const step3Done = respondedCount === totalPrisma && totalPrisma > 0;
-                          const step3Active = isControlRunning && hasAnyResponse && runningCount > 0;
-                          const step4Done = respondedCount === totalPrisma && totalPrisma > 0 && runningCount === 0;
+
+                          const step3Active = isControlRunning && measuring;
+                          const step3Done = allResponded;
+
                           const step4Active = false;
+                          const step4Done = finished;
                           const steps = [
                             { step: 1, label: "Directing to Target", active: step1Active, done: step1Done && !step1Active, showProgress: false },
                             { step: 2, label: "Search Target", active: step2Active, done: step2Done && !step2Active, showProgress: false },
@@ -747,7 +849,7 @@ export default function KontrolAdrPage() {
                             <p key={log.step} className="flex justify-between items-center group">
                               <span className={`truncate flex-1 tracking-tight ${log.active ? 'text-[#303481] font-bold drop-shadow-sm' : ''}`}>
                                 {log.label}
-                                {log.showProgress && isControlRunning && totalPrisma > 0
+                                {log.showProgress && (isControlRunning || measuring) && totalPrisma > 0
                                   ? <span className="text-gray-400 text-[10px] ml-1">({respondedCount}/{totalPrisma})</span>
                                   : <span className="text-gray-300">{".".repeat(Math.max(0, 35 - log.label.length))}</span>
                                 }
