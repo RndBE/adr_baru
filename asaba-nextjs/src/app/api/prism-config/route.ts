@@ -254,17 +254,10 @@ export async function PUT(request: NextRequest) {
       },
     };
 
-    // 1. Subscribe dulu untuk tunggu response logger (koneksi terpisah)
-    const responsePromise = waitForLoggerResponse(topic, 15000);
+    // Subscribe → Publish → Tunggu response (satu koneksi)
+    const loggerResponse = await subscribePublishAndWait(topic, mqttPayload, 15000);
 
-    // 2. Kirim recordTarget via publishMqtt (koneksi lain)
-    const mqttSent = await publishMqtt(topic, mqttPayload);
-    console.log("[PUT prism-config] recordTarget sent, mqtt_sent:", mqttSent);
-
-    // 3. Tunggu response logger
-    const loggerResponse = await responsePromise;
-
-    // 4. Simpan HA/VA dari response logger ke t_prisma
+    // Simpan HA/VA dari response logger ke t_prisma
     if (loggerResponse) {
       console.log(`[PUT prism-config] Logger responded HA=${loggerResponse.HA}, VA=${loggerResponse.VA}`);
       await prisma.$executeRaw`
@@ -279,7 +272,7 @@ export async function PUT(request: NextRequest) {
     return NextResponse.json({
       success: true,
       message: "Prisma berhasil diperbarui",
-      mqtt_sent: mqttSent,
+      mqtt_sent: true,
       ha_va_saved: !!loggerResponse,
     });
   } catch (error) {
@@ -292,51 +285,76 @@ export async function PUT(request: NextRequest) {
 }
 
 /**
- * Subscribe ke topic MQTT (koneksi terpisah) dan tunggu response
- * recordTarget dari logger yang berisi HA/VA.
- * Abaikan pesan yang punya key "set_" (pesan dari kita).
+ * Satu koneksi MQTT:
+ * 1. Connect
+ * 2. Subscribe ke topic (tunggu konfirmasi)
+ * 3. Publish recordTarget
+ * 4. Tunggu response dari logger (yang TANPA key "set_")
  */
-function waitForLoggerResponse(
+function subscribePublishAndWait(
   topic: string,
+  payload: object,
   timeoutMs: number
 ): Promise<{ TargetName: string; HA: string; VA: string } | null> {
   return new Promise((resolve) => {
     const host = process.env.MQTT_HOST || "mqtt.beacontelemetry.com";
     const port = parseInt(process.env.MQTT_PORT || "8883", 10);
 
-    // Dynamic import mqtt for server-side
     const mqttLib = require("mqtt");
     const client = mqttLib.connect(`mqtts://${host}:${port}`, {
       username: process.env.MQTT_USERNAME || "userlog",
       password: process.env.MQTT_PASSWORD || "b34c0n",
       rejectUnauthorized: process.env.MQTT_REJECT_UNAUTHORIZED === "true",
       connectTimeout: 10000,
-      clientId: `prism-listener-${Date.now()}`,
+      clientId: `prism-rw-${Date.now()}`,
     });
 
+    let resolved = false;
+
     const timer = setTimeout(() => {
-      console.log("[waitForLoggerResponse] Timeout");
-      client.end(true);
-      resolve(null);
+      if (!resolved) {
+        resolved = true;
+        console.log("[subscribePublishAndWait] Timeout after", timeoutMs, "ms");
+        client.end(true);
+        resolve(null);
+      }
     }, timeoutMs);
 
     client.on("connect", () => {
-      console.log("[waitForLoggerResponse] Connected, subscribing...");
-      client.subscribe(topic, { qos: 0 });
+      console.log("[subscribePublishAndWait] Connected");
+      // Step 1: Subscribe dan tunggu konfirmasi
+      client.subscribe(topic, { qos: 0 }, (err: Error | null) => {
+        if (err) {
+          console.error("[subscribePublishAndWait] Subscribe error:", err);
+          if (!resolved) { resolved = true; clearTimeout(timer); client.end(true); resolve(null); }
+          return;
+        }
+        console.log("[subscribePublishAndWait] Subscribed OK, now publishing...");
+        // Step 2: Baru publish SETELAH subscribe confirmed
+        client.publish(topic, JSON.stringify(payload), { qos: 0 }, () => {
+          console.log("[subscribePublishAndWait] Published, waiting for logger response...");
+        });
+      });
     });
 
+    // Step 3: Tunggu response
     client.on("message", (_t: string, message: Buffer) => {
+      if (resolved) return;
       try {
         const data = JSON.parse(message.toString());
         const keys = Object.keys(data);
 
-        // Abaikan pesan kita (yang punya key set_XXXX)
-        if (keys.some((k: string) => k.startsWith("set_"))) return;
+        // Abaikan pesan kita sendiri (punya key set_XXXX)
+        if (keys.some((k: string) => k.startsWith("set_"))) {
+          console.log("[subscribePublishAndWait] Skipping own message");
+          return;
+        }
 
         // Tangkap recordTarget dari logger
         const rt = data?.recordTarget;
         if (rt && rt.HA && rt.VA) {
-          console.log("[waitForLoggerResponse] Got:", rt.TargetName, rt.HA, rt.VA);
+          resolved = true;
+          console.log("[subscribePublishAndWait] Got HA/VA:", rt.HA, rt.VA);
           clearTimeout(timer);
           client.end(true);
           resolve({
@@ -351,13 +369,12 @@ function waitForLoggerResponse(
     });
 
     client.on("error", (err: Error) => {
-      console.error("[waitForLoggerResponse] Error:", err.message);
-      clearTimeout(timer);
-      client.end(true);
-      resolve(null);
+      console.error("[subscribePublishAndWait] Error:", err.message);
+      if (!resolved) { resolved = true; clearTimeout(timer); client.end(true); resolve(null); }
     });
   });
 }
+
 
 /**
  * DELETE /api/prism-config
