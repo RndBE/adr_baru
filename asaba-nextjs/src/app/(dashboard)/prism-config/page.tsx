@@ -77,19 +77,39 @@ function PrismaModal({
   };
 
   const handleAutoSearch = async () => {
-    const ok = await doRequest(mode === "set" ? "POST" : "PUT", {
-      slot_id: slot.slot,
-      nama_prisma: namaPrisma || slot.id_prisma,
-      target_height: targetHeight,
-    });
-    if (ok) onSuccess();
+    setLoading(true);
+    setError("");
+    try {
+      const res = await fetch("/api/kontrol/auto-search", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ slot_id: slot.slot }),
+      });
+      const json = await res.json();
+      if (!json.success) throw new Error(json.error || "Gagal Auto Search");
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : "Terjadi kesalahan");
+    } finally {
+      setLoading(false);
+    }
   };
 
   const handleGoToTarget = async () => {
-    await doRequest("PUT", {
-      slot_id: slot.slot,
-      target_height: targetHeight,
-    });
+    setLoading(true);
+    setError("");
+    try {
+      const res = await fetch("/api/kontrol/go-to-target", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ slot_id: slot.slot }),
+      });
+      const json = await res.json();
+      if (!json.success) throw new Error(json.error || "Gagal Go To Target");
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : "Terjadi kesalahan");
+    } finally {
+      setLoading(false);
+    }
   };
 
   const handleSimpan = async () => {
