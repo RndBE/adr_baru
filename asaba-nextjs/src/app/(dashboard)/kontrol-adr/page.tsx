@@ -265,17 +265,12 @@ export default function KontrolAdrPage() {
   const respondedCount = successCount + failedCount; // prisma yang sudah dijawab logger
   const hasAnyResponse = respondedCount > 0;
 
-  // Sinkronkan isControlRunning dengan sensor16 dari hardware
-  // sensor16=1 → RTS sedang running, sensor16=0 → selesai/idle
-  useEffect(() => {
-    const isRunning = String(sensor16) === "1";
-    setIsControlRunning(isRunning);
-    // Jika running selesai (sensor16 kembali 0), stop polling
-    if (!isRunning && pollingRef.current) {
-      clearInterval(pollingRef.current);
-      pollingRef.current = null;
-    }
-  }, [sensor16]);
+  // sensor16 hanya dipakai untuk Status RTS card display,
+  // BUKAN untuk override isControlRunning.
+  // isControlRunning diatur oleh:
+  //   - handleMulaiKontrol → true
+  //   - kontrol-asaba status=0 → false
+  //   - AutoTrack done → false
 
   // --- MQTT WebSocket subscription (seperti Paho.js di PHP) ---
   const mqttRef = useRef<mqtt.MqttClient | null>(null);
