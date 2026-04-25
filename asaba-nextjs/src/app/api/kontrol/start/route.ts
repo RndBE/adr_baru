@@ -54,10 +54,10 @@ export async function POST(request: NextRequest) {
     // Update set_tempkontrol — gunakan id_logger_int (Int) bukan string
     const dateNow = new Date();
     await prisma.setTempkontrol.updateMany({
-      where: { id_logger: id_logger_int },
+      where: { id_logger: String(id_logger_int) },
       data: {
-        status: 1,
-        status_manual: 1,
+        status: "1",
+        status_manual: "1",
         datetime: dateNow,
       },
     });
