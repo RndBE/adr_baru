@@ -71,29 +71,94 @@ export async function publishMqtt(
  * Send RTS start command via MQTT.
  * Ported from PHP Kontrol::lanjut_kontrol().
  */
+/**
+ * Config RTS yang dikirim pada tahap 1.
+ */
+export type RtsConfigPayload = {
+  jobName: string;
+  prismConst: string;
+  tsHigh: string;
+  locCoor: [string, string, string];
+  stepRecord: number;
+  retries: number;
+  cycleTime: number;
+};
+
+/**
+ * Target prisma yang dikirim pada tahap 2 (per-prisma).
+ */
+export type RtsPrismaTarget = {
+  slot: number;
+  name: string;
+  targetHigh: string;
+  HA: string;
+  VA: string;
+};
+
+/**
+ * Send RTS start command via MQTT — 3 tahap berurutan:
+ * 1. Kirim config (jobName, prismConst, tsHigh, locCoor, stepRecord, retries, cycleTime)
+ * 2. Kirim recordTarget untuk setiap prisma (slot, name, targetHigh, HA, VA)
+ * 3. Kirim AutoTrackingStart: true
+ */
 export async function sendRtsStartCommand(
   loggerId: string,
-  config?: { retries?: number; stepRecord?: number; cycleTime?: number }
+  config: RtsConfigPayload,
+  prismaTargets: RtsPrismaTarget[]
 ): Promise<boolean> {
+  const topicTarget = process.env.MQTT_TOPIC || "ADR_Tambang_Kaltara";
+  const setKey = `set_${loggerId}`;
+
+  // Tahap 0: Kirim status kontrol
   const sendKontrol = {
     status: "1",
     status_manual: "1",
     datetime: new Date().toISOString(),
   };
+  const r0 = await publishMqtt("kontrol-asaba", sendKontrol);
 
-  const dataMqtt = {
-    [`set_${loggerId}`]: {
+  // Tahap 1: Kirim config RTS
+  const configPayload = {
+    [setKey]: {
       command: "set_rts",
-      AutoTrackingStart: true,
-      ...(config?.retries   !== undefined && { retries:    config.retries }),
-      ...(config?.stepRecord !== undefined && { step_record: config.stepRecord }),
-      ...(config?.cycleTime  !== undefined && { cycle_time:  config.cycleTime }),
+      jobName: config.jobName,
+      prismConst: config.prismConst,
+      tsHigh: config.tsHigh,
+      locCoor: config.locCoor,
+      stepRecord: config.stepRecord,
+      retries: config.retries,
+      cycleTime: config.cycleTime,
     },
   };
+  const r1 = await publishMqtt(topicTarget, configPayload);
 
-  const r1 = await publishMqtt("kontrol-asaba", sendKontrol);
-  const topicTarget = process.env.MQTT_TOPIC || "ADR_Tambang_Kaltara";
-  const r2 = await publishMqtt(topicTarget, dataMqtt);
+  // Tahap 2: Kirim recordTarget per-prisma
+  let r2 = true;
+  for (const target of prismaTargets) {
+    const targetPayload = {
+      [setKey]: {
+        command: "set_rts",
+        recordTarget: {
+          slot: target.slot,
+          name: target.name,
+          targetHigh: target.targetHigh,
+          HA: target.HA,
+          VA: target.VA,
+        },
+      },
+    };
+    const ok = await publishMqtt(topicTarget, targetPayload);
+    if (!ok) r2 = false;
+  }
 
-  return r1 && r2;
+  // Tahap 3: Kirim AutoTrackingStart
+  const startPayload = {
+    [setKey]: {
+      command: "set_rts",
+      AutoTrackingStart: true,
+    },
+  };
+  const r3 = await publishMqtt(topicTarget, startPayload);
+
+  return r0 && r1 && r2 && r3;
 }
