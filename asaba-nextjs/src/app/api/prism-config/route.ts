@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { publishMqtt } from "@/lib/mqtt";
-import mqtt from "mqtt";
+
 
 /**
  * Helper: Ambil id_logger ADR secara dinamis dari kategori_log = '1'
@@ -200,15 +200,17 @@ export async function POST(request: NextRequest) {
 
 /**
  * PUT /api/prism-config
- * Update data prisma + kirim recordTarget via MQTT.
- * Setelah kirim, tunggu response logger untuk ambil HA/VA actual.
+ * Setara dengan Adr::update_prisma() di CI3.
+ * Update data prisma + kirim recordTarget via MQTT (fire-and-forget).
+ * HA/VA akan disimpan oleh frontend via /api/prism-config/prism-set
+ * saat menerima response dari logger.
  *
- * Body: { slot_id, nama_prisma?, target_height?, HA?, VA? }
+ * Body: { slot_id, nama_prisma?, target_height? }
  */
 export async function PUT(request: NextRequest) {
   try {
     const body = await request.json();
-    const { slot_id, nama_prisma, target_height, HA, VA } = body;
+    const { slot_id, nama_prisma, target_height } = body;
 
     if (!slot_id) {
       return NextResponse.json(
@@ -227,12 +229,10 @@ export async function PUT(request: NextRequest) {
 
     const id_prisma = `P${slot_id}`;
 
-    // Bangun SET clause dinamis
+    // Update t_prisma (nama_prisma + target_height saja, seperti PHP)
     const updates: string[] = [];
     if (nama_prisma !== undefined) updates.push(`nama_prisma = '${nama_prisma}'`);
     if (target_height !== undefined) updates.push(`target_height = '${target_height}'`);
-    if (HA !== undefined) updates.push(`HA = '${HA}'`);
-    if (VA !== undefined) updates.push(`VA = '${VA}'`);
 
     if (updates.length > 0) {
       await prisma.$executeRawUnsafe(
@@ -241,45 +241,24 @@ export async function PUT(request: NextRequest) {
       );
     }
 
-    // Ambil HA/VA terbaru dari DB
-    const prismaData = await prisma.$queryRaw<Array<{ HA: string | null; VA: string | null }>>`
-      SELECT HA, VA FROM t_prisma WHERE id_prisma = ${id_prisma} LIMIT 1
-    `;
-    const currentHA = HA ?? prismaData?.[0]?.HA ?? "0";
-    const currentVA = VA ?? prismaData?.[0]?.VA ?? "0";
-
-    // Subscribe MQTT dulu, kirim recordTarget, tunggu response logger
+    // Kirim recordTarget ke logger via MQTT (tanpa HA/VA, seperti PHP)
     const topic = process.env.MQTT_TOPIC || "ADR_Tambang_Kaltara";
-    const recordPayload = {
+    const mqttPayload = {
       [`set_${id_logger}`]: {
         command: "set_rts",
         recordTarget: {
           slot: parseInt(String(slot_id)),
           name: nama_prisma ?? id_prisma,
           targetHigh: String(target_height ?? "0"),
-          HA: String(currentHA),
-          VA: String(currentVA),
         },
       },
     };
-
-    const loggerResponse = await subscribeAndPublish(topic, recordPayload, 15000);
-
-    // Simpan HA/VA dari response logger ke t_prisma
-    if (loggerResponse?.HA && loggerResponse?.VA) {
-      console.log(`[PUT prism-config] Logger HA/VA: ${loggerResponse.HA}, ${loggerResponse.VA}`);
-      await prisma.$executeRaw`
-        UPDATE t_prisma
-        SET HA = ${String(loggerResponse.HA)}, VA = ${String(loggerResponse.VA)}
-        WHERE id_prisma = ${id_prisma}
-      `;
-    }
+    const mqttSent = await publishMqtt(topic, mqttPayload);
 
     return NextResponse.json({
       success: true,
       message: "Prisma berhasil diperbarui",
-      mqtt_sent: true,
-      logger_response: loggerResponse,
+      mqtt_sent: mqttSent,
     });
   } catch (error) {
     console.error("[PUT /api/prism-config]", error);
@@ -288,77 +267,6 @@ export async function PUT(request: NextRequest) {
       { status: 500 }
     );
   }
-}
-
-/**
- * Subscribe ke topic, publish payload, tunggu response recordTarget
- * dari logger yang berisi HA/VA actual.
- */
-function subscribeAndPublish(
-  topic: string,
-  payload: object,
-  timeoutMs: number
-): Promise<{ TargetName?: string; HA?: string; VA?: string } | null> {
-  return new Promise((resolve) => {
-    const host = process.env.MQTT_HOST || "mqtt.beacontelemetry.com";
-    const port = parseInt(process.env.MQTT_PORT || "8883", 10);
-    const url = `mqtts://${host}:${port}`;
-
-    const client = mqtt.connect(url, {
-      username: process.env.MQTT_USERNAME || "userlog",
-      password: process.env.MQTT_PASSWORD || "b34c0n",
-      rejectUnauthorized: process.env.MQTT_REJECT_UNAUTHORIZED === "true",
-      connectTimeout: 10000,
-    });
-
-    const timer = setTimeout(() => {
-      console.log("[PUT prism-config] Timeout waiting for logger response");
-      client.end(true);
-      resolve(null);
-    }, timeoutMs);
-
-    client.on("connect", () => {
-      // Subscribe dulu
-      client.subscribe(topic, () => {
-        // Baru kirim recordTarget setelah subscribe ready
-        client.publish(topic, JSON.stringify(payload), { qos: 0 });
-        console.log("[PUT prism-config] Sent recordTarget, waiting for response...");
-      });
-    });
-
-    client.on("message", (_t: string, message: Buffer) => {
-      try {
-        const data = JSON.parse(message.toString());
-        // Logger response: { "recordTarget": { "TargetName": "P2", "HA": "115,45,54", "VA": "294,02,70" } }
-        // Abaikan pesan dari kita sendiri (yang punya set_XXXX)
-        const rt = data?.recordTarget;
-        if (rt && rt.HA && rt.VA && !data[`set_${Object.keys(data)[0]}`]) {
-          // Pastikan ini bukan pesan kita (pesan kita ada key "set_XXXX")
-          const keys = Object.keys(data);
-          const isOurMessage = keys.some((k) => k.startsWith("set_"));
-          if (!isOurMessage) {
-            console.log("[PUT prism-config] Got logger response:", rt.HA, rt.VA);
-            clearTimeout(timer);
-            client.end();
-            resolve({
-              TargetName: rt.TargetName,
-              HA: String(rt.HA),
-              VA: String(rt.VA),
-            });
-          }
-        }
-      } catch {
-        // Ignore
-      }
-    });
-
-    client.on("error", (err: Error) => {
-      console.error("[PUT prism-config] MQTT error:", err);
-      clearTimeout(timer);
-      client.end();
-      resolve(null);
-    });
-  });
 }
 
 /**

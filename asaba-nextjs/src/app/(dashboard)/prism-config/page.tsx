@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect, useCallback } from "react";
+import React, { useState, useEffect, useCallback, useRef } from "react";
 import {
   Search, Pencil, ChevronLeft, ChevronRight,
   SlidersHorizontal, Plus, Loader2, X, Check, AlertCircle,
@@ -12,6 +12,7 @@ import Image from "next/image";
 import { cn } from "@/lib/utils";
 import { RtsConnectionBadge } from "@/components/RtsConnectionBadge";
 import { useRtsConnectionStatus } from "@/hooks/use-api";
+import mqtt from "mqtt";
 
 // =================== TYPES ===================
 interface PrismaSlot {
@@ -56,10 +57,95 @@ function PrismaModal({
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
 
-  // HA/VA dari response logger
-  const [capturedHA, setCapturedHA] = useState(slot.HA || "0");
-  const [capturedVA, setCapturedVA] = useState(slot.VA || "0");
-  const [autoSearchStatus, setAutoSearchStatus] = useState<"idle" | "waiting" | "done">("idle");
+  // Status tracking (seperti PHP isGoTargetWaiting / isAutoSearchWaiting)
+  const [goTargetWaiting, setGoTargetWaiting] = useState(false);
+  const [autoSearchWaiting, setAutoSearchWaiting] = useState(false);
+  const [simpanEnabled, setSimpanEnabled] = useState(mode === "edit");
+  const [statusText, setStatusText] = useState("");
+
+  // MQTT client ref
+  const mqttClientRef = useRef<mqtt.MqttClient | null>(null);
+
+  // Connect MQTT WebSocket saat modal dibuka (seperti PHP document.ready)
+  useEffect(() => {
+    const broker = process.env.NEXT_PUBLIC_MQTT_HOST || "mqtt.beacontelemetry.com";
+    const wsPort = process.env.NEXT_PUBLIC_MQTT_WS_PORT || "8083";
+    const topic = process.env.NEXT_PUBLIC_MQTT_TOPIC || "ADR_Tambang_Kaltara";
+    const wsUrl = `wss://${broker}:${wsPort}/mqtt`;
+
+    const client = mqtt.connect(wsUrl, {
+      username: process.env.NEXT_PUBLIC_MQTT_USERNAME || "userlog",
+      password: process.env.NEXT_PUBLIC_MQTT_PASSWORD || "b34c0n",
+      rejectUnauthorized: false,
+      connectTimeout: 10000,
+    });
+
+    mqttClientRef.current = client;
+
+    client.on("connect", () => {
+      console.log("[PrismaModal] MQTT connected via WebSocket");
+      client.subscribe(topic, { qos: 0 });
+    });
+
+    client.on("message", (_t: string, message: Buffer) => {
+      try {
+        const data = JSON.parse(message.toString());
+
+        // 1. recordTarget dari logger → simpan HA/VA (seperti PHP prism_set)
+        if (data.recordTarget && data.recordTarget.HA && data.recordTarget.VA) {
+          const rt = data.recordTarget;
+          console.log("[PrismaModal] recordTarget:", rt.TargetName, rt.HA, rt.VA);
+
+          // Panggil API prism-set untuk simpan HA/VA ke DB
+          fetch("/api/prism-config/prism-set", {
+            method: "PATCH",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              nama_prisma: rt.TargetName,
+              HA: rt.HA,
+              VA: rt.VA,
+            }),
+          }).then(() => {
+            // Reload data setelah simpan
+            onSuccess();
+          }).catch((err) => {
+            console.error("[PrismaModal] prism-set error:", err);
+          });
+        }
+
+        // 2. AutoSearch response → stop loading, unlock Simpan
+        if (data.AutoSearch) {
+          console.log("[PrismaModal] AutoSearch response:", data.AutoSearch);
+          setAutoSearchWaiting(false);
+          setLoading(false);
+          setSimpanEnabled(true);
+          setStatusText("✅ Auto search complete!");
+        }
+
+        // 3. TurningTarget response → stop Go To Target loading
+        if (data.TurningTarget) {
+          console.log("[PrismaModal] TurningTarget response:", data.TurningTarget);
+          setGoTargetWaiting(false);
+          setLoading(false);
+          setStatusText("✅ Target reached!");
+        }
+      } catch {
+        // Ignore non-JSON
+      }
+    });
+
+    client.on("error", (err: Error) => {
+      console.error("[PrismaModal] MQTT error:", err);
+    });
+
+    // Cleanup saat modal ditutup
+    return () => {
+      if (client) {
+        client.end(true);
+        mqttClientRef.current = null;
+      }
+    };
+  }, [onSuccess]);
 
   const doRequest = async (method: string, body: object) => {
     setLoading(true);
@@ -84,9 +170,10 @@ function PrismaModal({
   const handleAutoSearch = async () => {
     setLoading(true);
     setError("");
-    setAutoSearchStatus("waiting");
+    setAutoSearchWaiting(true);
+    setSimpanEnabled(false);
+    setStatusText("Sending command...");
     try {
-      // Server kirim auto_search + subscribe MQTT + tunggu response logger
       const res = await fetch("/api/kontrol/auto-search", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -94,29 +181,11 @@ function PrismaModal({
       });
       const json = await res.json();
       if (!json.success) throw new Error(json.error || "Gagal Auto Search");
-
-      // Ambil HA/VA dari response logger (server sudah tangkap)
-      const resp = json.data?.response;
-      if (resp?.HA && resp?.VA) {
-        // Logger sudah kirim HA/VA
-        setCapturedHA(resp.HA);
-        setCapturedVA(resp.VA);
-        setAutoSearchStatus("done");
-        if (resp.TargetName && !namaPrisma) {
-          setNamaPrisma(resp.TargetName);
-        }
-      } else if (resp?.confirmed) {
-        // Logger konfirmasi auto_search berjalan, tapi belum kirim HA/VA
-        // HA/VA sudah disimpan ke t_prisma oleh server saat datang nanti
-        setAutoSearchStatus("done");
-      } else {
-        setAutoSearchStatus("idle");
-        setError("Logger tidak merespon");
-      }
+      // Command terkirim — tunggu response dari logger via MQTT WebSocket
+      setStatusText("Waiting...");
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : "Terjadi kesalahan");
-      setAutoSearchStatus("idle");
-    } finally {
+      setAutoSearchWaiting(false);
       setLoading(false);
     }
   };
@@ -124,6 +193,8 @@ function PrismaModal({
   const handleGoToTarget = async () => {
     setLoading(true);
     setError("");
+    setGoTargetWaiting(true);
+    setStatusText("Sending command...");
     try {
       const res = await fetch("/api/kontrol/go-to-target", {
         method: "POST",
@@ -132,9 +203,10 @@ function PrismaModal({
       });
       const json = await res.json();
       if (!json.success) throw new Error(json.error || "Gagal Go To Target");
+      setStatusText("Waiting...");
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : "Terjadi kesalahan");
-    } finally {
+      setGoTargetWaiting(false);
       setLoading(false);
     }
   };
@@ -144,16 +216,11 @@ function PrismaModal({
       setError("Nama Prisma wajib diisi.");
       return;
     }
-    const body: Record<string, unknown> = {
+    const ok = await doRequest(mode === "set" ? "POST" : "PUT", {
       slot_id: slot.slot,
       nama_prisma: namaPrisma,
       target_height: targetHeight,
-    };
-    // Hanya kirim HA/VA jika ada nilai (bukan "0"), biar backend baca dari t_prisma
-    if (capturedHA && capturedHA !== "0") body.HA = capturedHA;
-    if (capturedVA && capturedVA !== "0") body.VA = capturedVA;
-
-    const ok = await doRequest(mode === "set" ? "POST" : "PUT", body);
+    });
     if (ok) onSuccess();
   };
 
