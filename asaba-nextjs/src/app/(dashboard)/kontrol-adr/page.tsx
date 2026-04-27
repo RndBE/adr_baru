@@ -172,20 +172,13 @@ type PrismaCard = {
   waktu?: string;
 };
 
-function mapStatus(status_get: number | string, n1: string | number, e1: string | number, z1: string | number): "Success" | "Failed" | "Running..." {
+function mapStatus(status_get: number | string, n1: string, e1: string, z1: string): "Success" | "Failed" | "Running..." {
   // Di DB: status_get = 0 artinya Waiting/Running, 1 artinya Done
   // Gunakan String() karena dari raw query Prisma bisa berupa number atau string
   if (String(status_get) === "0") return "Running...";
   
-  // Jika sudah Done tapi nilainya 0 atau "000,00,00" semua, berarti Failed / Not Found
-  const parseVal = (val: string | number) => {
-    if (!val) return 0;
-    const cleanStr = String(val).replace(/,/g, '');
-    const num = Number(cleanStr);
-    return isNaN(num) ? 0 : num;
-  };
-
-  if (parseVal(n1) === 0 && parseVal(e1) === 0 && parseVal(z1) === 0) {
+  // Jika sudah Done (1) tapi nilainya 0 semua, berarti Failed / Not Found
+  if (Number(n1) === 0 && Number(e1) === 0 && Number(z1) === 0) {
     return "Failed";
   }
   
@@ -279,12 +272,8 @@ export default function KontrolAdrPage() {
   const respondedCount = successCount + failedCount; // prisma yang sudah dijawab logger
   const hasAnyResponse = respondedCount > 0;
 
-  // Sinkronkan isControlRunning dengan sensor16 dari hardware (PENTING untuk saat page di-refresh)
-  useEffect(() => {
-    if (String(sensor16) === "1") {
-      setIsControlRunning(true);
-    }
-  }, [sensor16]);
+  // Sinkronkan isControlRunning dengan sensor16 dari hardware
+  // → dipindahkan ke bawah setelah deklarasi fetchPrisma
 
   // --- MQTT WebSocket subscription (seperti Paho.js di PHP) ---
   const mqttRef = useRef<mqtt.MqttClient | null>(null);
@@ -334,15 +323,7 @@ export default function KontrolAdrPage() {
           // Data prisma individual: {id_prisma: "P1", N1: "...", E1: "...", Z1: "...", ...}
           if (data.id_prisma) {
             console.log(`[KontrolADR] ${topic}:`, data.id_prisma, data.N1, data.E1, data.Z1);
-            
-            const parseVal = (val: any) => {
-              if (!val) return 0;
-              const num = Number(String(val).replace(/,/g, ''));
-              return isNaN(num) ? 0 : num;
-            };
-            
-            const isFailed = parseVal(data.N1) === 0 && parseVal(data.E1) === 0 && parseVal(data.Z1) === 0;
-            
+            const isFailed = Number(data.N1) === 0 && Number(data.E1) === 0 && Number(data.Z1) === 0;
             setPrismaCards(prev => prev.map(c =>
               c.name === data.id_prisma
                 ? {
@@ -596,6 +577,23 @@ export default function KontrolAdrPage() {
       setPrismaLoading(false);
     }
   }, []);
+
+  // Sinkronkan isControlRunning dengan sensor16 dari hardware (PENTING untuk saat page di-refresh)
+  // sensor16 === "1" → animasi jalan + semua cards jadi Running
+  // sensor16 === "0" → fetch prisma dulu (data final), baru stop animasi
+  useEffect(() => {
+    if (String(sensor16) === "1") {
+      // RTS sedang jalan → start animasi + reset semua cards ke "Running..."
+      setIsControlRunning(true);
+      setPrismaCards(prev => prev.map(c => ({ ...c, status: "Running..." as const, y: "-", x: "-", z: "-" })));
+    } else if (String(sensor16) === "0") {
+      // RTS selesai → fetch data final dulu, baru berhentikan animasi
+      if (pollingRef.current) { clearInterval(pollingRef.current); pollingRef.current = null; }
+      fetchPrisma().then(() => {
+        setIsControlRunning(false);
+      });
+    }
+  }, [sensor16, fetchPrisma]);
 
   // Initial fetch saat halaman dibuka
   useEffect(() => {
@@ -928,8 +926,9 @@ export default function KontrolAdrPage() {
               {TOP_METRICS.map((metric, i) => {
                 let finalValue = metric.value;
                 let valueColor = "#0f172a";
-                const isRtsRunning   = String(sensor16) === "1" || isControlRunning;
-                const isRtsConnected = isConnected && String(sensor14) === "1";
+                // Prioritas: sensor16=1 → Running, sensor14=1 + data < 1jam → Connected, else → Disconnected
+                const isRtsRunning   = String(sensor16) === "1";
+                const isRtsConnected = !isRtsRunning && String(sensor14) === "1" && isConnected;
 
                 if (metric.title === "Status RTS") {
                   if (isRtsRunning) {
