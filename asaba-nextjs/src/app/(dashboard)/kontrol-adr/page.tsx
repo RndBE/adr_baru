@@ -302,16 +302,28 @@ export default function KontrolAdrPage() {
       if (json.success && json.data?.response) {
         const resp = json.data.response;
         
-        // Cek ganda di frontend untuk memastikan tidak ada pesan 'Failed' yang lolos jadi hijau
         const msgLower = (resp.message || "").toLowerCase();
-        const isActuallyFailed = msgLower.includes("failed") || msgLower.includes("tidak terhubung") || resp.status === "timeout" || resp.status === "failed";
         
+        // Pengecekan spesifik:
+        // Jika statusnya timeout, dan logger dianggap "Connected/Online", kita abaikan error timeoutnya
+        // dan optimis menganggap perintah berhasil terkirim.
+        const isTimeout = resp.status === "timeout" || msgLower.includes("timeout");
+        const isFailedResponse = msgLower.includes("failed") || msgLower.includes("tidak terhubung");
+        
+        // Gagal HANYA JIKA logger mengirim pesan "failed/tidak terhubung", ATAU jika timeout saat logger sedang OFFLINE.
+        const isActuallyFailed = isFailedResponse || (isTimeout && !isConnected);
+
         if (!isActuallyFailed) {
-          // Hanya berubah hijau/merah JIKA balasan dari MQTT benar-benar sukses
+          // Berhasil (atau Timeout tapi posisinya sedang Online)
           setRtsPowerState(action);
-          setPowerAlert({ type: action, message: resp.message });
+          // Jika ini timeout tapi online, kita kasih pesan sukses generik
+          const successMsg = isTimeout 
+            ? (action === "on" ? "Perintah Power ON berhasil dikirim" : "Perintah Power OFF berhasil dikirim")
+            : resp.message;
+            
+          setPowerAlert({ type: action, message: successMsg });
         } else {
-          // Berarti gagal (misal logger balas "Failed", "RTS Off", atau Timeout)
+          // Berarti benar-benar gagal (logger membalas Failed, atau Timeout saat posisi sedang Offline)
           setPowerAlert({ type: "error", message: resp.message });
         }
       } else {
@@ -421,19 +433,9 @@ export default function KontrolAdrPage() {
             fetchPrisma();
           }
 
-          // PowerOn response: {"PowerOn":{"nilai":"..."}}
-          if (data.PowerOn) {
-            console.log("[KontrolADR] PowerOn response:", data.PowerOn.nilai);
-            setRtsPowerState("on");
-            setPowerAlert({ type: "on", message: data.PowerOn.nilai || "RTS berhasil dinyalakan" });
-          }
-
-          // PowerOff response: {"PowerOff":{"nilai":"..."}}
-          if (data.PowerOff) {
-            console.log("[KontrolADR] PowerOff response:", data.PowerOff.nilai);
-            setRtsPowerState("off");
-            setPowerAlert({ type: "off", message: data.PowerOff.nilai || "RTS berhasil dimatikan" });
-          }
+          // Catatan: PowerOn dan PowerOff sudah dihandle via response HTTP API 
+          // di fungsi handlePower, jadi kita tidak me-listen langsung di frontend lagi
+          // agar tidak bentrok atau menampilkan alert hijau saat logger membalas "Failed".
         }
       } catch {
         // Ignore non-JSON
