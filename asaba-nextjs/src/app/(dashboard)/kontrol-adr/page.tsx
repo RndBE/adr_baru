@@ -290,14 +290,15 @@ export default function KontrolAdrPage() {
         body: JSON.stringify({ action }),
       });
       const json = await res.json();
-      if (json.success && json.data?.response) {
-        // Logger merespons — tampilkan alert
-        const resp = json.data.response;
-        setRtsPowerState(resp.type);
-        setPowerAlert({ type: resp.type, message: resp.message });
-      } else if (json.success) {
-        // Command terkirim tapi logger tidak merespons (timeout)
-        setPowerAlert({ type: "error", message: "Logger tidak merespons (timeout)" });
+      if (json.success && json.data?.mqtt_sent) {
+        // Command berhasil dikirim ke logger
+        setRtsPowerState(action);
+        setPowerAlert({
+          type: action,
+          message: action === "on"
+            ? "Perintah Power ON berhasil dikirim ke RTS"
+            : "Perintah Power OFF berhasil dikirim ke RTS",
+        });
       } else {
         setPowerAlert({ type: "error", message: json.error || "Gagal mengirim command" });
       }
@@ -770,7 +771,7 @@ export default function KontrolAdrPage() {
                   disabled={powerLoading}
                   className={cn(
                     "flex items-center gap-1.5 px-4 h-full text-[12.5px] font-semibold transition-colors cursor-pointer border-r border-[#EAEAEA]",
-                    rtsPowerState === "on" || (rtsPowerState === "unknown" && isConnected)
+                    isConnected
                       ? "bg-[#E5F7E7] text-[#06C022]"
                       : "text-gray-500 hover:bg-green-50 hover:text-green-600"
                   )}
@@ -783,7 +784,7 @@ export default function KontrolAdrPage() {
                   disabled={powerLoading}
                   className={cn(
                     "flex items-center gap-1.5 px-4 h-full text-[12.5px] font-semibold transition-colors cursor-pointer",
-                    rtsPowerState === "off" || (rtsPowerState === "unknown" && !isConnected)
+                    !isConnected
                       ? "bg-red-50 text-red-500"
                       : "text-gray-500 hover:bg-red-50 hover:text-red-500"
                   )}
