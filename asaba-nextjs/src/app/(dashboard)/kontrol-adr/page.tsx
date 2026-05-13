@@ -764,35 +764,40 @@ export default function KontrolAdrPage() {
             </div>
             {/* Right Buttons */}
             <div className="flex flex-wrap items-center gap-3">
-              {/* Power On/Off */}
-              <div className="flex items-center bg-white border border-[#EAEAEA] rounded-md h-[40px] overflow-hidden shadow-sm">
-                <button
-                  onClick={() => handlePower("on")}
-                  disabled={powerLoading}
-                  className={cn(
-                    "flex items-center gap-1.5 px-4 h-full text-[12.5px] font-semibold transition-colors cursor-pointer border-r border-[#EAEAEA]",
-                    isConnected
-                      ? "bg-[#E5F7E7] text-[#06C022]"
-                      : "text-gray-500 hover:bg-green-50 hover:text-green-600"
-                  )}
-                >
-                  <Power className="w-[15px] h-[15px]" />
-                  ON
-                </button>
-                <button
-                  onClick={() => handlePower("off")}
-                  disabled={powerLoading}
-                  className={cn(
-                    "flex items-center gap-1.5 px-4 h-full text-[12.5px] font-semibold transition-colors cursor-pointer",
-                    !isConnected
-                      ? "bg-red-50 text-red-500"
-                      : "text-gray-500 hover:bg-red-50 hover:text-red-500"
-                  )}
-                >
-                  <Power className="w-[15px] h-[15px]" />
-                  OFF
-                </button>
-              </div>
+              {/* Power On/Off — warna mengikuti status RTS (sensor14 + sensor16 + isConnected) */}
+              {(() => {
+                const isRtsOn = String(sensor16) === "1" || (String(sensor14) === "1" && isConnected);
+                return (
+                  <div className="flex items-center bg-white border border-[#EAEAEA] rounded-md h-[40px] overflow-hidden shadow-sm">
+                    <button
+                      onClick={() => handlePower("on")}
+                      disabled={powerLoading}
+                      className={cn(
+                        "flex items-center gap-1.5 px-4 h-full text-[12.5px] font-semibold transition-colors cursor-pointer border-r border-[#EAEAEA]",
+                        isRtsOn
+                          ? "bg-[#E5F7E7] text-[#06C022]"
+                          : "text-gray-500 hover:bg-green-50 hover:text-green-600"
+                      )}
+                    >
+                      <Power className="w-[15px] h-[15px]" />
+                      ON
+                    </button>
+                    <button
+                      onClick={() => handlePower("off")}
+                      disabled={powerLoading}
+                      className={cn(
+                        "flex items-center gap-1.5 px-4 h-full text-[12.5px] font-semibold transition-colors cursor-pointer",
+                        !isRtsOn
+                          ? "bg-red-50 text-red-500"
+                          : "text-gray-500 hover:bg-red-50 hover:text-red-500"
+                      )}
+                    >
+                      <Power className="w-[15px] h-[15px]" />
+                      OFF
+                    </button>
+                  </div>
+                );
+              })()}
               <Button
                 onClick={openRtsConfig}
                 className="bg-[#303481] hover:bg-[#1f2259] text-white flex items-center gap-2 px-5 rounded-md h-[40px] text-[13.5px] font-medium shadow-sm transition-colors border-none cursor-pointer"
