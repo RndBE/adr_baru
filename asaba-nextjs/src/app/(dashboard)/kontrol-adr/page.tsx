@@ -298,37 +298,13 @@ export default function KontrolAdrPage() {
         body: JSON.stringify({ action }),
       });
       const json = await res.json();
-      
-      if (json.success && json.data?.response) {
-        const resp = json.data.response;
-        
-        const msgLower = (resp.message || "").toLowerCase();
-        
-        // Pengecekan spesifik:
-        // Jika statusnya timeout, dan logger dianggap "Connected/Online", kita abaikan error timeoutnya
-        // dan optimis menganggap perintah berhasil terkirim.
-        const isTimeout = resp.status === "timeout" || msgLower.includes("timeout");
-        const isFailedResponse = msgLower.includes("failed") || msgLower.includes("tidak terhubung");
-        
-        // Gagal HANYA JIKA logger mengirim pesan "failed/tidak terhubung", ATAU jika timeout saat logger sedang OFFLINE.
-        const isActuallyFailed = isFailedResponse || (isTimeout && !isConnected);
-
-        if (!isActuallyFailed) {
-          // Berhasil (atau Timeout tapi posisinya sedang Online)
-          setRtsPowerState(action);
-          // Jika ini timeout tapi online, kita kasih pesan sukses generik
-          const successMsg = isTimeout 
-            ? (action === "on" ? "Perintah Power ON berhasil dikirim" : "Perintah Power OFF berhasil dikirim")
-            : resp.message;
-            
-          setPowerAlert({ type: action, message: successMsg });
-        } else {
-          // Berarti benar-benar gagal (logger membalas Failed, atau Timeout saat posisi sedang Offline)
-          setPowerAlert({ type: "error", message: resp.message });
-        }
-      } else {
-        setPowerAlert({ type: "error", message: json.error || "Gagal mengirim command" });
+      if (!json.success) {
+        // Tampilkan pesan error asli dari server (misal: "ADR logger not found")
+        const errMsg = json.error || "Gagal mengirim command ke server";
+        console.error("[handlePower] API error:", errMsg);
+        setPowerAlert({ type: "error", message: errMsg });
       }
+      // Jika berhasil dikirim, balasan dari logger akan ditangkap via MQTT listener di bawah
     } catch (err) {
       console.error("Power command error:", err);
       setPowerAlert({ type: "error", message: "Terjadi kesalahan jaringan" });
@@ -433,9 +409,31 @@ export default function KontrolAdrPage() {
             fetchPrisma();
           }
 
-          // Catatan: PowerOn dan PowerOff sudah dihandle via response HTTP API 
-          // di fungsi handlePower, jadi kita tidak me-listen langsung di frontend lagi
-          // agar tidak bentrok atau menampilkan alert hijau saat logger membalas "Failed".
+          // PowerOn response: {"PowerOn":{"nilai":"Success"}} atau {"PowerOn":{"nilai":"Failed"}}
+          if (data.PowerOn && data.PowerOn.nilai) {
+            const nilai = data.PowerOn.nilai;
+            const isFailed = nilai.toLowerCase().includes("failed") || nilai.toLowerCase().includes("tidak terhubung");
+            console.log("[KontrolADR] PowerOn response:", nilai, "isFailed:", isFailed);
+            if (!isFailed) {
+              setRtsPowerState("on");
+              setPowerAlert({ type: "on", message: nilai });
+            } else {
+              setPowerAlert({ type: "error", message: nilai });
+            }
+          }
+
+          // PowerOff response: {"PowerOff":{"nilai":"Success"}} atau {"PowerOff":{"nilai":"Failed"}}
+          if (data.PowerOff && data.PowerOff.nilai) {
+            const nilai = data.PowerOff.nilai;
+            const isFailed = nilai.toLowerCase().includes("failed") || nilai.toLowerCase().includes("tidak terhubung");
+            console.log("[KontrolADR] PowerOff response:", nilai, "isFailed:", isFailed);
+            if (!isFailed) {
+              setRtsPowerState("off");
+              setPowerAlert({ type: "off", message: nilai });
+            } else {
+              setPowerAlert({ type: "error", message: nilai });
+            }
+          }
         }
       } catch {
         // Ignore non-JSON
