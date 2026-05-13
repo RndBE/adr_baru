@@ -467,8 +467,8 @@ export default function RekapDataPage() {
                       key={row.id}
                       className="group border-b border-gray-100 last:border-0 hover:bg-blue-50/30 transition-colors"
                     >
-                      <td className="py-1.5 px-2 text-[10px] text-gray-500 text-left sticky left-0 bg-white group-hover:bg-blue-50/30 z-20 transition-colors">{rowNum}</td>
-                      <td className="py-1.5 px-2 text-[10px] font-medium text-gray-800 whitespace-nowrap text-left sticky left-[35px] bg-white group-hover:bg-blue-50/30 z-20 shadow-[4px_0_8px_-4px_rgba(0,0,0,0.1)] border-r border-gray-100 transition-colors">
+                      <td className="py-1.5 px-2 text-[10px] text-gray-500 text-left sticky left-0 bg-white group-hover:bg-blue-50 z-20 transition-colors">{rowNum}</td>
+                      <td className="py-1.5 px-2 text-[10px] font-medium text-gray-800 whitespace-nowrap text-left sticky left-[35px] bg-white group-hover:bg-blue-50 z-20 shadow-[4px_0_8px_-4px_rgba(0,0,0,0.1)] border-r border-gray-100 transition-colors">
                         {fmtWaktu(row.waktu)}
                       </td>
                       <td className="py-1.5 px-2 relative z-0">

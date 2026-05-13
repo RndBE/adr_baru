@@ -57,11 +57,17 @@ function PrismaModal({
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
 
-  // Status tracking (seperti PHP isGoTargetWaiting / isAutoSearchWaiting)
-  const [goTargetWaiting, setGoTargetWaiting] = useState(false);
-  const [autoSearchWaiting, setAutoSearchWaiting] = useState(false);
-  const [simpanEnabled, setSimpanEnabled] = useState(mode === "edit");
-  const [statusText, setStatusText] = useState("");
+  // Status tracking per-button
+  const [goTargetStatus, setGoTargetStatus] = useState<"idle" | "waiting" | "done">("idle");
+  const [autoSearchStatus, setAutoSearchStatus] = useState<"idle" | "waiting" | "done">("idle");
+  const [simpanEnabled, setSimpanEnabled] = useState(false);
+
+  // Aktifkan Simpan saat keduanya selesai
+  useEffect(() => {
+    if (goTargetStatus === "done" && autoSearchStatus === "done") {
+      setSimpanEnabled(true);
+    }
+  }, [goTargetStatus, autoSearchStatus]);
 
   // MQTT client ref
   const mqttClientRef = useRef<mqtt.MqttClient | null>(null);
@@ -113,21 +119,22 @@ function PrismaModal({
           });
         }
 
-        // 2. AutoSearch response → stop loading, unlock Simpan
-        if (data.AutoSearch) {
+        // 2. AutoSearch response → nilai 1 = selesai
+        if (data.AutoSearch !== undefined) {
           console.log("[PrismaModal] AutoSearch response:", data.AutoSearch);
-          setAutoSearchWaiting(false);
-          setLoading(false);
-          setSimpanEnabled(true);
-          setStatusText("✅ Auto search complete!");
+          if (String(data.AutoSearch) === "1") {
+            setAutoSearchStatus("done");
+            setLoading(false);
+          }
         }
 
-        // 3. TurningTarget response → stop Go To Target loading
-        if (data.TurningTarget) {
+        // 3. TurningTarget response → nilai 1 = selesai
+        if (data.TurningTarget !== undefined) {
           console.log("[PrismaModal] TurningTarget response:", data.TurningTarget);
-          setGoTargetWaiting(false);
-          setLoading(false);
-          setStatusText("✅ Target reached!");
+          if (String(data.TurningTarget) === "1") {
+            setGoTargetStatus("done");
+            setLoading(false);
+          }
         }
       } catch {
         // Ignore non-JSON
@@ -170,9 +177,8 @@ function PrismaModal({
   const handleAutoSearch = async () => {
     setLoading(true);
     setError("");
-    setAutoSearchWaiting(true);
+    setAutoSearchStatus("waiting");
     setSimpanEnabled(false);
-    setStatusText("Sending command...");
     try {
       const res = await fetch("/api/kontrol/auto-search", {
         method: "POST",
@@ -181,11 +187,10 @@ function PrismaModal({
       });
       const json = await res.json();
       if (!json.success) throw new Error(json.error || "Gagal Auto Search");
-      // Command terkirim — tunggu response dari logger via MQTT WebSocket
-      setStatusText("Waiting...");
+      // Menunggu nilai 1 dari MQTT
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : "Terjadi kesalahan");
-      setAutoSearchWaiting(false);
+      setAutoSearchStatus("idle");
       setLoading(false);
     }
   };
@@ -193,8 +198,8 @@ function PrismaModal({
   const handleGoToTarget = async () => {
     setLoading(true);
     setError("");
-    setGoTargetWaiting(true);
-    setStatusText("Sending command...");
+    setGoTargetStatus("waiting");
+    setSimpanEnabled(false);
     try {
       const res = await fetch("/api/kontrol/go-to-target", {
         method: "POST",
@@ -203,10 +208,10 @@ function PrismaModal({
       });
       const json = await res.json();
       if (!json.success) throw new Error(json.error || "Gagal Go To Target");
-      setStatusText("Waiting...");
+      // Menunggu nilai 1 dari MQTT
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : "Terjadi kesalahan");
-      setGoTargetWaiting(false);
+      setGoTargetStatus("idle");
       setLoading(false);
     }
   };
@@ -218,7 +223,6 @@ function PrismaModal({
     }
     setLoading(true);
     setError("");
-    setStatusText("Menyimpan...");
     try {
       const res = await fetch("/api/prism-config", {
         method: mode === "set" ? "POST" : "PUT",
@@ -233,12 +237,10 @@ function PrismaModal({
       if (!json.success) throw new Error(json.error || "Gagal");
       // Jangan close modal — tunggu browser MQTT tangkap recordTarget response
       // Browser MQTT handler akan panggil prism-set → onSuccess()
-      setStatusText("Menunggu feedback MQTT…");
       console.log("Menunggu feedback MQTT…");
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : "Terjadi kesalahan");
       setLoading(false);
-      setStatusText("");
     }
   };
 
@@ -299,33 +301,73 @@ function PrismaModal({
 
           {/* Go To Target — hanya di Edit */}
           {mode === "edit" && (
-            <button
-              onClick={handleGoToTarget}
-              disabled={loading}
-              className="w-full h-[40px] rounded-lg bg-[#E86A1F] hover:bg-[#c55a18] text-white text-[13.5px] font-bold flex items-center justify-center gap-2 transition-colors cursor-pointer disabled:opacity-60 border-none"
-            >
-              {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Search className="w-4 h-4" />}
-              Go To Target
-            </button>
+            <div className="flex items-center gap-3">
+              <button
+                onClick={handleGoToTarget}
+                disabled={goTargetStatus === "waiting" || goTargetStatus === "done"}
+                className="flex-shrink-0 h-[40px] px-4 rounded-lg bg-[#E86A1F] hover:bg-[#c55a18] text-white text-[13.5px] font-bold flex items-center justify-center gap-2 transition-colors cursor-pointer disabled:opacity-60 border-none"
+              >
+                {goTargetStatus === "waiting"
+                  ? <Loader2 className="w-4 h-4 animate-spin" />
+                  : <SlidersHorizontal className="w-4 h-4" />}
+                Go To Target
+              </button>
+              {goTargetStatus === "waiting" && (
+                <span className="flex items-center gap-1.5 text-[12.5px] text-gray-500 font-medium">
+                  <span className="text-gray-400 font-semibold">Status:</span>
+                  <Loader2 className="w-3.5 h-3.5 animate-spin text-gray-400" />
+                  Waiting...
+                </span>
+              )}
+              {goTargetStatus === "done" && (
+                <span className="flex items-center gap-1.5 text-[12.5px] text-green-600 font-semibold">
+                  <span className="text-gray-400 font-semibold">Status:</span>
+                  <span className="w-2 h-2 rounded-full bg-green-500 flex-shrink-0" />
+                  Target reached
+                </span>
+              )}
+            </div>
           )}
 
           {/* Auto Search */}
-          <button
-            onClick={handleAutoSearch}
-            disabled={loading}
-            className="w-full h-[40px] rounded-lg bg-[#2563EB] hover:bg-[#1d4ed8] text-white text-[13.5px] font-bold flex items-center justify-center gap-2 transition-colors cursor-pointer disabled:opacity-60 border-none"
-          >
-            {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Search className="w-4 h-4" />}
-            Auto Search
-          </button>
+          <div className="flex items-center gap-3">
+            <button
+              onClick={handleAutoSearch}
+              disabled={autoSearchStatus === "waiting" || autoSearchStatus === "done" || (mode === "edit" && goTargetStatus !== "done")}
+              className="flex-shrink-0 h-[40px] px-4 rounded-lg bg-[#2563EB] hover:bg-[#1d4ed8] text-white text-[13.5px] font-bold flex items-center justify-center gap-2 transition-colors cursor-pointer disabled:opacity-60 border-none"
+            >
+              {autoSearchStatus === "waiting"
+                ? <Loader2 className="w-4 h-4 animate-spin" />
+                : <Search className="w-4 h-4" />}
+              Auto Search
+            </button>
+            {autoSearchStatus === "waiting" && (
+              <span className="flex items-center gap-1.5 text-[12.5px] text-gray-500 font-medium">
+                <span className="text-gray-400 font-semibold">Status:</span>
+                <Loader2 className="w-3.5 h-3.5 animate-spin text-gray-400" />
+                Waiting...
+              </span>
+            )}
+            {autoSearchStatus === "done" && (
+              <span className="flex items-center gap-1.5 text-[12.5px] text-green-600 font-semibold">
+                <span className="text-gray-400 font-semibold">Status:</span>
+                <span className="w-2 h-2 rounded-full bg-green-500 flex-shrink-0" />
+                Auto search complete
+              </span>
+            )}
+          </div>
         </div>
 
         {/* Footer — Simpan */}
         <div className="px-6 pb-5 flex justify-end">
           <button
             onClick={handleSimpan}
-            disabled={loading}
-            className="h-[38px] px-7 rounded-lg bg-gray-100 hover:bg-gray-200 text-gray-700 text-[13px] font-semibold transition-colors cursor-pointer disabled:opacity-60 border-none"
+            disabled={!simpanEnabled || loading}
+            className={`h-[38px] px-7 rounded-lg text-[13px] font-semibold transition-colors border-none ${
+              simpanEnabled
+                ? "bg-[#303481] hover:bg-[#1f2259] text-white cursor-pointer"
+                : "bg-gray-100 text-gray-400 cursor-not-allowed"
+            }`}
           >
             {loading && <Loader2 className="w-4 h-4 animate-spin inline mr-1.5" />}
             Simpan
