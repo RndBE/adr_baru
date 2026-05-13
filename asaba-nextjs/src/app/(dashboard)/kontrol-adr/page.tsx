@@ -1,6 +1,39 @@
 "use client";
 
 import React, { useState, useEffect, useRef, useCallback } from "react";
+import { CheckCircle2, XCircle, AlertTriangle } from "lucide-react";
+
+// ── Power Alert Toast ──────────────────────────────────────────────────────────
+type PowerAlert = {
+  type: "on" | "off" | "error";
+  message: string;
+};
+
+function PowerAlertToast({ alert, onClose }: { alert: PowerAlert; onClose: () => void }) {
+  useEffect(() => {
+    const timer = setTimeout(onClose, 5000);
+    return () => clearTimeout(timer);
+  }, [onClose]);
+
+  const config = {
+    on:    { bg: "bg-emerald-50 border-emerald-300", text: "text-emerald-800", icon: <CheckCircle2 className="w-5 h-5 text-emerald-500 shrink-0" />, title: "RTS Power ON" },
+    off:   { bg: "bg-red-50 border-red-300",         text: "text-red-800",     icon: <XCircle className="w-5 h-5 text-red-500 shrink-0" />,         title: "RTS Power OFF" },
+    error: { bg: "bg-amber-50 border-amber-300",     text: "text-amber-800",   icon: <AlertTriangle className="w-5 h-5 text-amber-500 shrink-0" />, title: "RTS Power" },
+  }[alert.type];
+
+  return (
+    <div className={`fixed top-4 right-4 z-[9999] flex items-start gap-3 px-4 py-3 rounded-lg border shadow-lg max-w-sm animate-in slide-in-from-top-2 fade-in duration-300 ${config.bg}`}>
+      {config.icon}
+      <div className="flex-1 min-w-0">
+        <p className={`text-[13px] font-bold ${config.text}`}>{config.title}</p>
+        <p className={`text-[12px] mt-0.5 ${config.text} opacity-80`}>{alert.message}</p>
+      </div>
+      <button onClick={onClose} className={`shrink-0 ${config.text} opacity-50 hover:opacity-100 transition-opacity`}>
+        <X className="w-4 h-4" />
+      </button>
+    </div>
+  );
+}
 import mqtt from "mqtt";
 import Image from "next/image";
 import {
@@ -246,6 +279,8 @@ export default function KontrolAdrPage() {
 
   // --- Power On/Off RTS ---
   const [powerLoading, setPowerLoading] = useState(false);
+  const [powerAlert, setPowerAlert] = useState<PowerAlert | null>(null);
+  const [rtsPowerState, setRtsPowerState] = useState<"on" | "off" | "unknown">("unknown");
   const handlePower = async (action: "on" | "off") => {
     setPowerLoading(true);
     try {
@@ -344,6 +379,20 @@ export default function KontrolAdrPage() {
             setIsControlRunning(false);
             if (pollingRef.current) { clearInterval(pollingRef.current); pollingRef.current = null; }
             fetchPrisma();
+          }
+
+          // PowerOn response: {"PowerOn":{"nilai":"..."}}
+          if (data.PowerOn) {
+            console.log("[KontrolADR] PowerOn response:", data.PowerOn.nilai);
+            setRtsPowerState("on");
+            setPowerAlert({ type: "on", message: data.PowerOn.nilai || "RTS berhasil dinyalakan" });
+          }
+
+          // PowerOff response: {"PowerOff":{"nilai":"..."}}
+          if (data.PowerOff) {
+            console.log("[KontrolADR] PowerOff response:", data.PowerOff.nilai);
+            setRtsPowerState("off");
+            setPowerAlert({ type: "off", message: data.PowerOff.nilai || "RTS berhasil dimatikan" });
           }
         }
       } catch {
@@ -669,6 +718,10 @@ export default function KontrolAdrPage() {
 
   return (
     <main className="min-h-screen">
+      {/* Power Alert Toast */}
+      {powerAlert && (
+        <PowerAlertToast alert={powerAlert} onClose={() => setPowerAlert(null)} />
+      )}
       <div className="-m-4 md:-m-6 bg-[#F4F6F9] min-h-[calc(100vh-3.5rem)] flex flex-col p-4 md:p-6 gap-7">
 
         {/* Header Section */}
@@ -693,7 +746,7 @@ export default function KontrolAdrPage() {
                   disabled={powerLoading}
                   className={cn(
                     "flex items-center gap-1.5 px-4 h-full text-[12.5px] font-semibold transition-colors cursor-pointer border-r border-[#EAEAEA]",
-                    isConnected
+                    rtsPowerState === "on" || (rtsPowerState === "unknown" && isConnected)
                       ? "bg-[#E5F7E7] text-[#06C022]"
                       : "text-gray-500 hover:bg-green-50 hover:text-green-600"
                   )}
@@ -706,7 +759,7 @@ export default function KontrolAdrPage() {
                   disabled={powerLoading}
                   className={cn(
                     "flex items-center gap-1.5 px-4 h-full text-[12.5px] font-semibold transition-colors cursor-pointer",
-                    !isConnected
+                    rtsPowerState === "off" || (rtsPowerState === "unknown" && !isConnected)
                       ? "bg-red-50 text-red-500"
                       : "text-gray-500 hover:bg-red-50 hover:text-red-500"
                   )}
