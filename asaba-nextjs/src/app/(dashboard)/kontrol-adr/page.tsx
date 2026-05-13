@@ -298,15 +298,20 @@ export default function KontrolAdrPage() {
         body: JSON.stringify({ action }),
       });
       const json = await res.json();
-      if (json.success && json.data?.mqtt_sent) {
-        // Command berhasil dikirim ke logger
-        setRtsPowerState(action);
-        setPowerAlert({
-          type: action,
-          message: action === "on"
-            ? "Perintah Power ON berhasil dikirim ke RTS"
-            : "Perintah Power OFF berhasil dikirim ke RTS",
-        });
+      
+      if (json.success && json.data?.response) {
+        const resp = json.data.response;
+        
+        if (resp.status === "success") {
+          // Hanya berubah hijau/merah JIKA balasan dari MQTT sukses
+          setRtsPowerState(action);
+          setPowerAlert({ type: action, message: resp.message });
+        } else if (resp.status === "timeout") {
+          setPowerAlert({ type: "error", message: resp.message });
+        } else {
+          // Berarti status == "failed" (misal logger balas "Failed" atau "RTS Off")
+          setPowerAlert({ type: "error", message: resp.message });
+        }
       } else {
         setPowerAlert({ type: "error", message: json.error || "Gagal mengirim command" });
       }
