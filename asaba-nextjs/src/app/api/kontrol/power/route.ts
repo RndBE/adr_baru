@@ -66,6 +66,17 @@ function publishAndWaitResponse(
   const url = `mqtts://${config.host}:${config.port}`;
   const responseKey = action === "on" ? "PowerOn" : "PowerOff";
 
+  // Fungsi untuk mencari key secara rekursif (jaga-jaga kalau dibungkus set_30002)
+  function findResponse(obj: any): any {
+    if (!obj || typeof obj !== "object") return null;
+    if (obj[responseKey] && obj[responseKey].nilai) return obj[responseKey];
+    for (const key in obj) {
+      const found = findResponse(obj[key]);
+      if (found) return found;
+    }
+    return null;
+  }
+
   return new Promise((resolve) => {
     const client = mqtt.connect(url, {
       username: config.username,
@@ -76,7 +87,8 @@ function publishAndWaitResponse(
 
     const timeout = setTimeout(() => {
       client.end(true);
-      resolve({ status: "timeout", message: "Logger tidak merespons dalam 5 detik" });
+      // Sesuai request: hilangkan alert timeout spesifik, jadikan seperti off/failed biasa
+      resolve({ status: "failed", message: "Gagal terhubung ke RTS (Timeout)" });
     }, 5000);
 
     client.on("connect", () => {
@@ -95,15 +107,17 @@ function publishAndWaitResponse(
 
     client.on("message", (_topic: string, message: Buffer) => {
       const rawMsg = message.toString();
-      console.log(`[MQTT Debug] Received on ${_topic}:`, rawMsg);
       try {
         const data = JSON.parse(rawMsg);
-        if (data[responseKey] && data[responseKey].nilai) {
+        
+        // Cari respons "PowerOn" atau "PowerOff" di mana saja di dalam JSON
+        const responseData = findResponse(data);
+
+        if (responseData) {
           clearTimeout(timeout);
           client.end(true);
           
-          const nilai = data[responseKey].nilai;
-          // Anggap string "Failed" atau error lainnya sebagai failure
+          const nilai = responseData.nilai;
           const isFailed = nilai.toLowerCase().includes("failed") || nilai.toLowerCase().includes("tidak terhubung");
           
           resolve({
