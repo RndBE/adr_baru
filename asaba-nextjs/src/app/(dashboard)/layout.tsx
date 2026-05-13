@@ -31,7 +31,7 @@ export default function DashboardLayout({
   return (
     <SidebarProvider>
       <AppSidebar />
-      <SidebarInset className="min-w-0 overflow-hidden">
+      <SidebarInset className="min-w-0">
         {/* Top Header */}
         <header className="sticky top-0 z-30 flex h-14 items-center gap-3 border-b bg-background/80 px-4 backdrop-blur-lg bg-white">
           {/* <SidebarTrigger className="-ml-1" /> */}
@@ -40,7 +40,7 @@ export default function DashboardLayout({
         </header>
 
         {/* Page Content */}
-        <main className="flex-1 overflow-y-auto overflow-x-hidden p-4 md:p-6 bg-white">{children}</main>
+        <main className="flex-1 overflow-auto p-4 md:p-6 bg-white min-w-0">{children}</main>
       </SidebarInset>
     </SidebarProvider>
   );

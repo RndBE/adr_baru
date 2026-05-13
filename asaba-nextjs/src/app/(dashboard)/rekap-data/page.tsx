@@ -333,7 +333,7 @@ export default function RekapDataPage() {
       </div>
 
       {/* ── Main Card ── */}
-      <div className="bg-white border border-[#EAEAEA] rounded-xl shadow-sm overflow-hidden flex flex-col">
+      <div className="bg-white border border-[#EAEAEA] rounded-xl shadow-sm overflow-hidden flex flex-col max-w-full">
 
         {/* Header + Filter bar */}
         <div className="px-5 py-4 border-b border-gray-100 flex flex-wrap items-center gap-3">
