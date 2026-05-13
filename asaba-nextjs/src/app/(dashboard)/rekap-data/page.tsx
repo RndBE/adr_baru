@@ -209,18 +209,17 @@ export default function RekapDataPage() {
     URL.revokeObjectURL(url);
   };
 
-  // Render sensor cell with special formatting for known sensors
   function renderSensorCell(row: RtsRow, sensorKey: string) {
     const val = (row as any)[sensorKey];
 
     if (sensorKey === "sensor14") {
       const isConn = Number(val) === 1;
       return isConn ? (
-        <span className="inline-flex items-center gap-1.5 px-2 py-0.5 bg-[#E5F7E7] text-[#06C022] border border-green-200 rounded-full text-[10px] font-bold whitespace-nowrap">
+        <span className="inline-flex items-center gap-1 px-1.5 py-0.5 bg-[#E5F7E7] text-[#06C022] border border-green-200 rounded-full text-[9px] font-bold whitespace-nowrap">
           <div className="w-1.5 h-1.5 rounded-full bg-[#06C022]"></div> Connected
         </span>
       ) : (
-        <span className="inline-flex items-center gap-1.5 px-2 py-0.5 bg-gray-100 text-gray-500 border border-gray-200 rounded-full text-[10px] font-bold whitespace-nowrap">
+        <span className="inline-flex items-center gap-1 px-1.5 py-0.5 bg-gray-100 text-gray-500 border border-gray-200 rounded-full text-[9px] font-bold whitespace-nowrap">
           <div className="w-1.5 h-1.5 rounded-full bg-gray-400"></div> Disconnected
         </span>
       );
@@ -229,20 +228,20 @@ export default function RekapDataPage() {
     if (sensorKey === "sensor16") {
       const isRunning = Number(val) === 1;
       return isRunning ? (
-        <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-blue-50 text-[#303481] rounded-full text-[10px] font-bold whitespace-nowrap">
+        <span className="inline-flex items-center gap-1 px-1.5 py-0.5 bg-blue-50 text-[#303481] rounded-full text-[9px] font-bold whitespace-nowrap">
           <Loader2 className="w-2.5 h-2.5 animate-spin" /> Run
         </span>
       ) : (
-        <span className="px-2 py-0.5 bg-gray-100 text-gray-500 rounded-full text-[10px] font-bold">Standby</span>
+        <span className="px-1.5 py-0.5 bg-gray-100 text-gray-500 rounded-full text-[9px] font-bold">Standby</span>
       );
     }
 
     if (sensorKey === "sensor17") {
       const isSdOk = Number(val) === 1;
       return isSdOk ? (
-        <span className="px-2 py-0.5 bg-emerald-50 text-emerald-700 rounded-full text-[10px] font-bold">OK</span>
+        <span className="px-1.5 py-0.5 bg-emerald-50 text-emerald-700 rounded-full text-[9px] font-bold">OK</span>
       ) : (
-        <span className="px-2 py-0.5 bg-red-50 text-red-600 rounded-full text-[10px] font-bold">Err</span>
+        <span className="px-1.5 py-0.5 bg-red-50 text-red-600 rounded-full text-[9px] font-bold">Err</span>
       );
     }
 
@@ -420,19 +419,20 @@ export default function RekapDataPage() {
         )}
 
         {/* Table */}
-        <div className="overflow-x-auto w-full">
+        <div className="relative w-full">
+          <div className="overflow-x-auto w-full">
           <table className="w-full text-center border-collapse">
             <thead className="bg-[#FAFAFB] sticky top-0 z-10">
               <tr className="border-b border-gray-200">
-                <th className="py-3 px-3 font-bold text-gray-600 text-[10.5px] whitespace-nowrap text-left sticky left-0 bg-[#FAFAFB] z-20 min-w-[40px]">#</th>
-                <th className="py-3 px-3 font-bold text-gray-600 text-[10.5px] whitespace-nowrap text-left sticky left-[40px] bg-[#FAFAFB] z-20 min-w-[140px]">Waktu</th>
-                <th className="py-3 px-3 font-bold text-gray-600 text-[10.5px] whitespace-nowrap min-w-[70px]">Logger</th>
-                <th className="py-3 px-3 font-bold text-gray-600 text-[10.5px] whitespace-nowrap min-w-[70px]">ID Kontrol</th>
+                <th className="py-2 px-2 font-bold text-gray-600 text-[10px] whitespace-nowrap text-left sticky left-0 bg-[#FAFAFB] z-30 min-w-[35px]">#</th>
+                <th className="py-2 px-2 font-bold text-gray-600 text-[10px] whitespace-nowrap text-left sticky left-[35px] bg-[#FAFAFB] z-30 min-w-[125px] shadow-[4px_0_8px_-4px_rgba(0,0,0,0.1)] border-r border-gray-200">Waktu</th>
+                <th className="py-2 px-2 font-bold text-gray-600 text-[10px] whitespace-nowrap min-w-[60px]">Logger</th>
+                <th className="py-2 px-2 font-bold text-gray-600 text-[10px] whitespace-nowrap min-w-[60px]">ID Kontrol</th>
                 {ALL_SENSORS.map((s) => (
-                  <th key={s} className="py-3 px-2 font-bold text-gray-600 text-[10.5px] whitespace-nowrap min-w-[75px]">
+                  <th key={s} className="py-2 px-1.5 font-bold text-gray-600 text-[10px] whitespace-nowrap min-w-[65px] z-10">
                     <div className="flex flex-col items-center gap-0.5">
-                      <span className="text-[#303481]">{SENSOR_LABELS[s]}</span>
-                      <span className="text-[9px] text-gray-400 font-normal">{s}</span>
+                      <span className="text-[#303481] leading-tight">{SENSOR_LABELS[s]}</span>
+                      <span className="text-[8.5px] text-gray-400 font-normal leading-tight">{s}</span>
                     </div>
                   </th>
                 ))}
@@ -441,20 +441,20 @@ export default function RekapDataPage() {
             <tbody>
               {loading ? (
                 <tr>
-                  <td colSpan={4 + ALL_SENSORS.length} className="py-20 text-center">
+                  <td colSpan={4 + ALL_SENSORS.length} className="py-12 text-center">
                     <div className="flex flex-col items-center gap-3 text-gray-400">
                       <Loader2 className="w-8 h-8 animate-spin text-[#303481]" />
-                      <span className="text-[13px] font-medium">Memuat data...</span>
+                      <span className="text-[12px] font-medium">Memuat data...</span>
                     </div>
                   </td>
                 </tr>
               ) : filtered.length === 0 ? (
                 <tr>
-                  <td colSpan={4 + ALL_SENSORS.length} className="py-20 text-center">
+                  <td colSpan={4 + ALL_SENSORS.length} className="py-12 text-center">
                     <div className="flex flex-col items-center gap-2 text-gray-400">
                       <Database className="w-10 h-10 text-gray-300" />
-                      <p className="text-[13px] font-medium">Tidak ada data ditemukan</p>
-                      <p className="text-[11.5px]">Coba ubah filter tanggal atau logger</p>
+                      <p className="text-[12px] font-medium">Tidak ada data ditemukan</p>
+                      <p className="text-[11px]">Coba ubah filter tanggal atau logger</p>
                     </div>
                   </td>
                 </tr>
@@ -465,22 +465,22 @@ export default function RekapDataPage() {
                   return (
                     <tr
                       key={row.id}
-                      className="border-b border-gray-100 last:border-0 hover:bg-blue-50/30 transition-colors"
+                      className="group border-b border-gray-100 last:border-0 hover:bg-blue-50/30 transition-colors"
                     >
-                      <td className="py-2.5 px-3 text-[11px] text-gray-500 text-left sticky left-0 bg-white z-10">{rowNum}</td>
-                      <td className="py-2.5 px-3 text-[11px] font-medium text-gray-800 whitespace-nowrap text-left sticky left-[40px] bg-white z-10">
+                      <td className="py-1.5 px-2 text-[10px] text-gray-500 text-left sticky left-0 bg-white group-hover:bg-blue-50/30 z-20 transition-colors">{rowNum}</td>
+                      <td className="py-1.5 px-2 text-[10px] font-medium text-gray-800 whitespace-nowrap text-left sticky left-[35px] bg-white group-hover:bg-blue-50/30 z-20 shadow-[4px_0_8px_-4px_rgba(0,0,0,0.1)] border-r border-gray-100 transition-colors">
                         {fmtWaktu(row.waktu)}
                       </td>
-                      <td className="py-2.5 px-3">
-                        <span className="px-2 py-0.5 bg-[#EEF2FC] text-[#303481] rounded text-[10px] font-bold">
+                      <td className="py-1.5 px-2 relative z-0">
+                        <span className="px-1.5 py-0.5 bg-[#EEF2FC] text-[#303481] rounded text-[9.5px] font-bold">
                           {row.code_logger || "-"}
                         </span>
                       </td>
-                      <td className="py-2.5 px-3 text-[10.5px] text-gray-600 font-medium">
+                      <td className="py-1.5 px-2 text-[10px] text-gray-600 font-medium relative z-0">
                         {row.id_kontrol || "-"}
                       </td>
                       {ALL_SENSORS.map((s) => (
-                        <td key={s} className="py-2.5 px-2 text-[10.5px] text-gray-700">
+                        <td key={s} className="py-1.5 px-1.5 text-[10px] text-gray-700 relative z-0">
                           {renderSensorCell(row, s)}
                         </td>
                       ))}
@@ -490,6 +490,7 @@ export default function RekapDataPage() {
               )}
             </tbody>
           </table>
+          </div>
         </div>
 
         {/* Pagination Footer */}
