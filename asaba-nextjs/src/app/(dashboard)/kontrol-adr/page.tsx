@@ -285,6 +285,7 @@ export default function KontrolAdrPage() {
   // Sinkronkan local power state dengan actual status dari logger
   useEffect(() => {
     const isRtsOn = String(sensor16) === "1" || (String(sensor14) === "1" && isConnected);
+    console.log(`[Debug Power] sensor16: ${sensor16}, sensor14: ${sensor14}, isConnected: ${isConnected} => isRtsOn: ${isRtsOn}`);
     setRtsPowerState(isRtsOn ? "on" : "off");
   }, [sensor16, sensor14, isConnected]);
 
