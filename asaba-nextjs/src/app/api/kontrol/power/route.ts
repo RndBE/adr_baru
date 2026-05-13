@@ -94,8 +94,10 @@ function publishAndWaitResponse(
     });
 
     client.on("message", (_topic: string, message: Buffer) => {
+      const rawMsg = message.toString();
+      console.log(`[MQTT Debug] Received on ${_topic}:`, rawMsg);
       try {
-        const data = JSON.parse(message.toString());
+        const data = JSON.parse(rawMsg);
         if (data[responseKey] && data[responseKey].nilai) {
           clearTimeout(timeout);
           client.end(true);
