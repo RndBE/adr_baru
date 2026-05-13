@@ -329,14 +329,24 @@ export default function KontrolAdrPage() {
       console.log("[KontrolADR] MQTT connected");
       // Subscribe ke 3 topic
       const targetTopic = `Logger_${idLogger || "30002"}`;
-      const adrTopic = process.env.NEXT_PUBLIC_MQTT_TOPIC || "ADR_Tambang_Kaltara";
+      const adrTopic = "ADR_Tambang_Kaltara"; // hardcode langsung untuk test
       console.log("[KontrolADR] Subscribing to:", targetTopic, "kontrol-asaba", adrTopic);
-      client.subscribe(targetTopic, { qos: 0 }); // data prisma
-      client.subscribe("kontrol-asaba", { qos: 0 }); // status kontrol
-      client.subscribe(adrTopic, { qos: 0 }); // AutoTrack + Power
+      client.subscribe(targetTopic, { qos: 0 }, (err) => {
+        if (err) console.error("[KontrolADR] Subscribe FAIL:", targetTopic, err);
+        else console.log("[KontrolADR] Subscribe OK:", targetTopic);
+      });
+      client.subscribe("kontrol-asaba", { qos: 0 }, (err) => {
+        if (err) console.error("[KontrolADR] Subscribe FAIL: kontrol-asaba", err);
+        else console.log("[KontrolADR] Subscribe OK: kontrol-asaba");
+      });
+      client.subscribe(adrTopic, { qos: 0 }, (err) => {
+        if (err) console.error("[KontrolADR] Subscribe FAIL:", adrTopic, err);
+        else console.log("[KontrolADR] Subscribe OK:", adrTopic);
+      });
     });
 
     client.on("message", (topic: string, message: Buffer) => {
+      console.log("[KontrolADR] RAW msg on:", topic, message.toString().substring(0, 200));
       try {
         const data = JSON.parse(message.toString());
         console.log("[KontrolADR] MSG on topic:", topic, data);
