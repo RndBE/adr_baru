@@ -4,7 +4,8 @@ import mqtt from "mqtt";
 
 /**
  * POST /api/kontrol/power
- * Power On/Off RTS via MQTT.
+ * Power On/Off RTS via MQTT (fire-and-forget).
+ * Balasan dari logger akan ditangkap langsung oleh frontend via MQTT.
  *
  * Body: { action: "on" | "off" }
  */
@@ -35,27 +36,17 @@ export async function POST(request: NextRequest) {
       },
     };
 
-    // Tunggu balasan dari logger maksimal 5 detik
-    const response = await publishAndWaitResponse(topicTarget, payload, action);
+    // Fire and forget — tidak menunggu balasan, frontend yang tangkap via MQTT
+    publishMqttFireAndForget(topicTarget, payload);
 
-    return NextResponse.json({
-      success: true,
-      data: {
-        action,
-        response: response, // bisa berisi object balasan atau null jika timeout
-      },
-    });
+    return NextResponse.json({ success: true, data: { action } });
   } catch (error) {
     console.error("[POST /api/kontrol/power]", error);
     return NextResponse.json({ success: false, error: "Failed to send power command" }, { status: 500 });
   }
 }
 
-function publishAndWaitResponse(
-  topic: string,
-  payload: object,
-  action: "on" | "off"
-): Promise<{ status: "success" | "failed" | "timeout"; message: string }> {
+function publishMqttFireAndForget(topic: string, payload: object) {
   const config = {
     host: process.env.MQTT_HOST || "mqtt.beacontelemetry.com",
     port: parseInt(process.env.MQTT_PORT || "8883", 10),
@@ -64,81 +55,20 @@ function publishAndWaitResponse(
   };
 
   const url = `mqtts://${config.host}:${config.port}`;
-  const responseKey = action === "on" ? "PowerOn" : "PowerOff";
+  const client = mqtt.connect(url, {
+    username: config.username,
+    password: config.password,
+    rejectUnauthorized: process.env.MQTT_REJECT_UNAUTHORIZED === "true",
+    connectTimeout: 5000,
+  });
 
-  // Fungsi untuk mencari key secara rekursif (jaga-jaga kalau dibungkus set_30002)
-  function findResponse(obj: any): any {
-    if (!obj || typeof obj !== "object") return null;
-    if (obj[responseKey] && obj[responseKey].nilai) return obj[responseKey];
-    for (const key in obj) {
-      const found = findResponse(obj[key]);
-      if (found) return found;
-    }
-    return null;
-  }
-
-  return new Promise((resolve) => {
-    const client = mqtt.connect(url, {
-      username: config.username,
-      password: config.password,
-      rejectUnauthorized: process.env.MQTT_REJECT_UNAUTHORIZED === "true",
-      connectTimeout: 5000,
+  client.on("connect", () => {
+    client.publish(topic, JSON.stringify(payload), { qos: 0 }, () => {
+      client.end();
     });
+  });
 
-    const timeout = setTimeout(() => {
-      client.end(true);
-      // Sesuai request: hilangkan alert timeout spesifik, jadikan seperti off/failed biasa
-      resolve({ status: "failed", message: "Gagal terhubung ke RTS (Timeout)" });
-    }, 5000);
-
-    client.on("connect", () => {
-      client.subscribe(topic, { qos: 0 }, (err) => {
-        if (err) {
-          clearTimeout(timeout);
-          client.end(true);
-          resolve({ status: "failed", message: "Gagal subscribe ke MQTT broker" });
-          return;
-        }
-
-        const payloadStr = JSON.stringify(payload);
-        client.publish(topic, payloadStr, { qos: 0 });
-      });
-    });
-
-    client.on("message", (_topic: string, message: Buffer, packet: any) => {
-      // Abaikan pesan retained (pesan lama yang nyangkut/tersimpan di broker)
-      if (packet && packet.retain) {
-        return;
-      }
-      
-      const rawMsg = message.toString();
-      try {
-        const data = JSON.parse(rawMsg);
-        
-        // Cari respons "PowerOn" atau "PowerOff" di mana saja di dalam JSON
-        const responseData = findResponse(data);
-
-        if (responseData) {
-          clearTimeout(timeout);
-          client.end(true);
-          
-          const nilai = responseData.nilai;
-          const isFailed = nilai.toLowerCase().includes("failed") || nilai.toLowerCase().includes("tidak terhubung");
-          
-          resolve({
-            status: isFailed ? "failed" : "success",
-            message: nilai,
-          });
-        }
-      } catch {
-        // Abaikan kalau bukan JSON
-      }
-    });
-
-    client.on("error", () => {
-      clearTimeout(timeout);
-      client.end(true);
-      resolve({ status: "failed", message: "Koneksi MQTT error" });
-    });
+  client.on("error", () => {
+    client.end(true);
   });
 }
