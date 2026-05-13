@@ -280,7 +280,7 @@ export default function KontrolAdrPage() {
   // --- Power On/Off RTS ---
   const [powerLoading, setPowerLoading] = useState(false);
   const [powerAlert, setPowerAlert] = useState<PowerAlert | null>(null);
-  const [rtsPowerState, setRtsPowerState] = useState<"on" | "off" | "unknown">("unknown");
+  const [rtsPowerState, setRtsPowerState] = useState<"on" | "off" | "unknown">("off");
   const handlePower = async (action: "on" | "off") => {
     setPowerLoading(true);
     try {
@@ -329,14 +329,17 @@ export default function KontrolAdrPage() {
       console.log("[KontrolADR] MQTT connected");
       // Subscribe ke 3 topic
       const targetTopic = `Logger_${idLogger || "30002"}`;
+      const adrTopic = process.env.NEXT_PUBLIC_MQTT_TOPIC || "ADR_Tambang_Kaltara";
+      console.log("[KontrolADR] Subscribing to:", targetTopic, "kontrol-asaba", adrTopic);
       client.subscribe(targetTopic, { qos: 0 }); // data prisma
       client.subscribe("kontrol-asaba", { qos: 0 }); // status kontrol
-      client.subscribe(process.env.NEXT_PUBLIC_MQTT_TOPIC || "ADR_Tambang_Kaltara", { qos: 0 }); // AutoTrack
+      client.subscribe(adrTopic, { qos: 0 }); // AutoTrack + Power
     });
 
     client.on("message", (topic: string, message: Buffer) => {
       try {
         const data = JSON.parse(message.toString());
+        console.log("[KontrolADR] MSG on topic:", topic, data);
 
         if (topic === "kontrol-asaba") {
           // Status kontrol: {status: "1", datetime: "..."} → Running
