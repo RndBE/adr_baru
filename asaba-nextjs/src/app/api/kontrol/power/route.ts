@@ -105,7 +105,12 @@ function publishAndWaitResponse(
       });
     });
 
-    client.on("message", (_topic: string, message: Buffer) => {
+    client.on("message", (_topic: string, message: Buffer, packet: any) => {
+      // Abaikan pesan retained (pesan lama yang nyangkut/tersimpan di broker)
+      if (packet && packet.retain) {
+        return;
+      }
+      
       const rawMsg = message.toString();
       try {
         const data = JSON.parse(rawMsg);

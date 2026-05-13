@@ -302,14 +302,16 @@ export default function KontrolAdrPage() {
       if (json.success && json.data?.response) {
         const resp = json.data.response;
         
-        if (resp.status === "success") {
-          // Hanya berubah hijau/merah JIKA balasan dari MQTT sukses
+        // Cek ganda di frontend untuk memastikan tidak ada pesan 'Failed' yang lolos jadi hijau
+        const msgLower = (resp.message || "").toLowerCase();
+        const isActuallyFailed = msgLower.includes("failed") || msgLower.includes("tidak terhubung") || resp.status === "timeout" || resp.status === "failed";
+        
+        if (!isActuallyFailed) {
+          // Hanya berubah hijau/merah JIKA balasan dari MQTT benar-benar sukses
           setRtsPowerState(action);
           setPowerAlert({ type: action, message: resp.message });
-        } else if (resp.status === "timeout") {
-          setPowerAlert({ type: "error", message: resp.message });
         } else {
-          // Berarti status == "failed" (misal logger balas "Failed" atau "RTS Off")
+          // Berarti gagal (misal logger balas "Failed", "RTS Off", atau Timeout)
           setPowerAlert({ type: "error", message: resp.message });
         }
       } else {
