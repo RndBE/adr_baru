@@ -290,9 +290,20 @@ export default function KontrolAdrPage() {
         body: JSON.stringify({ action }),
       });
       const json = await res.json();
-      if (!json.success) console.error("Power command failed:", json.error);
+      if (json.success && json.data?.response) {
+        // Logger merespons — tampilkan alert
+        const resp = json.data.response;
+        setRtsPowerState(resp.type);
+        setPowerAlert({ type: resp.type, message: resp.message });
+      } else if (json.success) {
+        // Command terkirim tapi logger tidak merespons (timeout)
+        setPowerAlert({ type: "error", message: "Logger tidak merespons (timeout)" });
+      } else {
+        setPowerAlert({ type: "error", message: json.error || "Gagal mengirim command" });
+      }
     } catch (err) {
       console.error("Power command error:", err);
+      setPowerAlert({ type: "error", message: "Terjadi kesalahan jaringan" });
     } finally {
       setPowerLoading(false);
     }
