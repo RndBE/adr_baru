@@ -563,17 +563,17 @@ export default function PrismConfigPage() {
         {isConfigUnlocked ? (
           <Button 
             onClick={() => setIsConfigUnlocked(false)}
-            className="bg-red-50 hover:bg-red-100 text-red-600 border border-red-200 px-5 py-5 rounded-lg shadow-sm font-bold text-[13.5px] transition-colors flex items-center gap-2.5 cursor-pointer"
+            className="group bg-red-50 hover:bg-red-100 text-red-600 border border-red-200 px-5 py-5 rounded-lg shadow-sm hover:shadow-md active:scale-95 hover:-translate-y-0.5 font-bold text-[13.5px] transition-all duration-200 flex items-center gap-2.5 cursor-pointer"
           >
-            <Lock className="w-4 h-4" strokeWidth={2.5} />
+            <Lock className="w-4 h-4 group-hover:-translate-y-[1px] transition-transform duration-200" strokeWidth={2.5} />
             Selesai Konfigurasi
           </Button>
         ) : (
           <Button 
             onClick={() => setAccessModalOpen(true)}
-            className="bg-[#303481] hover:bg-[#1f2259] text-white px-5 py-5 rounded-lg shadow-sm font-medium text-[13.5px] transition-colors border-none flex items-center gap-2.5 cursor-pointer"
+            className="group bg-[#303481] hover:bg-[#1f2259] text-white px-5 py-5 rounded-lg shadow-sm hover:shadow-md active:scale-95 hover:-translate-y-0.5 font-medium text-[13.5px] transition-all duration-200 border-none flex items-center gap-2.5 cursor-pointer"
           >
-            <Image src="/mulai_konfigurasi.svg" alt="Mulai Konfigurasi" width={18} height={18} />
+            <Image src="/mulai_konfigurasi.svg" alt="Mulai Konfigurasi" width={18} height={18} className="group-hover:rotate-12 transition-transform duration-300" />
             Mulai Konfigurasi
           </Button>
         )}
@@ -592,15 +592,15 @@ export default function PrismConfigPage() {
               </span>
             )}
           </div>
-          <div className="relative w-[320px]">
-            <Search className="w-4 h-4 text-gray-400 absolute left-3 top-1/2 -translate-y-1/2" />
+          <div className="relative w-[320px] group text-gray-400 focus-within:text-[#303481] transition-colors duration-300">
+            <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 group-focus-within:scale-110 transition-transform duration-300" />
             <Input
               type="text"
               placeholder="Cari nama/ID prisma..."
               value={searchTerm}
               onChange={(e) => { setSearchTerm(e.target.value); setCurrentPage(1); }}
               autoComplete="off"
-              className="pl-9 pr-4 h-[38px] text-[13px] border-gray-300 focus-visible:ring-[#303481] rounded-lg bg-white"
+              className="pl-9 pr-4 h-[38px] text-[13px] border-gray-300 focus-visible:ring-[#303481] rounded-lg bg-white transition-shadow duration-300"
             />
           </div>
         </div>
@@ -680,26 +680,26 @@ export default function PrismConfigPage() {
                           <button
                             onClick={() => setModal({ open: true, mode: "edit", slot: row })}
                             disabled={!isConfigUnlocked}
-                            className={`flex items-center gap-1.5 px-4 py-1.5 border rounded-md text-[12px] font-bold transition-colors ${
+                            className={`group flex items-center gap-1.5 px-4 py-1.5 border rounded-md text-[12px] font-bold active:scale-90 transition-all duration-200 ${
                               !isConfigUnlocked
                                 ? "border-gray-200 text-gray-400 bg-gray-50 cursor-not-allowed"
-                                : "border-[#303481] text-[#303481] hover:bg-[#303481] hover:text-white cursor-pointer"
+                                : "border-[#303481] text-[#303481] hover:bg-[#303481] hover:text-white hover:shadow-sm cursor-pointer"
                             }`}
                           >
-                            <Pencil className="w-[12px] h-[12px]" strokeWidth={2.5} />
+                            <Pencil className="w-[12px] h-[12px] group-hover:-translate-y-[1px] transition-transform duration-200" strokeWidth={2.5} />
                             Edit
                           </button>
                         ) : (
                           <button
                             onClick={() => setModal({ open: true, mode: "set", slot: row })}
                             disabled={!isConfigUnlocked}
-                            className={`flex items-center gap-1 px-4 py-1.5 border rounded-md text-[12px] font-bold transition-colors ${
+                            className={`group flex items-center gap-1 px-4 py-1.5 border rounded-md text-[12px] font-bold active:scale-90 transition-all duration-200 ${
                               !isConfigUnlocked
                                 ? "border-gray-200 text-gray-400 bg-gray-50 cursor-not-allowed"
-                                : "border-[#303481] text-[#303481] hover:bg-[#303481] hover:text-white cursor-pointer"
+                                : "border-[#303481] text-[#303481] hover:bg-[#303481] hover:text-white hover:shadow-sm cursor-pointer"
                             }`}
                           >
-                            <Plus className="w-[12px] h-[12px]" strokeWidth={3} />
+                            <Plus className="w-[12px] h-[12px] group-hover:rotate-90 transition-transform duration-200" strokeWidth={3} />
                             Set
                           </button>
                         )}

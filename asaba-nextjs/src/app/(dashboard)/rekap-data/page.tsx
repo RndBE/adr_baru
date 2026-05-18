@@ -280,9 +280,9 @@ export default function RekapDataPage() {
         </div>
         <button
           onClick={() => fetchData(page)}
-          className="flex items-center gap-2 px-4 py-2 bg-white border border-gray-200 rounded-lg text-[13px] font-semibold text-gray-700 hover:bg-gray-50 transition-colors shadow-sm cursor-pointer"
+          className="group flex items-center gap-2 px-4 py-2 bg-white border border-gray-200 rounded-lg text-[13px] font-semibold text-gray-700 hover:bg-gray-50 hover:shadow-md active:scale-95 transition-all duration-200 shadow-sm cursor-pointer"
         >
-          <RefreshCw className="w-4 h-4" />
+          <RefreshCw className="w-4 h-4 group-hover:rotate-180 transition-transform duration-500" />
           Refresh
         </button>
       </div>
@@ -319,7 +319,7 @@ export default function RekapDataPage() {
             sub: "dari halaman ini",
           },
         ].map((card, i) => (
-          <div key={i} className="bg-white border border-[#EAEAEA] rounded-xl p-4 shadow-sm flex items-center gap-4">
+          <div key={i} className="bg-white border border-[#EAEAEA] rounded-xl p-4 shadow-sm hover:shadow-md hover:-translate-y-1 transition-all duration-300 flex items-center gap-4 cursor-default">
             <div className={`w-11 h-11 rounded-xl flex items-center justify-center shrink-0 ${card.bg}`}>
               {card.icon}
             </div>
@@ -402,9 +402,9 @@ export default function RekapDataPage() {
             <button
               onClick={handleDownload}
               disabled={filtered.length === 0}
-              className="flex items-center gap-1.5 px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white text-[12px] font-semibold rounded-md transition-colors cursor-pointer"
+              className="group flex items-center gap-1.5 px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 hover:shadow-md active:scale-95 disabled:opacity-50 disabled:pointer-events-none text-white text-[12px] font-semibold rounded-md transition-all duration-200 cursor-pointer"
             >
-              <Download className="w-3.5 h-3.5" />
+              <Download className="w-3.5 h-3.5 group-hover:-translate-y-0.5 transition-transform duration-200" />
               CSV
             </button>
           </div>
@@ -536,10 +536,10 @@ export default function RekapDataPage() {
                   <button
                     key={pageNum}
                     onClick={() => handlePageChange(pageNum)}
-                    className={`w-8 h-8 rounded text-[12px] font-bold transition-colors cursor-pointer ${
+                    className={`w-8 h-8 rounded text-[12px] font-bold active:scale-90 transition-all duration-200 cursor-pointer ${
                       page === pageNum
-                        ? "bg-[#303481] text-white border-none"
-                        : "border border-gray-200 text-gray-700 hover:bg-gray-50"
+                        ? "bg-[#303481] text-white shadow-md border-none"
+                        : "border border-gray-200 text-gray-700 hover:bg-gray-50 hover:shadow-sm"
                     }`}
                   >
                     {pageNum}

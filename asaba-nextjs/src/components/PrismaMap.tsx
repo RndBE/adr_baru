@@ -31,7 +31,10 @@ export default function PrismaMap({ markers, site }: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<HTMLDivElement>(null);
   const mapInstanceRef = useRef<import("leaflet").Map | null>(null);
-  const tileLayerRef = useRef<import("leaflet").TileLayer | null>(null);
+  const tileLayerRef = useRef<{
+    cartoLayer: import("leaflet").TileLayer;
+    googleLayer: import("leaflet").TileLayer;
+  } | null>(null);
 
   const [mapType, setMapType] = useState<"Map" | "Satellite">("Map");
   const [showTerrain, setShowTerrain] = useState(true);
@@ -59,30 +62,48 @@ export default function PrismaMap({ markers, site }: Props) {
       zoom,
       zoomControl: false,
       attributionControl: false,
+      fadeAnimation: true,
+      zoomAnimation: true,
+      markerZoomAnimation: true,
+      preferCanvas: true, // Uses canvas for rendering vectors (lines/markers), much smoother and faster
     });
     mapInstanceRef.current = map;
 
     L.control.zoom({ position: "bottomright" }).addTo(map);
 
-    // Initial layer URL
-    let initialLyrs = "m";
-    if (mapType === "Satellite") {
-      initialLyrs = showLabels ? "y" : "s";
-    } else if (showTerrain) {
-      initialLyrs = "p";
-    }
-
-    // Google Maps base layer
-    const googleLayer = L.tileLayer(
-      `https://mt{s}.google.com/vt/lyrs=${initialLyrs}&x={x}&y={y}&z={z}`,
+    // Define separate layers so switching is instant and cached
+    const cartoLayer = L.tileLayer(
+      "https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png",
       {
         maxZoom: 22,
-        maxNativeZoom: 22,
-        subdomains: ["0", "1", "2", "3"],
+        maxNativeZoom: 20,
+        subdomains: ["a", "b", "c", "d"],
+        keepBuffer: 8,
+        crossOrigin: true,
+        className: 'map-layer-transition',
       }
-    ).addTo(map);
+    );
 
-    tileLayerRef.current = googleLayer;
+    const googleLayer = L.tileLayer(
+      "https://mt{s}.google.com/vt/lyrs=y&x={x}&y={y}&z={z}",
+      {
+        maxZoom: 22,
+        maxNativeZoom: 21,
+        subdomains: ["0", "1", "2", "3"],
+        keepBuffer: 8,
+        crossOrigin: true,
+        className: 'map-layer-transition',
+      }
+    );
+
+    // Initial layer to add
+    if (mapType === "Satellite") {
+      googleLayer.addTo(map);
+    } else {
+      cartoLayer.addTo(map);
+    }
+
+    tileLayerRef.current = { cartoLayer, googleLayer };
 
     // ── ADR/RTS marker ──
     const rtsIcon = L.divIcon({
@@ -235,18 +256,24 @@ export default function PrismaMap({ markers, site }: Props) {
     };
   }, [markers, site]); // Dependencies: only recreate map if markers or site change
 
-  // Dynamically update tile layer when map type or terrain changes
+  // Dynamically switch layers seamlessly
   useEffect(() => {
-    if (!tileLayerRef.current) return;
-    let lyrs = "m"; // Map (Roadmap)
+    if (!tileLayerRef.current || !mapInstanceRef.current) return;
+    const { cartoLayer, googleLayer } = tileLayerRef.current;
+    const map = mapInstanceRef.current;
+
     if (mapType === "Satellite") {
-      lyrs = showLabels ? "y" : "s"; // Satellite with or without labels
-    } else if (mapType === "Map" && showTerrain) {
-      lyrs = "p"; // Terrain
+      // Update google layer URL based on labels
+      const lyrs = showLabels ? "y" : "s";
+      googleLayer.setUrl(`https://mt{s}.google.com/vt/lyrs=${lyrs}&x={x}&y={y}&z={z}`);
+      
+      if (!map.hasLayer(googleLayer)) map.addLayer(googleLayer);
+      if (map.hasLayer(cartoLayer)) map.removeLayer(cartoLayer);
+    } else {
+      if (!map.hasLayer(cartoLayer)) map.addLayer(cartoLayer);
+      if (map.hasLayer(googleLayer)) map.removeLayer(googleLayer);
     }
-    const url = `https://mt{s}.google.com/vt/lyrs=${lyrs}&x={x}&y={y}&z={z}`;
-    tileLayerRef.current.setUrl(url);
-  }, [mapType, showTerrain, showLabels]);
+  }, [mapType, showLabels]);
 
   const toggleFullscreen = () => {
     if (!document.fullscreenElement) {
@@ -258,9 +285,36 @@ export default function PrismaMap({ markers, site }: Props) {
     }
   };
 
+  // Ensure map is smoothly resized whenever container dimensions change
+  useEffect(() => {
+    if (!containerRef.current) return;
+    
+    let timeoutId: NodeJS.Timeout;
+    const resizeObserver = new ResizeObserver(() => {
+      clearTimeout(timeoutId);
+      // Wait for the browser resize/fullscreen animation to settle (approx 150ms)
+      // before telling Leaflet to redraw. This prevents tile flickering/blinking.
+      timeoutId = setTimeout(() => {
+        if (mapInstanceRef.current) {
+          mapInstanceRef.current.invalidateSize({ animate: false });
+        }
+      }, 150);
+    });
+    
+    resizeObserver.observe(containerRef.current);
+    
+    return () => {
+      resizeObserver.disconnect();
+      clearTimeout(timeoutId);
+    };
+  }, []);
+
   return (
-    <div ref={containerRef} className="relative w-full rounded-xl overflow-hidden bg-white" style={{ height: "520px" }}>
+    <div ref={containerRef} className="relative w-full rounded-xl overflow-hidden bg-[#F8F9FA] shadow-sm" style={{ height: "520px" }}>
       <style>{`
+        .map-layer-transition {
+          transition: opacity 0.4s ease-in-out;
+        }
         :fullscreen {
           height: 100vh !important;
           width: 100vw !important;
@@ -358,22 +412,7 @@ export default function PrismaMap({ markers, site }: Props) {
           </button>
         </div>
         
-        {/* Terrain Checkbox */}
-        {mapType === "Map" && (
-          <label className="flex items-center gap-2 bg-white rounded-md shadow-sm border border-[#EAEAEA] px-3 py-1.5 cursor-pointer text-[12px] font-bold text-gray-700 hover:bg-gray-50 transition-colors">
-            <div className={`flex items-center justify-center w-[15px] h-[15px] rounded-[3px] border ${showTerrain ? "bg-[#303481] border-[#303481]" : "bg-white border-gray-300"}`}>
-              {showTerrain && <Check className="w-3 h-3 text-white" strokeWidth={3} />}
-            </div>
-            Terrain
-            {/* hidden native checkbox to maintain accessibility */}
-            <input 
-              type="checkbox" 
-              checked={showTerrain}
-              onChange={(e) => setShowTerrain(e.target.checked)}
-              className="hidden"
-            />
-          </label>
-        )}
+
 
         {/* Labels Checkbox for Satellite */}
         {mapType === "Satellite" && (

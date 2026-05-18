@@ -430,10 +430,19 @@ function RtsDashboard({ logger }: { logger: any }) {
               </div>
             </div>
             <div className="flex items-center gap-2.5">
-              <Button variant="outline" size="sm" className="h-[38px] border-[#2B3270] text-[#2B3270] bg-white hover:bg-[#2B3270] hover:text-white rounded-md font-semibold transition-colors px-4 cursor-pointer">
+              <Button 
+                onClick={() => router.push(`/hasil-pengukuran?log=${activeLog ?? ""}&view=Peta`)}
+                variant="outline" 
+                size="sm" 
+                className="h-[38px] border-[#2B3270] text-[#2B3270] bg-white hover:bg-[#2B3270] hover:text-white rounded-md font-semibold transition-colors px-4 cursor-pointer active:scale-95"
+              >
                 <MapIcon className="mr-2 h-4 w-4" /> Buka Peta
               </Button>
-              <Button size="sm" className="h-[38px] bg-[#2B3270] hover:bg-[#1a1e4a] text-white rounded-md font-semibold shadow-sm px-4 cursor-pointer">
+              <Button 
+                onClick={() => router.push("/visualisasi-3d")}
+                size="sm" 
+                className="h-[38px] bg-[#2B3270] hover:bg-[#1a1e4a] text-white rounded-md font-semibold shadow-sm px-4 cursor-pointer active:scale-95"
+              >
                 <Box className="mr-2 h-4 w-4" /> Buka 3D
               </Button>
             </div>
