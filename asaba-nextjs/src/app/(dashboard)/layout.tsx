@@ -33,9 +33,9 @@ export default function DashboardLayout({
       <AppSidebar />
       <SidebarInset className="min-w-0">
         {/* Top Header */}
-        <header className="sticky top-0 z-30 flex h-14 items-center gap-3 border-b bg-background/80 px-4 backdrop-blur-lg bg-white">
-          {/* <SidebarTrigger className="-ml-1" /> */}
-          {/* <Separator orientation="vertical" className="h-5" /> */}
+        <header className="sticky top-0 z-30 flex h-14 items-center gap-3 border-b bg-background/80 px-3 backdrop-blur-lg bg-white md:px-4">
+          <SidebarTrigger className="-ml-1 md:hidden" />
+          <Separator orientation="vertical" className="h-5 md:hidden" />
           <h1 className="text-sm font-semibold tracking-tight">{title}</h1>
         </header>
 

@@ -7,9 +7,7 @@ import {
   SelectContent,
   SelectItem,
   SelectTrigger,
-  SelectValue,
 } from "@/components/ui/select";
-import { PageHeader } from "@/components/page-header";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -23,24 +21,12 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import {
-  Gamepad2,
   MapPin,
-  Thermometer,
-  Zap,
-  Droplets,
-  Battery,
   Map as MapIcon,
   Box,
-  RotateCcw,
-  RefreshCw,
-  Info,
-  Clock,
-  Activity,
   History,
   ArrowRight,
-  TrendingUp,
   Loader2,
-  Camera,
   Check,
   X
 } from "lucide-react";
@@ -51,7 +37,7 @@ import Image from "next/image";
 // ─── Helper: parse waktu dari berbagai format MySQL ──────────────────────────
 // Prisma $queryRaw bisa return Date object ATAU string "YYYY-MM-DD HH:MM:SS"
 // tergantung versi driver. Fungsi ini normalize semua format ke ISO string.
-function parseWaktuToIso(d: any): string | null {
+function parseWaktuToIso(d: string | Date | null | undefined): string | null {
   if (!d) return null;
   try {
     if (d instanceof Date) {
@@ -129,6 +115,45 @@ export interface LoggerRow {
   nosell?: string;
 }
 
+interface RtsTempData {
+  waktu?: string | Date | null;
+  sensor14?: string | number | null;
+  sensor16?: string | number | null;
+  sensor17?: string | number | null;
+  sensor20?: string | number | null;
+  sensor21?: string | number | null;
+  sensor22?: string | number | null;
+  sensor23?: string | number | null;
+  sensor24?: string | number | null;
+  sensor25?: string | number | null;
+}
+
+interface LoggerDetail {
+  tempData?: RtsTempData[];
+}
+
+interface LogKontrolRow {
+  id_log: string;
+  datetime?: string | Date | null;
+  site?: string;
+  r0?: number;
+}
+
+interface PengukuranRow {
+  id_prisma: string | number;
+  nama_prisma?: string;
+  temp_tembak?: {
+    DE?: string | number;
+    E1?: string | number;
+    DN?: string | number;
+    N1?: string | number;
+    DZ?: string | number;
+    Z1?: string | number;
+    linear?: string | number;
+    arah_pergeseran?: string;
+  };
+}
+
 export function groupByCategory(loggers: LoggerRow[]) {
   const groups: Record<string, { kategori: string; kepanjangan: string; loggers: LoggerRow[] }> = {};
   for (const l of loggers) {
@@ -142,25 +167,26 @@ export function groupByCategory(loggers: LoggerRow[]) {
 }
 
 // ─── RTS Detail Dashboard Component ────────────────────────────────
-function RtsDashboard({ logger }: { logger: any }) {
+function RtsDashboard({ logger }: { logger: LoggerRow }) {
   const router = useRouter();
-  const { detail, isLoading: detailLoading } = useLoggerDetail(logger.id_logger);
+  const { detail } = useLoggerDetail(logger.id_logger) as { detail: LoggerDetail | null };
   const { logs, isLoading: logsLoading } = useLogKontrol(undefined, 30);
   const [selectedLog, setSelectedLog] = useState<string | null>(null);
   const [showInfo, setShowInfo] = useState(false);
+  const [nowMs, setNowMs] = useState(Date.now);
 
   // Tick setiap 60 detik → paksa re-render supaya Date.now() dievaluasi ulang
   // Tanpa ini, status Connected/Disconnected tidak berubah otomatis saat data berhenti masuk
-  const [, setTick] = useState(0);
   useEffect(() => {
-    const id = setInterval(() => setTick((t) => t + 1), 60_000);
+    const id = setInterval(() => setNowMs(Date.now()), 60_000);
     return () => clearInterval(id);
   }, []);
 
-  const activeLog = selectedLog || (logs.length > 0 ? logs[0].id_log : null);
+  const typedLogs = logs as LogKontrolRow[];
+  const activeLog = selectedLog || (typedLogs.length > 0 ? typedLogs[0].id_log : null);
   const { deformasi, isLoading: defLoading } = useDeformasi(activeLog);
 
-  const recentLogs = logs.slice(0, 8);
+  const recentLogs = typedLogs.slice(0, 8);
 
   const tempRts = detail?.tempData?.[0];
 
@@ -174,7 +200,7 @@ function RtsDashboard({ logger }: { logger: any }) {
     const normalized = isoStr.replace(/Z$/, "").replace(/\+\d{2}:\d{2}$/, "");
     const waktuMs = new Date(normalized + "+07:00").getTime();
     if (isNaN(waktuMs)) return false;
-    return waktuMs >= Date.now() - 60 * 60 * 1000;
+    return waktuMs >= nowMs - 60 * 60 * 1000;
   })();
 
   // Status RTS: sensor14 harus = 1 DAN data terakhir masuk dalam 1 jam terakhir
@@ -191,7 +217,7 @@ function RtsDashboard({ logger }: { logger: any }) {
     const normalized = isoStr.replace(/Z$/, "").replace(/\+\d{2}:\d{2}$/, "");
     const waktuMs = new Date(normalized + "+07:00").getTime();
     if (isNaN(waktuMs)) return false;
-    return waktuMs >= Date.now() - 60 * 60 * 1000;
+    return waktuMs >= nowMs - 60 * 60 * 1000;
   })();
 
   const statusRtsText = isRtsConnected ? "Connected" : "Disconnected";
@@ -205,7 +231,7 @@ function RtsDashboard({ logger }: { logger: any }) {
   const isSdCardOk = Number(tempRts?.sensor17 ?? 0) === 1;
   const lastUpdateStr = tempRts?.waktu ? fmtDate(tempRts.waktu, true) : "01-01-2026 17:19:00";
 
-  const pengukuran = deformasi?.data_pengukuran || [];
+  const pengukuran = (deformasi?.data_pengukuran || []) as PengukuranRow[];
   
   const totalRunning = logs.length;
   // Mocking exact values from your image
@@ -213,18 +239,18 @@ function RtsDashboard({ logger }: { logger: any }) {
   const maxKecepatan = 2.25;
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-3 md:space-y-4">
       {/* ─── TOP SEC: OVERVIEW CARDS ─── */}
-      <div className="grid grid-cols-1 xl:grid-cols-12 gap-5">
+      <div className="grid grid-cols-1 gap-3 md:gap-5 xl:grid-cols-12">
         {/* Pos RTS Site Map */}
         <Card className="col-span-1 xl:col-span-3 rounded-[6px] shadow-sm border-[#EAEAEA] overflow-visible">
           <CardContent className="p-4 lg:p-4.5 flex flex-col h-full justify-center">
             <div className="mb-4">
-              <div className="flex items-center gap-2 mb-1.5 relative w-max">
-                <h3 className="font-extrabold text-gray-900 text-[17px]">{logger.nama_logger || "Pos RTS Site Map"}</h3>
+              <div className="flex items-center gap-2 mb-1.5 relative w-full">
+                <h3 className="min-w-0 flex-1 truncate font-extrabold text-gray-900 text-[17px]">{logger.nama_logger || "Pos RTS Site Map"}</h3>
                 <button 
                   onClick={() => setShowInfo(!showInfo)}
-                  className="w-5 h-5 bg-[#2B3270] rounded-full flex items-center justify-center text-white text-[12px] font-bold hover:bg-[#1a1e4a] transition-colors cursor-pointer"
+                  className="w-5 h-5 shrink-0 bg-[#2B3270] rounded-full flex items-center justify-center text-white text-[12px] font-bold hover:bg-[#1a1e4a] transition-colors cursor-pointer"
                 >
                   i
                 </button>
@@ -232,7 +258,7 @@ function RtsDashboard({ logger }: { logger: any }) {
                 {showInfo && (
                   <>
                     <div className="fixed inset-0 z-40" onClick={() => setShowInfo(false)} />
-                    <div className="absolute top-[120%] left-[150px] mt-1 z-50 w-[280px] bg-white rounded-lg shadow-xl border border-gray-200 py-1">
+                    <div className="absolute right-0 top-[120%] mt-1 z-50 w-[min(280px,calc(100vw-2rem))] bg-white rounded-lg shadow-xl border border-gray-200 py-1 sm:left-[150px] sm:right-auto">
                       <div className="px-4 py-3 flex justify-between items-center border-b border-gray-200">
                         <span className="text-[13px] text-black font-semibold">ID Logger</span>
                         <span className="text-[13px] text-gray-800">{logger.id_logger || "10005"}</span>
@@ -291,14 +317,14 @@ function RtsDashboard({ logger }: { logger: any }) {
         </Card>
 
         {/* RTS Widgets Row */}
-        <div className="col-span-1 xl:col-span-9 grid grid-cols-2 md:grid-cols-[minmax(240px,2fr)_1fr_1fr_1fr_1fr] gap-5 items-stretch">
+        <div className="col-span-1 grid grid-cols-2 items-stretch gap-3 md:grid-cols-[minmax(240px,2fr)_1fr_1fr_1fr_1fr] md:gap-5 xl:col-span-9">
           {/* Status Main Card */}
-          <Card className="col-span-2 md:col-span-1 border-[#EAEAEA] shadow-sm rounded-[6px] flex flex-row items-center justify-start py-3.5 pr-4 pl-[115px] flex-nowrap relative overflow-hidden h-full">
+          <Card className="col-span-2 md:col-span-1 border-[#EAEAEA] shadow-sm rounded-[6px] flex min-h-[150px] flex-row items-center justify-start py-3 pr-3 pl-[96px] sm:pl-[115px] md:min-h-0 md:py-3.5 md:pr-4 flex-nowrap relative overflow-hidden h-full">
             {/* Left Image positioned exactly at bottom */}
-            <div className="absolute left-1 bottom-1 w-[150px] h-[110%] pointer-events-none flex items-end">
+            <div className="absolute left-0 bottom-1 w-[120px] h-[110%] pointer-events-none flex items-end sm:left-1 sm:w-[150px]">
               <AnimatedRTS
                 isOnline={isRtsConnected}
-                className="w-[140px] h-[150px] object-contain drop-shadow-sm translate-y-[2px]"
+                className="w-[112px] h-[130px] object-contain drop-shadow-sm translate-y-[2px] sm:w-[140px] sm:h-[150px]"
               />
             </div>
             {/* Right Status */}
@@ -306,7 +332,7 @@ function RtsDashboard({ logger }: { logger: any }) {
               <p className="text-[10px] lg:text-[11px] uppercase tracking-wider text-gray-500 font-bold mb-1 lg:mb-1.5">STATUS RTS</p>
               <div className="flex items-center gap-1.5 lg:gap-2 mb-2 lg:mb-2.5">
                 <div className={cn("h-4 w-4 lg:h-[18px] lg:w-[18px] rounded-full flex-shrink-0", isRtsConnected ? "bg-[#2DB77B]" : "bg-[#EF4444]")}></div>
-                <span className={cn("font-extrabold text-[22px] sm:text-2xl lg:text-[26px] xl:text-[28px] tracking-tight truncate", isRtsConnected ? "text-[#2DB77B]" : "text-[#EF4444]")}>
+                <span className={cn("font-extrabold text-[20px] sm:text-2xl lg:text-[26px] xl:text-[28px] tracking-tight truncate", isRtsConnected ? "text-[#2DB77B]" : "text-[#EF4444]")}>
                   {statusRtsText}
                 </span>
               </div>   
@@ -332,7 +358,7 @@ function RtsDashboard({ logger }: { logger: any }) {
                     )} 
                   />
                 </div>
-                <div className="flex flex-col text-[21px] lg:text-[21px] font-extrabold text-gray-900 leading-[1.15] tracking-tight">
+                <div className="flex flex-col text-[18px] sm:text-[21px] lg:text-[21px] font-extrabold text-gray-900 leading-[1.15] tracking-tight">
                   <div className="flex items-center gap-1">
                     <span>{tiltX}</span>
                     <span className="text-[#303481] text-[15px] lg:text-[16px] font-bold">X</span>
@@ -355,10 +381,10 @@ function RtsDashboard({ logger }: { logger: any }) {
       </div>
 
       {/* ─── MIDDLE SEC: HISTORY & PRISMA DATA ─── */}
-      <div className="grid grid-cols-1 xl:grid-cols-12 gap-5">
+      <div className="grid grid-cols-1 gap-3 md:gap-5 xl:grid-cols-12">
         {/* Riwayat Running Terbaru */}
-        <Card className="col-span-1 xl:col-span-3 rounded-lg shadow-sm border-[#EAEAEA] h-[520px] flex flex-col pt-5 bg-white">
-          <div className="px-5 flex items-center justify-between mb-4">
+        <Card className="col-span-1 xl:col-span-3 rounded-lg shadow-sm border-[#EAEAEA] h-[360px] md:h-[520px] flex flex-col pt-5 bg-white">
+          <div className="px-4 md:px-5 flex items-center justify-between mb-4">
             <h3 className="font-extrabold text-gray-900 text-base">Riwayat Running Terbaru</h3>
             <History className="h-4 w-4 text-gray-800" />
           </div>
@@ -370,10 +396,10 @@ function RtsDashboard({ logger }: { logger: any }) {
             ) : recentLogs.length === 0 ? (
               <p className="text-sm text-gray-400 text-center mt-10">Belum ada riwayat.</p>
             ) : (
-              recentLogs.map((log: any) => {
+              recentLogs.map((log) => {
                 const isActive = log.id_log === activeLog;
                 const activeClasses = isActive ? "border-l-[3px] border-[#2B3270] bg-[#F4F6F9]" : "border-l-[3px] border-transparent";
-                const badgeInfo = getSiteBadge(log.site);
+                const badgeInfo = getSiteBadge(log.site ?? "");
                 const isR0 = log.r0 === 1;
 
                 return (
@@ -383,11 +409,11 @@ function RtsDashboard({ logger }: { logger: any }) {
                     onDoubleClick={() => router.push(`/hasil-pengukuran?log=${log.id_log}&view=Tabel`)}
                     title="Klik sekali untuk preview, klik dua kali untuk buka detail"
                     className={cn(
-                      "w-full flex items-center gap-3 py-3.5 px-5 border-b border-gray-100 last:border-0 hover:bg-gray-50 transition-colors text-left",
+                      "w-full flex items-center gap-3 py-3.5 px-4 md:px-5 border-b border-gray-100 last:border-0 hover:bg-gray-50 transition-colors text-left",
                       activeClasses
                     )}
                   >
-                    <span className="text-[13px] text-gray-700 font-medium min-w-[110px]">{fmtDate(log.datetime)}</span>
+                    <span className="text-[13px] text-gray-700 font-medium min-w-[110px]">{fmtDate(log.datetime ?? null)}</span>
                     <div className="flex gap-1">
                        <span className={cn("text-[9px] font-bold px-2.5 py-0.5 rounded-full text-white", badgeInfo.bg)}>
                          {badgeInfo.text}
@@ -415,13 +441,13 @@ function RtsDashboard({ logger }: { logger: any }) {
 
         {/* Preview Data Prisma */}
         <Card className="col-span-1 xl:col-span-9 rounded-lg shadow-sm border-[#EAEAEA] overflow-hidden flex flex-col h-[520px] bg-white">
-          <div className="px-4 pt-1 pb-1 flex items-center justify-between">
-            <div>
+          <div className="px-4 py-3 md:pt-1 md:pb-1 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+            <div className="min-w-0">
               <h3 className="font-extrabold text-gray-900 text-lg mb-1.5">Preview Data Prisma</h3>
-              <div className="flex items-center gap-4">
+              <div className="flex flex-wrap items-center gap-2 md:gap-4">
                 <div className="flex items-center gap-1.5 text-[11px] text-gray-600 font-medium">
                   Date Selected
-                  <span className="bg-[#2B3270] text-white px-2 py-0.5 rounded-full text-[10px]">{activeLog ? fmtDate(logs.find((l:any)=>l.id_log===activeLog)?.datetime) : "-"}</span>
+                  <span className="bg-[#2B3270] text-white px-2 py-0.5 rounded-full text-[10px]">{activeLog ? fmtDate(typedLogs.find((l) => l.id_log === activeLog)?.datetime ?? null) : "-"}</span>
                 </div>
                 <div className="flex items-center gap-1.5 text-[11px] text-gray-600 font-medium">
                   Total Prism :
@@ -429,26 +455,26 @@ function RtsDashboard({ logger }: { logger: any }) {
                 </div>
               </div>
             </div>
-            <div className="flex items-center gap-2.5">
+            <div className="grid grid-cols-2 gap-2.5 md:flex md:items-center">
               <Button 
                 onClick={() => router.push(`/hasil-pengukuran?log=${activeLog ?? ""}&view=Peta`)}
                 variant="outline" 
                 size="sm" 
-                className="h-[38px] border-[#2B3270] text-[#2B3270] bg-white hover:bg-[#2B3270] hover:text-white rounded-md font-semibold transition-colors px-4 cursor-pointer active:scale-95"
+                className="h-[38px] border-[#2B3270] text-[#2B3270] bg-white hover:bg-[#2B3270] hover:text-white rounded-md font-semibold transition-colors px-3 md:px-4 cursor-pointer active:scale-95"
               >
                 <MapIcon className="mr-2 h-4 w-4" /> Buka Peta
               </Button>
               <Button 
                 onClick={() => router.push("/visualisasi-3d")}
                 size="sm" 
-                className="h-[38px] bg-[#2B3270] hover:bg-[#1a1e4a] text-white rounded-md font-semibold shadow-sm px-4 cursor-pointer active:scale-95"
+                className="h-[38px] bg-[#2B3270] hover:bg-[#1a1e4a] text-white rounded-md font-semibold shadow-sm px-3 md:px-4 cursor-pointer active:scale-95"
               >
                 <Box className="mr-2 h-4 w-4" /> Buka 3D
               </Button>
             </div>
           </div>
           <div className="flex-1 overflow-auto bg-white border-t border-gray-200">
-            <Table>
+            <Table className="min-w-[720px]">
               <TableHeader className="bg-gray-100 sticky top-0 z-10">
                 <TableRow className="border-b border-gray-200">
                   <TableHead className="text-center text-[12px] font-bold text-black py-4">Nomor Prisma</TableHead>
@@ -474,7 +500,7 @@ function RtsDashboard({ logger }: { logger: any }) {
                      </TableCell>
                   </TableRow>
                 ) : (
-                  pengukuran.map((pr: any, idx: number) => {
+                  pengukuran.map((pr, idx) => {
                     const t = pr.temp_tembak || {};
                     const linierStr = typeof t.linear === "number" ? t.linear.toFixed(2) : (t.linear || "0.00");
                     const dy = t.DN !== undefined ? t.DN : t.N1;
@@ -508,13 +534,13 @@ function RtsDashboard({ logger }: { logger: any }) {
       </div>
 
       {/* ─── BOTTOM SEC: SUMMARIES & MAP PREVIEWS ─── */}
-      <div className="grid grid-cols-1 xl:grid-cols-12 gap-5">
+      <div className="grid grid-cols-1 gap-3 md:gap-5 xl:grid-cols-12">
         {/* Ringkasan Harian */}
         <Card className="rounded-lg shadow-sm border-[#EAEAEA] bg-white xl:col-span-3">
           <CardHeader className="p-4 2xl:px-5 pb-0">
             <CardTitle className="text-[15px] font-extrabold text-gray-900">Ringkasan Harian</CardTitle>
           </CardHeader>
-          <CardContent className="p-4 2xl:p-5 grid grid-cols-2 gap-3 xl:gap-4">
+          <CardContent className="p-4 2xl:p-5 grid grid-cols-1 gap-3 sm:grid-cols-2 xl:gap-4">
              {/* Total Running */}
              <div className="flex gap-2.5 items-start">
                 <div className="min-w-[36px] w-9 h-9 rounded-lg bg-[#E5F5ED] flex items-center justify-center">
@@ -562,10 +588,10 @@ function RtsDashboard({ logger }: { logger: any }) {
         </Card>
 
         {/* Wrapper Peta & 3D */}
-        <div className="xl:col-span-9 grid grid-cols-1 lg:grid-cols-2 gap-5">
+        <div className="xl:col-span-9 grid grid-cols-1 gap-3 md:gap-5 lg:grid-cols-2">
           {/* Peta Prisma Preview */}
-          <Card className="rounded-lg shadow-sm border-[#EAEAEA] bg-white min-h-[160px] relative overflow-hidden flex flex-col">
-           <div className="p-4 2xl:p-5 flex-1 z-10 relative w-[35%]">
+          <Card className="rounded-lg shadow-sm border-[#EAEAEA] bg-white min-h-[190px] sm:min-h-[160px] relative overflow-hidden flex flex-col">
+           <div className="p-4 2xl:p-5 flex-1 z-10 relative w-[45%] sm:w-[35%]">
               <h3 className="font-extrabold text-[15px] text-gray-900 mb-0.5">Peta Prisma</h3>
               <p className="text-[11px] text-gray-500 font-medium leading-tight mb-4 pr-1">Preview persebaran titik prisma</p>
               
@@ -580,7 +606,7 @@ function RtsDashboard({ logger }: { logger: any }) {
            </div>
            
            {/* Map graphic mockup positioned exactly on the right */}
-           <div className="absolute right-3 top-3 bottom-3 w-[63%] pointer-events-none">
+           <div className="absolute right-3 top-3 bottom-3 w-[52%] pointer-events-none sm:w-[63%]">
               <div className="relative w-full h-full rounded-[10px] border border-[#EAEAEA] bg-white overflow-hidden flex items-center justify-center">
                 <Image src="/Peta_Preview.svg" fill alt="Peta Prisma Preview" className="object-cover object-center" />
               </div>
@@ -588,8 +614,8 @@ function RtsDashboard({ logger }: { logger: any }) {
         </Card>
 
         {/* Visualisasi 3D Preview */}
-        <Card className="rounded-lg shadow-sm border-[#EAEAEA] bg-white min-h-[160px] relative overflow-hidden flex flex-col">
-           <div className="p-4 2xl:p-5 flex-1 z-10 relative w-[35%]">
+        <Card className="rounded-lg shadow-sm border-[#EAEAEA] bg-white min-h-[190px] sm:min-h-[160px] relative overflow-hidden flex flex-col">
+           <div className="p-4 2xl:p-5 flex-1 z-10 relative w-[45%] sm:w-[35%]">
               <h3 className="font-extrabold text-[15px] text-gray-900 mb-0.5">Visualisasi 3D</h3>
               <p className="text-[11px] text-gray-500 font-medium leading-tight mb-4 pr-1">Preview visualisasi deformasi prisma</p>
               
@@ -604,7 +630,7 @@ function RtsDashboard({ logger }: { logger: any }) {
            </div>
            
            {/* 3D graphic mockup positioned exactly on the right */}
-           <div className="absolute right-3 top-3 bottom-3 w-[63%] pointer-events-none">
+           <div className="absolute right-3 top-3 bottom-3 w-[52%] pointer-events-none sm:w-[63%]">
               <div className="relative w-full h-full rounded-[10px] border border-[#EAEAEA] bg-white overflow-hidden flex items-center justify-center">
                  <Image src="/visual_3D.svg" fill alt="Visualisasi 3D Preview" className="object-cover object-center" />
               </div>
@@ -623,11 +649,11 @@ function SmallMetricCard({title, value, unit, iconBg, iconColor, Icon, imageSrc,
     <Card 
       onClick={onClick}
       className={cn(
-        "col-span-1 border-[#EAEAEA] shadow-sm rounded-md relative overflow-hidden h-full transition-all duration-300",
+        "col-span-1 border-[#EAEAEA] shadow-sm rounded-md relative overflow-hidden min-h-[128px] h-full transition-all duration-300",
         onClick && "cursor-pointer hover:border-gray-400 hover:shadow-md active:scale-[0.98]"
       )}
     >
-      <div className="p-3 lg:p-4 h-full flex flex-col justify-center items-start gap-3">
+      <div className="p-3 lg:p-4 h-full flex flex-col justify-center items-start gap-2.5 lg:gap-3">
         <div className={cn("w-10 h-10 lg:w-11 lg:h-11 flex-shrink-0 rounded-[10px] flex items-center justify-center", iconBg)}>
           {imageSrc ? (
              <Image src={imageSrc} width={35} height={35} alt={title} className="object-contain w-5 h-5 lg:w-[30px] lg:h-[30px]" />
@@ -638,7 +664,7 @@ function SmallMetricCard({title, value, unit, iconBg, iconColor, Icon, imageSrc,
         <div className="flex flex-col gap-0.5">
           <p className="text-[10px] lg:text-[11px] uppercase tracking-wider text-gray-700 font-bold w-full truncate">{title}</p>
           <div className="flex items-baseline gap-1">
-            <span className="font-extrabold text-[22px] sm:text-2xl lg:text-[26px] xl:text-[28px] tracking-tight leading-none">{value}</span>
+            <span className="font-extrabold text-[21px] sm:text-2xl lg:text-[26px] xl:text-[28px] tracking-tight leading-none">{value}</span>
             <span className="text-[11px] lg:text-[12px] font-medium text-gray-800">{unit}</span>
           </div>
         </div>
@@ -652,29 +678,25 @@ export default function BerandaPage() {
   const { loggers, isLoading, isError } = useLoggers();
 
   const categories = useMemo(() => groupByCategory(loggers), [loggers]);
-  const rtsCategory = categories.find((g) => g.kategori.toUpperCase().includes("RTS") || g.kategori.toUpperCase().includes("ADR"));
-  const rtsLoggers = rtsCategory?.loggers || [];
+  const rtsLoggers = useMemo(() => {
+    const rtsCategory = categories.find((g) => g.kategori.toUpperCase().includes("RTS") || g.kategori.toUpperCase().includes("ADR"));
+    return rtsCategory?.loggers || [];
+  }, [categories]);
   
   const [selectedPos, setSelectedPos] = useState<string>("");
 
-  // Auto select first
-  useEffect(() => {
-    if (rtsLoggers.length > 0 && !rtsLoggers.find(l => l.id_logger === selectedPos)) {
-      setSelectedPos(rtsLoggers[0].id_logger);
-    }
-  }, [rtsLoggers, selectedPos]);
-
   const activeLogger = rtsLoggers.find(l => l.id_logger === selectedPos) || rtsLoggers[0];
+  const activePosValue = activeLogger?.id_logger ?? "";
 
   return (
-    <div className="-m-4 md:-m-6 bg-[#F4F6F9] min-h-[calc(100vh-3.5rem)] p-4 md:p-6 space-y-4 md:space-y-6">
+    <div className="-m-4 md:-m-6 bg-[#F4F6F9] min-h-[calc(100vh-3.5rem)] p-3 sm:p-4 md:p-6 space-y-3 md:space-y-6">
 
       {isLoading ? (
         <div className="space-y-6">
           <Skeleton className="h-32 w-full" />
-          <div className="grid grid-cols-12 gap-4">
-             <Skeleton className="col-span-4 h-96" />
-             <Skeleton className="col-span-8 h-96" />
+          <div className="grid grid-cols-1 gap-4 md:grid-cols-12">
+             <Skeleton className="h-80 md:col-span-4 md:h-96" />
+             <Skeleton className="h-80 md:col-span-8 md:h-96" />
           </div>
         </div>
       ) : isError ? (
@@ -692,13 +714,13 @@ export default function BerandaPage() {
       ) : (
         <>
           {/* Top Controls: Pos Selector */}
-          <div className="flex items-center gap-3 bg-white border border-[#EAEAEA] rounded-[8px] px-4 py-2 w-max">
+          <div className="flex w-full flex-col gap-2 bg-white border border-[#EAEAEA] rounded-[8px] px-4 py-3 sm:w-max sm:flex-row sm:items-center sm:gap-3 sm:py-2">
             <span className="text-[13px] font-bold text-gray-800">Pos Aktif:</span>
             {isLoading ? (
-              <div className="h-8 w-[200px] bg-gray-200 animate-pulse rounded-md" />
+              <div className="h-8 w-full bg-gray-200 animate-pulse rounded-md sm:w-[200px]" />
             ) : (
-              <Select value={selectedPos} onValueChange={(val) => { if (val) setSelectedPos(val); }}>
-                <SelectTrigger className="w-[240px] h-8 bg-transparent border-none shadow-none text-[13px] font-semibold text-gray-800 focus:ring-0 p-0">
+              <Select value={activePosValue} onValueChange={(val) => { if (val) setSelectedPos(val); }}>
+                <SelectTrigger className="h-8 w-full bg-transparent border-none shadow-none text-[13px] font-semibold text-gray-800 focus:ring-0 p-0 sm:w-[240px]">
                   <div className="flex items-center gap-2">
                     <MapPin className="w-4 h-4 text-[#303481]" />
                     <span className="truncate">
@@ -707,7 +729,7 @@ export default function BerandaPage() {
                   </div>
                 </SelectTrigger>
                 <SelectContent alignItemWithTrigger={false} sideOffset={4} className="rounded-xl border-gray-100 shadow-lg">
-                  {rtsLoggers.map((l: any) => (
+                  {rtsLoggers.map((l) => (
                     <SelectItem key={l.id_logger} value={l.id_logger} className="text-[13px] font-medium cursor-pointer">
                       {l.nama_lokasi || l.nama_logger || `Logger ${l.id_logger}`}
                     </SelectItem>
