@@ -56,21 +56,21 @@ const Visualisasi3DIcon = ({ className, fill }: any) => <ImageIcon basePath="/3d
 const PrismConfigIcon = ({ className, fill }: any) => <ImageIcon basePath="/prism_config" className={className} isActive={fill === "currentColor"} />;
 
 const mainNavItems = [
-  { title: "Dashboard", href: "/beranda", icon: DashboardIcon },
-  { title: "Kontrol ADR", href: "/kontrol-adr", icon: KontrolADRIcon },
-  { title: "Hasil Pengukuran", href: "/hasil-pengukuran", icon: HasilPengukuranIcon },
-  { title: "Visualisasi 3D", href: "/visualisasi-3d", icon: Visualisasi3DIcon },
-  { title: "Prism Config", href: "/prism-config", icon: PrismConfigIcon },
-  { title: "Rekap Data", href: "/rekap-data", icon: Database },
-  { title: "Master Data", href: "/master-data", icon: Settings2 },
+  { title: "Dashboard", href: "/beranda", icon: DashboardIcon, isCustom: true },
+  { title: "Kontrol ADR", href: "/kontrol-adr", icon: KontrolADRIcon, isCustom: true },
+  { title: "Hasil Pengukuran", href: "/hasil-pengukuran", icon: HasilPengukuranIcon, isCustom: true },
+  { title: "Visualisasi 3D", href: "/visualisasi-3d", icon: Visualisasi3DIcon, isCustom: true },
+  { title: "Prism Config", href: "/prism-config", icon: PrismConfigIcon, isCustom: true },
+  { title: "Rekap Data", href: "/rekap-data", icon: Database, isCustom: false },
+  { title: "Master Data", href: "/master-data", icon: Settings2, isCustom: false },
 ];
 
 export function AppSidebar() {
   const pathname = usePathname();
 
   return (
-    <Sidebar variant="sidebar" collapsible="icon" className="border-r border-gray-100 bg-white">
-      <SidebarHeader className="border-b-0 pt-6 pb-4 px-4 group-data-[collapsible=icon]:px-0 bg-white">
+    <Sidebar variant="sidebar" collapsible="icon" className="border-r border-border bg-card">
+      <SidebarHeader className="border-b-0 pt-6 pb-4 px-4 group-data-[collapsible=icon]:px-0 bg-card">
         <div className="flex items-center justify-between w-full h-8 group-data-[collapsible=icon]:justify-center">
           <div className="flex flex-1 items-center justify-start overflow-hidden group-data-[collapsible=icon]:hidden">
             <img 
@@ -81,11 +81,11 @@ export function AppSidebar() {
               draggable={false}
             />
           </div>
-          <SidebarTrigger className="h-6 w-6 rounded-md border border-gray-300 flex-shrink-0 text-gray-500 hover:text-gray-900 cursor-pointer" />
+          <SidebarTrigger className="h-6 w-6 rounded-md border border-border flex-shrink-0 text-muted-foreground hover:text-foreground cursor-pointer" />
         </div>
       </SidebarHeader>
 
-      <SidebarContent className="px-3 pt-6 bg-white group-data-[collapsible=icon]:px-2">
+      <SidebarContent className="px-3 pt-6 bg-card group-data-[collapsible=icon]:px-2">
         <SidebarGroup className="p-0">
           <SidebarGroupContent>
             <SidebarMenu className="gap-2">
@@ -105,13 +105,13 @@ export function AppSidebar() {
                         "h-10 text-[13px] font-medium transition-colors rounded-[8px] gap-3 px-3 relative w-full flex items-center group-data-[collapsible=icon]:w-10 group-data-[collapsible=icon]:justify-center group-data-[collapsible=icon]:px-0",
                         isActive
                           ? "!bg-[#303481] !text-white hover:!bg-[#303481]/90 hover:!text-white"
-                          : "text-gray-600 hover:bg-gray-100 hover:text-gray-900"
+                          : "text-muted-foreground hover:bg-muted hover:text-foreground"
                       )}
                     >
                       <item.icon 
-                        className={cn("flex-shrink-0 h-[18px] w-[18px] absolute left-3 group-data-[collapsible=icon]:static group-data-[collapsible=icon]:left-auto", isActive ? "!text-white" : "text-gray-500")} 
-                        strokeWidth={isActive ? 0 : 1.5} 
-                        fill={isActive ? "currentColor" : "none"} 
+                        className={cn("flex-shrink-0 h-[18px] w-[18px] absolute left-3 group-data-[collapsible=icon]:static group-data-[collapsible=icon]:left-auto", isActive ? "!text-white" : "text-muted-foreground")} 
+                        strokeWidth={item.isCustom ? (isActive ? 0 : 1.5) : (isActive ? 2.5 : 1.5)} 
+                        fill={item.isCustom ? (isActive ? "currentColor" : "none") : "none"} 
                       />
                       <span className="tracking-wide ml-8 group-data-[collapsible=icon]:hidden">{item.title}</span>
                     </SidebarMenuButton>
@@ -123,12 +123,12 @@ export function AppSidebar() {
         </SidebarGroup>
       </SidebarContent>
 
-      <SidebarFooter className="border-t-0 p-4 bg-white group-data-[collapsible=icon]:px-2 group-data-[collapsible=icon]:justify-center group-data-[collapsible=icon]:items-center">
+      <SidebarFooter className="border-t-0 p-4 bg-card group-data-[collapsible=icon]:px-2 group-data-[collapsible=icon]:justify-center group-data-[collapsible=icon]:items-center">
         <SidebarMenu>
           <SidebarMenuItem>
             <Link
               href="/login"
-              className="flex w-full items-center gap-3 rounded-md px-3 py-2.5 text-[13px] font-medium text-gray-600 transition-colors hover:bg-gray-100 hover:text-red-600 group-data-[collapsible=icon]:w-10 group-data-[collapsible=icon]:h-10 group-data-[collapsible=icon]:px-0 group-data-[collapsible=icon]:justify-center"
+              className="flex w-full items-center gap-3 rounded-md px-3 py-2.5 text-[13px] font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-red-600 group-data-[collapsible=icon]:w-10 group-data-[collapsible=icon]:h-10 group-data-[collapsible=icon]:px-0 group-data-[collapsible=icon]:justify-center"
               title="Keluar"
             >
               <LogOut className="h-[18px] w-[18px] flex-shrink-0 group-data-[collapsible=icon]:ml-1" />
