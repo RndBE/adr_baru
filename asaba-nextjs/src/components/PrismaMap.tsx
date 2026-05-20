@@ -27,6 +27,11 @@ interface Props {
   site: string | null;
 }
 
+function parseDelta(value: string): number | null {
+  const parsed = Number(String(value).replace(",", "."));
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
 export default function PrismaMap({ markers, site }: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<HTMLDivElement>(null);
@@ -214,13 +219,40 @@ export default function PrismaMap({ markers, site }: Props) {
           className: "prisma-label",
         });
 
-      // Displacement arrow
+      // Displacement direction indicator
       if (hasNew && pr.lat1 && pr.lon1) {
-        const dLat = pr.lat1 - pr.lat0;
-        const dLon = pr.lon1 - pr.lon0;
-        const scale = 15;
-        const endLat = pr.lat0 + dLat * scale;
-        const endLon = pr.lon0 + dLon * scale;
+        const startPoint = map.latLngToLayerPoint([pr.lat0, pr.lon0]);
+        let targetPoint = map.latLngToLayerPoint([pr.lat1, pr.lon1]);
+
+        const deltaE = parseDelta(pr.DE);
+        const deltaN = parseDelta(pr.DN);
+        if (
+          deltaE !== null &&
+          deltaN !== null &&
+          (Math.abs(deltaE) > 1e-12 || Math.abs(deltaN) > 1e-12)
+        ) {
+          const metersPerDegreeLat = 111320;
+          const metersPerDegreeLon =
+            metersPerDegreeLat * Math.cos((pr.lat0 * Math.PI) / 180);
+          const targetLat = pr.lat0 + deltaN / metersPerDegreeLat;
+          const targetLon =
+            pr.lon0 + deltaE / Math.max(Math.abs(metersPerDegreeLon), 1e-12);
+          targetPoint = map.latLngToLayerPoint([targetLat, targetLon]);
+        }
+
+        const vectorX = targetPoint.x - startPoint.x;
+        const vectorY = targetPoint.y - startPoint.y;
+        const vectorLength = Math.hypot(vectorX, vectorY);
+        if (vectorLength <= 0) return;
+
+        const displayLengthPx = 90;
+        const endPoint = L.point(
+          startPoint.x + (vectorX / vectorLength) * displayLengthPx,
+          startPoint.y + (vectorY / vectorLength) * displayLengthPx
+        );
+        const endLatLng = map.layerPointToLatLng(endPoint);
+        const endLat = endLatLng.lat;
+        const endLon = endLatLng.lng;
 
         L.polyline([[pr.lat0, pr.lon0], [endLat, endLon]], {
           color: "#2563eb",
