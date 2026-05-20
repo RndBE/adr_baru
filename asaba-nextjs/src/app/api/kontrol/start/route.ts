@@ -126,14 +126,17 @@ export async function GET(request: NextRequest) {
       where: { id_logger: idLogger },
     });
 
-    const setTemp = await prisma.setTempkontrol.findMany({
-      where: { id_logger: idLogger },
-    });
+    const idLoggerNumber = Number(idLogger);
+    const setTemp = Number.isNaN(idLoggerNumber)
+      ? []
+      : await prisma.setTempkontrol.findMany({
+          where: { id_logger: idLoggerNumber },
+        });
 
     const values = setTemp.map((s) => s.status);
-    let statusKontrol = status?.status_kontrol || "0";
-    if (statusKontrol === "2" && values.includes("1")) {
-      statusKontrol = "1";
+    let statusKontrol = status?.status_kontrol ?? 0;
+    if (statusKontrol === 2 && values.includes(1)) {
+      statusKontrol = 1;
     }
 
     return NextResponse.json({

@@ -1,6 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 
+function createScheduleId() {
+  return Date.now().toString().slice(-11);
+}
+
 /**
  * GET /api/kontrol/scheduling
  * List all scheduling tasks.
@@ -24,28 +28,31 @@ export async function GET() {
 /**
  * POST /api/kontrol/scheduling
  * Create or update a scheduling task.
- * Body: { id_logger, days, time, status, site }
+ * Body: { id, nama, days, time, status }
  */
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
-    const { id, id_logger, days, time, status, site } = body;
+    const { id, nama, days, time, status } = body;
+    const data = {
+      nama: String(nama || "Jadwal"),
+      days: Number(days),
+      time: String(time),
+      status: Number(status),
+    };
 
     if (id) {
       // Update existing
       await prisma.schedulingTask.update({
-        where: { id: parseInt(id) },
-        data: { id_logger, days, time, status, site },
+        where: { id: String(id) },
+        data,
       });
     } else {
       // Create new
       await prisma.schedulingTask.create({
         data: {
-          id_logger,
-          days: String(days),
-          time: String(time),
-          status: String(status),
-          site: site || null,
+          id: createScheduleId(),
+          ...data,
         },
       });
     }
