@@ -7,25 +7,30 @@ async function main() {
   console.log("🌱 Seeding database...");
 
   // ── Users ──────────────────────────────────────────────────
-  await prisma.user.upsert({
+  const existingUser = await prisma.user.findFirst({
     where: { username: "demo_asaba" },
-    update: {},
-    create: {
-      nama: "PT MIP",
-      username: "demo_asaba",
-      // Original MD5: bcd684e70e482a8d6c1885db0217331e
-      // We keep the MD5 hash for backward compatibility
-      password: "bcd684e70e482a8d6c1885db0217331e",
-      level_user: "admin",
-      alamat:
-        "Kadirojo I, Purwomartani, Kalasan, Sleman Regency, Special Region of Yogyakarta 55571",
-      telp: "089",
-      instansi: "PT. MIP",
-      latitude: "-6.6708022",
-      longitude: "106.8812745",
-      zoom: 17,
-    },
+    select: { id_user: true },
   });
+
+  if (!existingUser) {
+    await prisma.user.create({
+      data: {
+        nama: "PT MIP",
+        username: "demo_asaba",
+        // Original MD5: bcd684e70e482a8d6c1885db0217331e
+        // We keep the MD5 hash for backward compatibility
+        password: "bcd684e70e482a8d6c1885db0217331e",
+        level_user: "admin",
+        alamat:
+          "Kadirojo I, Purwomartani, Kalasan, Sleman Regency, Special Region of Yogyakarta 55571",
+        telp: "089",
+        instansi: "PT. MIP",
+        latitude: "-6.6708022",
+        longitude: "106.8812745",
+        zoom: 17,
+      },
+    });
+  }
 
   // ── Lokasi ─────────────────────────────────────────────────
   // Clear and recreate
