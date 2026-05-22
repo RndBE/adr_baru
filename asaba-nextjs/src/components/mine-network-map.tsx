@@ -185,10 +185,11 @@ export function MineNetworkMap() {
     });
   }, [query, selectedType]);
 
-  const selectedSensor =
-    filteredSensors.find((sensor) => sensor.id === selectedId) ??
-    mineNetworkSensors.find((sensor) => sensor.id === selectedId) ??
-    mineNetworkSensors[0];
+  const selectedSensor = selectedId
+    ? filteredSensors.find((sensor) => sensor.id === selectedId) ??
+      mineNetworkSensors.find((sensor) => sensor.id === selectedId) ??
+      null
+    : null;
 
   const highPrioritySensors = mineNetworkSensors
     .filter((sensor) => sensor.status !== "normal")

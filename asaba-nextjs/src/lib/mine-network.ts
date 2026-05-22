@@ -435,18 +435,18 @@ export function getMineSensor3DPoints(sensors: MineNetworkSensor[]): MineSensor3
 }
 
 export function getMineSensorGeoPoints(sensors: MineNetworkSensor[]): MineSensorGeoPoint[] {
-  const baseLatitude = 3.642;
-  const baseLongitude = 117.231;
-  const latitudeScale = 0.00027857;
-  const longitudeScale = 0.000163;
+  const pitCenterLatitude = 3.649;
+  const pitCenterLongitude = 117.2386;
+  const latitudeScale = 0.0001;
+  const longitudeScale = 0.000075;
 
   return sensors.map((sensor) => ({
     id: sensor.id,
     name: sensor.name,
     type: sensor.type,
     status: sensor.status,
-    latitude: Number((baseLatitude + (50 - sensor.y) * latitudeScale).toFixed(4)),
-    longitude: Number((baseLongitude + sensor.x * longitudeScale).toFixed(4)),
+    latitude: Number((pitCenterLatitude + (50 - sensor.y) * latitudeScale).toFixed(4)),
+    longitude: Number((pitCenterLongitude + (sensor.x - 50) * longitudeScale).toFixed(4)),
     elevation: Math.max(16, Math.round(88 - sensor.y * 0.65)),
     value: sensor.value,
     unit: sensor.unit,

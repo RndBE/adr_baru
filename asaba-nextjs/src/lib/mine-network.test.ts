@@ -46,19 +46,23 @@ test("projects mine sensors into stable 3d map coordinates", () => {
 });
 
 test("projects mine sensors into dummy geospatial coordinates", () => {
-  const [firstPoint] = getMineSensorGeoPoints(mineNetworkSensors);
+  const geoPoints = getMineSensorGeoPoints(mineNetworkSensors);
+  const [firstPoint] = geoPoints;
 
   assert.deepEqual(firstPoint, {
     id: "TLT-01",
     name: "Tiltmeter North Wall",
     type: "tiltmeter",
     status: "normal",
-    latitude: 3.6498,
-    longitude: 117.2354,
+    latitude: 3.6518,
+    longitude: 117.2369,
     elevation: 74,
     value: 1.8,
     unit: "deg",
   });
+
+  assert.ok(geoPoints.every((point) => point.latitude >= 3.6455 && point.latitude <= 3.6526));
+  assert.ok(geoPoints.every((point) => point.longitude >= 117.2357 && point.longitude <= 117.2413));
 });
 
 test("summarizes mine sensor inspection priorities", () => {
