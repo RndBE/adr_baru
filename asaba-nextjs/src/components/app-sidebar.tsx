@@ -4,14 +4,10 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import Image from "next/image";
 import {
-  LayoutGrid,
-  RadioTower,
-  TableProperties,
-  Box,
-  Target,
   LogOut,
   Database,
   Settings2,
+  MapPinned,
 } from "lucide-react";
 import {
   Sidebar,
@@ -26,6 +22,12 @@ import {
   SidebarTrigger,
 } from "@/components/ui/sidebar";
 import { cn } from "@/lib/utils";
+
+type SidebarIconProps = {
+  className?: string;
+  strokeWidth?: number;
+  fill?: string;
+};
 
 // DashboardIcon using inline SVG so fill="currentColor" works beautifully
 const DashboardIcon = ({ className, strokeWidth, fill }: { className?: string, strokeWidth?: number, fill?: string }) => (
@@ -42,24 +44,27 @@ const ImageIcon = ({ basePath, className, isActive }: { basePath: string, classN
   return (
     // Filter `brightness-0 invert` forces it to pure white to match the active text
     // Filter `brightness-0 opacity-60` forces it to solid dark-grey matching the inactive text
-    <img 
+    <Image 
       src={src} 
       alt="" 
+      width={18}
+      height={18}
       className={cn(className, isActive ? "brightness-0 invert" : "brightness-0 opacity-60")} 
     />
   );
 };
 
-const KontrolADRIcon = ({ className, fill }: any) => <ImageIcon basePath="/kontrol_adr" className={className} isActive={fill === "currentColor"} />;
-const HasilPengukuranIcon = ({ className, fill }: any) => <ImageIcon basePath="/hasil_pengukuran" className={className} isActive={fill === "currentColor"} />;
-const Visualisasi3DIcon = ({ className, fill }: any) => <ImageIcon basePath="/3d" className={className} isActive={fill === "currentColor"} />;
-const PrismConfigIcon = ({ className, fill }: any) => <ImageIcon basePath="/prism_config" className={className} isActive={fill === "currentColor"} />;
+const KontrolADRIcon = ({ className, fill }: SidebarIconProps) => <ImageIcon basePath="/kontrol_adr" className={className} isActive={fill === "currentColor"} />;
+const HasilPengukuranIcon = ({ className, fill }: SidebarIconProps) => <ImageIcon basePath="/hasil_pengukuran" className={className} isActive={fill === "currentColor"} />;
+const Visualisasi3DIcon = ({ className, fill }: SidebarIconProps) => <ImageIcon basePath="/3d" className={className} isActive={fill === "currentColor"} />;
+const PrismConfigIcon = ({ className, fill }: SidebarIconProps) => <ImageIcon basePath="/prism_config" className={className} isActive={fill === "currentColor"} />;
 
 const mainNavItems = [
   { title: "Dashboard", href: "/beranda", icon: DashboardIcon, isCustom: true },
   { title: "Kontrol ADR", href: "/kontrol-adr", icon: KontrolADRIcon, isCustom: true },
   { title: "Hasil Pengukuran", href: "/hasil-pengukuran", icon: HasilPengukuranIcon, isCustom: true },
   { title: "Visualisasi 3D", href: "/visualisasi-3d", icon: Visualisasi3DIcon, isCustom: true },
+  { title: "Peta Tambang", href: "/peta-jaringan-tambang", icon: MapPinned, isCustom: false },
   { title: "Prism Config", href: "/prism-config", icon: PrismConfigIcon, isCustom: true },
   { title: "Rekap Data", href: "/rekap-data", icon: Database, isCustom: false },
   { title: "Master Data", href: "/master-data", icon: Settings2, isCustom: false },
@@ -73,9 +78,12 @@ export function AppSidebar() {
       <SidebarHeader className="border-b-0 pt-6 pb-4 px-4 group-data-[collapsible=icon]:px-0 bg-card">
         <div className="flex items-center justify-between w-full h-8 group-data-[collapsible=icon]:justify-center">
           <div className="flex flex-1 items-center justify-start overflow-hidden group-data-[collapsible=icon]:hidden">
-            <img 
+            <Image 
               src="/logo_be.png" 
               alt="Beacon Engineering Logo" 
+              width={160}
+              height={40}
+              priority
               className="h-9 w-auto object-contain"
               style={{ imageRendering: "auto", WebkitFontSmoothing: "antialiased" }}
               draggable={false}

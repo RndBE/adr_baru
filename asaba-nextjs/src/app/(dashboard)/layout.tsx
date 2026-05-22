@@ -15,6 +15,8 @@ const pageTitles: Record<string, string> = {
   "/prism-config": "Prism Configuration",
   "/hasil-pengukuran": "Hasil Pengukuran",
   "/visualisasi-3d": "Visualisasi 3D",
+  "/peta-jaringan-tambang/3d": "Peta Jaringan Tambang 3D",
+  "/peta-jaringan-tambang": "Peta Jaringan Tambang",
   "/rekap-data": "Rekap Data Masuk",
 };
 
