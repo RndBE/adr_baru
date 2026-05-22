@@ -203,24 +203,29 @@ export function MineNetworkMap() {
                 <pattern id="mine-grid" width="8" height="8" patternUnits="userSpaceOnUse">
                   <path d="M 8 0 L 0 0 0 8" fill="none" stroke="#cbd5e1" strokeWidth="0.18" opacity="0.5" />
                 </pattern>
-                <linearGradient id="pit-bench-outer" x1="18" y1="17" x2="86" y2="66" gradientUnits="userSpaceOnUse">
-                  <stop stopColor="#f8fafc" />
-                  <stop offset="0.55" stopColor="#dbe4ec" />
-                  <stop offset="1" stopColor="#aab9c8" />
+                <linearGradient id="disturbed-ground" x1="18" y1="14" x2="89" y2="78" gradientUnits="userSpaceOnUse">
+                  <stop stopColor="#eef3f5" />
+                  <stop offset="0.52" stopColor="#d7e0e6" />
+                  <stop offset="1" stopColor="#b6c4cf" />
                 </linearGradient>
-                <linearGradient id="pit-bench-mid" x1="25" y1="28" x2="78" y2="62" gradientUnits="userSpaceOnUse">
-                  <stop stopColor="#edf3f8" />
-                  <stop offset="0.58" stopColor="#c9d6e2" />
-                  <stop offset="1" stopColor="#8fa2b4" />
+                <linearGradient id="pit-bench-outer" x1="20" y1="20" x2="86" y2="72" gradientUnits="userSpaceOnUse">
+                  <stop stopColor="#f6fafc" />
+                  <stop offset="0.5" stopColor="#d2dde6" />
+                  <stop offset="1" stopColor="#93a6b8" />
                 </linearGradient>
-                <linearGradient id="pit-bench-inner" x1="35" y1="40" x2="67" y2="57" gradientUnits="userSpaceOnUse">
-                  <stop stopColor="#d9e4ed" />
-                  <stop offset="0.58" stopColor="#b7c6d4" />
-                  <stop offset="1" stopColor="#788da1" />
+                <linearGradient id="pit-bench-mid" x1="26" y1="30" x2="80" y2="70" gradientUnits="userSpaceOnUse">
+                  <stop stopColor="#eaf1f5" />
+                  <stop offset="0.58" stopColor="#bdcbd7" />
+                  <stop offset="1" stopColor="#8095a9" />
                 </linearGradient>
-                <linearGradient id="pit-floor" x1="43" y1="44" x2="64" y2="56" gradientUnits="userSpaceOnUse">
-                  <stop stopColor="#9fb3c4" />
-                  <stop offset="1" stopColor="#566d82" />
+                <linearGradient id="pit-bench-inner" x1="36" y1="40" x2="69" y2="60" gradientUnits="userSpaceOnUse">
+                  <stop stopColor="#d4e0e9" />
+                  <stop offset="0.58" stopColor="#a9bac8" />
+                  <stop offset="1" stopColor="#637a90" />
+                </linearGradient>
+                <linearGradient id="pit-floor" x1="40" y1="43" x2="65" y2="57" gradientUnits="userSpaceOnUse">
+                  <stop stopColor="#8fa3b6" />
+                  <stop offset="1" stopColor="#41576c" />
                 </linearGradient>
                 <linearGradient id="bench-wall" x1="52" y1="22" x2="57" y2="73" gradientUnits="userSpaceOnUse">
                   <stop stopColor="#c6d2df" stopOpacity="0.25" />
@@ -239,38 +244,40 @@ export function MineNetworkMap() {
               <rect width="100" height="100" fill="#e8eef0" />
               <rect width="100" height="100" fill="url(#mine-grid)" />
 
-              <path d="M0 66 L13 50 L27 48 L37 62 L33 78 L17 91 L0 100 Z" fill="url(#waste-fill)" />
-              <path d="M73 0 L100 0 L100 42 L90 47 L81 38 L76 20 Z" fill="#d9e8dc" />
+              <path d="M0 66 L11 55 L24 51 L36 63 L34 78 L18 91 L0 100 Z" fill="url(#waste-fill)" />
+              <path d="M73 0 L100 0 L100 44 L92 47 L84 41 L78 24 Z" fill="#d9e8dc" />
+              <path d="M1 0 L37 0 L31 18 L18 25 L7 20 Z" fill="#dfece2" opacity="0.85" />
+              <path d="M81 54 L100 42 L100 100 L73 100 L68 82 L75 65 Z" fill="#d3e2d7" opacity="0.92" />
               <path d="M3 92 L16 84 L28 79 L40 78 L52 86" fill="none" stroke="#64748b" strokeWidth="1.2" strokeDasharray="1 1.4" />
               <path d="M20 76 L34 70 L45 72 L57 82" fill="none" stroke="#64748b" strokeWidth="0.9" strokeDasharray="1 1.2" opacity="0.75" />
 
-              <path d="M13 53 L15 33 L32 18 L56 13 L78 18 L90 32 L88 50 L74 66 L50 72 L27 65 Z" fill="#9fb0c1" opacity="0.32" />
-              <path d="M14 31 L31 18 L55 13 L77 18 L90 31 L88 49 L74 64 L50 70 L28 64 L13 50 Z" fill="url(#pit-bench-outer)" stroke="#a5b5c5" strokeWidth="0.95" />
-              <path d="M14 31 L31 18 L55 13 L77 18 L90 31 L84 34 L76 25 L56 20 L35 25 L22 36 L13 50 Z" fill="#f8fbfe" opacity="0.72" />
-              <path d="M13 50 L28 64 L50 70 L74 64 L88 49 L82 51 L70 59 L50 64 L31 59 L20 48 Z" fill="url(#bench-wall)" opacity="0.9" />
+              <path d="M16 27 L30 18 L55 13 L76 18 L88 29 L93 43 L88 57 L75 68 L54 75 L32 70 L17 58 L10 43 Z" fill="url(#disturbed-ground)" stroke="#b5c3cd" strokeWidth="0.65" opacity="0.92" />
+              <path d="M19 30 L33 22 L55 17 L74 21 L86 31 L90 43 L84 56 L72 65 L53 70 L34 66 L21 56 L14 43 Z" fill="url(#pit-bench-outer)" stroke="#9fb1c0" strokeWidth="0.95" />
+              <path d="M19 30 L33 22 L55 17 L74 21 L86 31 L80 34 L70 28 L55 24 L36 28 L23 37 L14 43 Z" fill="#f8fbfd" opacity="0.62" />
+              <path d="M14 43 L21 56 L34 66 L53 70 L72 65 L84 56 L78 58 L66 63 L52 65 L35 61 L24 53 Z" fill="url(#bench-wall)" opacity="0.9" />
 
-              <path d="M22 36 L37 27 L57 23 L73 28 L81 39 L77 52 L64 61 L45 64 L30 58 L21 48 Z" fill="url(#pit-bench-mid)" stroke="#9fb0c2" strokeWidth="0.75" />
-              <path d="M22 36 L37 27 L57 23 L73 28 L81 39 L75 40 L65 32 L56 30 L39 33 L27 42 L21 48 Z" fill="#f6f9fc" opacity="0.55" />
-              <path d="M21 48 L30 58 L45 64 L64 61 L77 52 L71 53 L62 57 L46 59 L33 54 L27 47 Z" fill="#8fa2b6" opacity="0.22" />
+              <path d="M24 38 L39 30 L58 27 L73 32 L81 42 L78 53 L66 61 L49 64 L34 58 L25 49 Z" fill="url(#pit-bench-mid)" stroke="#91a5b7" strokeWidth="0.78" />
+              <path d="M24 38 L39 30 L58 27 L73 32 L81 42 L75 43 L65 36 L57 34 L41 36 L29 43 L25 49 Z" fill="#f2f7fb" opacity="0.52" />
+              <path d="M25 49 L34 58 L49 64 L66 61 L78 53 L70 54 L62 57 L49 59 L36 55 L29 48 Z" fill="#71879c" opacity="0.24" />
 
-              <path d="M31 42 L44 35 L59 33 L70 39 L72 49 L63 56 L48 59 L36 54 L30 48 Z" fill="url(#pit-bench-inner)" stroke="#8ea1b4" strokeWidth="0.72" />
-              <path d="M31 42 L44 35 L59 33 L70 39 L66 41 L58 38 L45 40 L34 46 L30 48 Z" fill="#e8f0f7" opacity="0.48" />
-              <path d="M30 48 L36 54 L48 59 L63 56 L72 49 L66 50 L59 53 L49 55 L38 52 Z" fill="#6f8499" opacity="0.25" />
+              <path d="M33 44 L45 38 L60 36 L70 41 L73 49 L65 56 L50 59 L39 55 L32 49 Z" fill="url(#pit-bench-inner)" stroke="#7f94a8" strokeWidth="0.72" />
+              <path d="M33 44 L45 38 L60 36 L70 41 L66 43 L58 40 L46 42 L36 47 L32 49 Z" fill="#e4edf4" opacity="0.46" />
+              <path d="M32 49 L39 55 L50 59 L65 56 L73 49 L67 50 L60 53 L50 55 L40 52 Z" fill="#52697f" opacity="0.26" />
 
-              <path d="M41 46 L51 41 L61 43 L65 49 L59 54 L49 55 L42 52 Z" fill="url(#pit-floor)" stroke="#657b91" strokeWidth="0.68" />
-              <path d="M41 46 L51 41 L61 43 L65 49 L59 54 L49 55 L42 52 Z" fill="url(#pit-depth-shadow)" />
-              <path d="M42 47 L51 43 L60 45 L62 49 L58 52 L49 53 L44 51 Z" fill="#72879b" opacity="0.55" />
+              <path d="M41 47 L51 43 L61 44 L66 49 L61 54 L50 56 L42 53 Z" fill="url(#pit-floor)" stroke="#5d7389" strokeWidth="0.68" />
+              <path d="M41 47 L51 43 L61 44 L66 49 L61 54 L50 56 L42 53 Z" fill="url(#pit-depth-shadow)" />
+              <path d="M43 48 L52 45 L60 46 L63 49 L59 52 L51 53 L45 51 Z" fill="#64798e" opacity="0.58" />
 
-              <path d="M18 39 L31 47 L45 49 L62 47 L78 42" fill="none" stroke="#ffffff" strokeWidth="0.36" strokeDasharray="1.8 1.4" opacity="0.72" />
-              <path d="M25 51 L38 57 L51 58 L66 54 L77 47" fill="none" stroke="#ffffff" strokeWidth="0.32" strokeDasharray="1.7 1.4" opacity="0.62" />
-              <path d="M35 44 L47 47 L58 47 L68 44" fill="none" stroke="#475569" strokeWidth="0.18" strokeDasharray="1.2 1" opacity="0.3" />
+              <path d="M18 42 C29 45 40 47 50 47 C63 47 74 43 86 36" fill="none" stroke="#ffffff" strokeWidth="0.36" strokeDasharray="1.8 1.4" opacity="0.72" />
+              <path d="M25 52 C36 58 48 60 60 57 C68 55 75 51 81 45" fill="none" stroke="#ffffff" strokeWidth="0.32" strokeDasharray="1.7 1.4" opacity="0.62" />
+              <path d="M33 41 C44 44 56 44 70 41" fill="none" stroke="#475569" strokeWidth="0.18" strokeDasharray="1.2 1" opacity="0.3" />
 
-              <path d="M4 89 C17 79 30 71 43 62 C57 52 68 41 82 29 C88 24 92 19 97 14" fill="none" stroke="#64748b" strokeWidth="2.25" strokeLinecap="round" opacity="0.28" />
-              <path d="M4 88 C17 78 30 70 43 61 C57 51 68 40 82 28 C88 23 92 18 97 13" fill="none" stroke="#9aa9b9" strokeWidth="2.05" strokeLinecap="round" />
-              <path d="M5 86 C18 77 31 69 44 59 C58 49 69 38 83 27 C89 22 93 17 98 12" fill="none" stroke="#ffffff" strokeWidth="0.7" strokeLinecap="round" strokeDasharray="2.3 2.3" />
-              <path d="M28 68 C37 62 45 57 54 50 C62 44 69 37 77 31" fill="none" stroke="#d6dee7" strokeWidth="1.15" strokeLinecap="round" opacity="0.85" />
-              <path d="M29 67 C38 61 46 56 55 49 C63 43 70 36 78 30" fill="none" stroke="#ffffff" strokeWidth="0.36" strokeLinecap="round" strokeDasharray="1.5 1.3" opacity="0.75" />
-              <path d="M39 56 C46 53 54 49 62 45 C68 42 73 39 79 36" fill="none" stroke="#8395a8" strokeWidth="0.42" strokeLinecap="round" strokeDasharray="1.3 1.2" opacity="0.45" />
+              <path d="M4 89 C18 80 30 74 43 65 C56 57 68 47 83 35 C89 30 94 24 98 19" fill="none" stroke="#64748b" strokeWidth="2.25" strokeLinecap="round" opacity="0.28" />
+              <path d="M4 88 C18 79 30 73 43 64 C56 56 68 46 83 34 C89 29 94 23 98 18" fill="none" stroke="#9aa9b9" strokeWidth="2.05" strokeLinecap="round" />
+              <path d="M5 86 C19 78 32 71 44 62 C57 54 69 44 84 33 C90 28 94 22 99 17" fill="none" stroke="#ffffff" strokeWidth="0.7" strokeLinecap="round" strokeDasharray="2.3 2.3" />
+              <path d="M24 69 C35 64 46 59 56 51 C64 45 71 39 80 33" fill="none" stroke="#d6dee7" strokeWidth="1.1" strokeLinecap="round" opacity="0.88" />
+              <path d="M25 68 C36 63 47 58 57 50 C65 44 72 38 81 32" fill="none" stroke="#ffffff" strokeWidth="0.35" strokeLinecap="round" strokeDasharray="1.5 1.3" opacity="0.75" />
+              <path d="M35 57 C44 54 53 50 62 46 C70 42 77 38 84 34" fill="none" stroke="#8395a8" strokeWidth="0.42" strokeLinecap="round" strokeDasharray="1.3 1.2" opacity="0.45" />
               <path d="M69 88 C66 77 68 66 76 58 C84 50 94 47 99 34" fill="none" stroke="#0ea5e9" strokeWidth="1.25" strokeLinecap="round" />
               <path d="M73 88 C70 77 72 68 80 61 C88 54 96 50 100 41" fill="none" stroke="#38bdf8" strokeWidth="0.38" strokeLinecap="round" opacity="0.7" />
               <path d="M63 56 C66 57 70 59 74 62 C76 64 78 67 80 70" fill="none" stroke="#0ea5e9" strokeWidth="0.45" strokeDasharray="0.8 1" opacity="0.85" />
@@ -437,13 +444,13 @@ export function MineNetworkMap() {
           </svg>
 
           <div className="pointer-events-none absolute inset-0 z-[12] text-[10px] font-bold uppercase tracking-wide text-slate-600/60">
-            <span className="absolute rounded border border-white/50 bg-white/45 px-2 py-0.5 shadow-sm backdrop-blur-[2px]" style={{ left: "35%", top: "29%" }}>
+            <span className="absolute rounded border border-white/50 bg-white/45 px-2 py-0.5 shadow-sm backdrop-blur-[2px]" style={{ left: "34%", top: "27%" }}>
               Pit Utara
             </span>
-            <span className="absolute rounded border border-white/50 bg-white/45 px-2 py-0.5 shadow-sm backdrop-blur-[2px]" style={{ left: "68%", top: "43%" }}>
+            <span className="absolute rounded border border-white/50 bg-white/45 px-2 py-0.5 shadow-sm backdrop-blur-[2px]" style={{ left: "70%", top: "44%" }}>
               Highwall Timur
             </span>
-            <span className="absolute rounded border border-white/50 bg-white/45 px-2 py-0.5 shadow-sm backdrop-blur-[2px]" style={{ left: "47%", top: "65%" }}>
+            <span className="absolute rounded border border-white/50 bg-white/45 px-2 py-0.5 shadow-sm backdrop-blur-[2px]" style={{ left: "45%", top: "67%" }}>
               Ramp Selatan
             </span>
           </div>
