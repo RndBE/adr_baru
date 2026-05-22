@@ -203,10 +203,34 @@ export function MineNetworkMap() {
                 <pattern id="mine-grid" width="8" height="8" patternUnits="userSpaceOnUse">
                   <path d="M 8 0 L 0 0 0 8" fill="none" stroke="#cbd5e1" strokeWidth="0.18" opacity="0.5" />
                 </pattern>
-                <linearGradient id="pit-floor" x1="35" y1="28" x2="70" y2="72" gradientUnits="userSpaceOnUse">
-                  <stop stopColor="#d7e0e8" />
-                  <stop offset="1" stopColor="#b8c6d1" />
+                <linearGradient id="pit-bench-outer" x1="18" y1="17" x2="86" y2="66" gradientUnits="userSpaceOnUse">
+                  <stop stopColor="#f8fafc" />
+                  <stop offset="0.55" stopColor="#dbe4ec" />
+                  <stop offset="1" stopColor="#aab9c8" />
                 </linearGradient>
+                <linearGradient id="pit-bench-mid" x1="25" y1="28" x2="78" y2="62" gradientUnits="userSpaceOnUse">
+                  <stop stopColor="#edf3f8" />
+                  <stop offset="0.58" stopColor="#c9d6e2" />
+                  <stop offset="1" stopColor="#8fa2b4" />
+                </linearGradient>
+                <linearGradient id="pit-bench-inner" x1="35" y1="40" x2="67" y2="57" gradientUnits="userSpaceOnUse">
+                  <stop stopColor="#d9e4ed" />
+                  <stop offset="0.58" stopColor="#b7c6d4" />
+                  <stop offset="1" stopColor="#788da1" />
+                </linearGradient>
+                <linearGradient id="pit-floor" x1="43" y1="44" x2="64" y2="56" gradientUnits="userSpaceOnUse">
+                  <stop stopColor="#9fb3c4" />
+                  <stop offset="1" stopColor="#566d82" />
+                </linearGradient>
+                <linearGradient id="bench-wall" x1="52" y1="22" x2="57" y2="73" gradientUnits="userSpaceOnUse">
+                  <stop stopColor="#c6d2df" stopOpacity="0.25" />
+                  <stop offset="1" stopColor="#60758a" stopOpacity="0.5" />
+                </linearGradient>
+                <radialGradient id="pit-depth-shadow" cx="54%" cy="50%" r="42%">
+                  <stop stopColor="#334155" stopOpacity="0.34" />
+                  <stop offset="0.62" stopColor="#334155" stopOpacity="0.08" />
+                  <stop offset="1" stopColor="#334155" stopOpacity="0" />
+                </radialGradient>
                 <linearGradient id="waste-fill" x1="0" y1="68" x2="32" y2="100" gradientUnits="userSpaceOnUse">
                   <stop stopColor="#dbe7dd" />
                   <stop offset="1" stopColor="#c6d7cb" />
@@ -220,13 +244,33 @@ export function MineNetworkMap() {
               <path d="M3 92 L16 84 L28 79 L40 78 L52 86" fill="none" stroke="#64748b" strokeWidth="1.2" strokeDasharray="1 1.4" />
               <path d="M20 76 L34 70 L45 72 L57 82" fill="none" stroke="#64748b" strokeWidth="0.9" strokeDasharray="1 1.2" opacity="0.75" />
 
-              <path d="M14 31 L31 18 L55 13 L77 18 L90 31 L88 49 L74 64 L50 70 L28 64 L13 50 Z" fill="#f8fafc" stroke="#b8c4cf" strokeWidth="0.9" />
-              <path d="M22 36 L37 27 L57 23 L73 28 L81 39 L77 52 L64 61 L45 64 L30 58 L21 48 Z" fill="#e7edf3" stroke="#aebdcc" strokeWidth="0.75" />
-              <path d="M31 42 L44 35 L59 33 L70 39 L72 49 L63 56 L48 59 L36 54 L30 48 Z" fill="#d6e0ea" stroke="#9cadbd" strokeWidth="0.7" />
-              <path d="M41 46 L51 41 L61 43 L65 49 L59 54 L49 55 L42 52 Z" fill="url(#pit-floor)" stroke="#8294a8" strokeWidth="0.65" />
+              <path d="M13 53 L15 33 L32 18 L56 13 L78 18 L90 32 L88 50 L74 66 L50 72 L27 65 Z" fill="#9fb0c1" opacity="0.32" />
+              <path d="M14 31 L31 18 L55 13 L77 18 L90 31 L88 49 L74 64 L50 70 L28 64 L13 50 Z" fill="url(#pit-bench-outer)" stroke="#a5b5c5" strokeWidth="0.95" />
+              <path d="M14 31 L31 18 L55 13 L77 18 L90 31 L84 34 L76 25 L56 20 L35 25 L22 36 L13 50 Z" fill="#f8fbfe" opacity="0.72" />
+              <path d="M13 50 L28 64 L50 70 L74 64 L88 49 L82 51 L70 59 L50 64 L31 59 L20 48 Z" fill="url(#bench-wall)" opacity="0.9" />
 
-              <path d="M4 88 C17 78 30 70 43 61 C57 51 68 40 82 28 C88 23 92 18 97 13" fill="none" stroke="#94a3b8" strokeWidth="2.1" strokeLinecap="round" />
-              <path d="M5 86 C18 77 31 69 44 59 C58 49 69 38 83 27 C89 22 93 17 98 12" fill="none" stroke="#ffffff" strokeWidth="0.75" strokeLinecap="round" strokeDasharray="2.3 2.3" />
+              <path d="M22 36 L37 27 L57 23 L73 28 L81 39 L77 52 L64 61 L45 64 L30 58 L21 48 Z" fill="url(#pit-bench-mid)" stroke="#9fb0c2" strokeWidth="0.75" />
+              <path d="M22 36 L37 27 L57 23 L73 28 L81 39 L75 40 L65 32 L56 30 L39 33 L27 42 L21 48 Z" fill="#f6f9fc" opacity="0.55" />
+              <path d="M21 48 L30 58 L45 64 L64 61 L77 52 L71 53 L62 57 L46 59 L33 54 L27 47 Z" fill="#8fa2b6" opacity="0.22" />
+
+              <path d="M31 42 L44 35 L59 33 L70 39 L72 49 L63 56 L48 59 L36 54 L30 48 Z" fill="url(#pit-bench-inner)" stroke="#8ea1b4" strokeWidth="0.72" />
+              <path d="M31 42 L44 35 L59 33 L70 39 L66 41 L58 38 L45 40 L34 46 L30 48 Z" fill="#e8f0f7" opacity="0.48" />
+              <path d="M30 48 L36 54 L48 59 L63 56 L72 49 L66 50 L59 53 L49 55 L38 52 Z" fill="#6f8499" opacity="0.25" />
+
+              <path d="M41 46 L51 41 L61 43 L65 49 L59 54 L49 55 L42 52 Z" fill="url(#pit-floor)" stroke="#657b91" strokeWidth="0.68" />
+              <path d="M41 46 L51 41 L61 43 L65 49 L59 54 L49 55 L42 52 Z" fill="url(#pit-depth-shadow)" />
+              <path d="M42 47 L51 43 L60 45 L62 49 L58 52 L49 53 L44 51 Z" fill="#72879b" opacity="0.55" />
+
+              <path d="M18 39 L31 47 L45 49 L62 47 L78 42" fill="none" stroke="#ffffff" strokeWidth="0.36" strokeDasharray="1.8 1.4" opacity="0.72" />
+              <path d="M25 51 L38 57 L51 58 L66 54 L77 47" fill="none" stroke="#ffffff" strokeWidth="0.32" strokeDasharray="1.7 1.4" opacity="0.62" />
+              <path d="M35 44 L47 47 L58 47 L68 44" fill="none" stroke="#475569" strokeWidth="0.18" strokeDasharray="1.2 1" opacity="0.3" />
+
+              <path d="M4 89 C17 79 30 71 43 62 C57 52 68 41 82 29 C88 24 92 19 97 14" fill="none" stroke="#64748b" strokeWidth="2.25" strokeLinecap="round" opacity="0.28" />
+              <path d="M4 88 C17 78 30 70 43 61 C57 51 68 40 82 28 C88 23 92 18 97 13" fill="none" stroke="#9aa9b9" strokeWidth="2.05" strokeLinecap="round" />
+              <path d="M5 86 C18 77 31 69 44 59 C58 49 69 38 83 27 C89 22 93 17 98 12" fill="none" stroke="#ffffff" strokeWidth="0.7" strokeLinecap="round" strokeDasharray="2.3 2.3" />
+              <path d="M28 68 C37 62 45 57 54 50 C62 44 69 37 77 31" fill="none" stroke="#d6dee7" strokeWidth="1.15" strokeLinecap="round" opacity="0.85" />
+              <path d="M29 67 C38 61 46 56 55 49 C63 43 70 36 78 30" fill="none" stroke="#ffffff" strokeWidth="0.36" strokeLinecap="round" strokeDasharray="1.5 1.3" opacity="0.75" />
+              <path d="M39 56 C46 53 54 49 62 45 C68 42 73 39 79 36" fill="none" stroke="#8395a8" strokeWidth="0.42" strokeLinecap="round" strokeDasharray="1.3 1.2" opacity="0.45" />
               <path d="M69 88 C66 77 68 66 76 58 C84 50 94 47 99 34" fill="none" stroke="#0ea5e9" strokeWidth="1.25" strokeLinecap="round" />
               <path d="M73 88 C70 77 72 68 80 61 C88 54 96 50 100 41" fill="none" stroke="#38bdf8" strokeWidth="0.38" strokeLinecap="round" opacity="0.7" />
               <path d="M63 56 C66 57 70 59 74 62 C76 64 78 67 80 70" fill="none" stroke="#0ea5e9" strokeWidth="0.45" strokeDasharray="0.8 1" opacity="0.85" />
@@ -266,33 +310,33 @@ export function MineNetworkMap() {
             </div>
 
             <div className="hidden min-w-0 flex-1 justify-center xl:flex">
-              <div className="pointer-events-auto flex items-center gap-2 rounded-lg border bg-white/95 p-2 shadow-sm backdrop-blur">
-                <div className="flex min-w-30 items-center gap-2 rounded-md border bg-white px-3 py-2">
-                  <RadioTower className="h-4 w-4 text-[#303481]" />
+              <div className="pointer-events-auto flex items-center gap-1.5 rounded-lg border bg-white/88 p-1.5 shadow-sm backdrop-blur">
+                <div className="flex min-w-28 items-center gap-2 rounded-md border bg-white/80 px-2.5 py-1.5">
+                  <RadioTower className="h-3.5 w-3.5 text-[#303481]" />
                   <div>
                     <p className="text-[10px] font-semibold uppercase text-muted-foreground">Total</p>
-                    <p className="text-sm font-bold">{statusSummary.total} Sensor</p>
+                    <p className="text-xs font-bold">{statusSummary.total} Sensor</p>
                   </div>
                 </div>
-                <div className="flex min-w-24 items-center gap-2 rounded-md border border-red-200 bg-red-50 px-3 py-2">
-                  <TriangleAlert className="h-4 w-4 text-red-600" />
+                <div className="flex min-w-22 items-center gap-2 rounded-md border border-red-200 bg-red-50/90 px-2.5 py-1.5">
+                  <TriangleAlert className="h-3.5 w-3.5 text-red-600" />
                   <div>
                     <p className="text-[10px] font-semibold uppercase text-red-700">Bahaya</p>
-                    <p className="text-sm font-bold text-red-700">{statusSummary.danger}</p>
+                    <p className="text-xs font-bold text-red-700">{statusSummary.danger}</p>
                   </div>
                 </div>
-                <div className="flex min-w-24 items-center gap-2 rounded-md border border-amber-200 bg-amber-50 px-3 py-2">
-                  <Activity className="h-4 w-4 text-amber-600" />
+                <div className="flex min-w-22 items-center gap-2 rounded-md border border-amber-200 bg-amber-50/90 px-2.5 py-1.5">
+                  <Activity className="h-3.5 w-3.5 text-amber-600" />
                   <div>
                     <p className="text-[10px] font-semibold uppercase text-amber-700">Waspada</p>
-                    <p className="text-sm font-bold text-amber-700">{statusSummary.caution}</p>
+                    <p className="text-xs font-bold text-amber-700">{statusSummary.caution}</p>
                   </div>
                 </div>
-                <div className="flex min-w-24 items-center gap-2 rounded-md border border-emerald-200 bg-emerald-50 px-3 py-2">
-                  <Signal className="h-4 w-4 text-emerald-600" />
+                <div className="flex min-w-22 items-center gap-2 rounded-md border border-emerald-200 bg-emerald-50/90 px-2.5 py-1.5">
+                  <Signal className="h-3.5 w-3.5 text-emerald-600" />
                   <div>
                     <p className="text-[10px] font-semibold uppercase text-emerald-700">Normal</p>
-                    <p className="text-sm font-bold text-emerald-700">{statusSummary.normal}</p>
+                    <p className="text-xs font-bold text-emerald-700">{statusSummary.normal}</p>
                   </div>
                 </div>
                 <button
@@ -302,9 +346,9 @@ export function MineNetworkMap() {
                     const firstDanger = prioritySummary.topDangerIds[0];
                     if (firstDanger) setSelectedId(firstDanger);
                   }}
-                  className="flex min-w-[210px] items-center gap-2 rounded-md border border-red-200 bg-white px-3 py-2 text-left transition hover:bg-red-50"
+                  className="flex min-w-[190px] items-center gap-2 rounded-md border border-red-200 bg-white/80 px-2.5 py-1.5 text-left transition hover:bg-red-50"
                 >
-                  <TriangleAlert className="h-4 w-4 text-red-600" />
+                  <TriangleAlert className="h-3.5 w-3.5 text-red-600" />
                   <div>
                     <p className="text-[10px] font-semibold uppercase text-muted-foreground">Prioritas</p>
                     <p className="text-xs font-bold">
@@ -381,6 +425,18 @@ export function MineNetworkMap() {
               );
             })}
           </svg>
+
+          <div className="pointer-events-none absolute inset-0 z-[12] text-[10px] font-bold uppercase tracking-wide text-slate-600/60">
+            <span className="absolute rounded border border-white/50 bg-white/45 px-2 py-0.5 shadow-sm backdrop-blur-[2px]" style={{ left: "35%", top: "29%" }}>
+              Pit Utara
+            </span>
+            <span className="absolute rounded border border-white/50 bg-white/45 px-2 py-0.5 shadow-sm backdrop-blur-[2px]" style={{ left: "68%", top: "43%" }}>
+              Highwall Timur
+            </span>
+            <span className="absolute rounded border border-white/50 bg-white/45 px-2 py-0.5 shadow-sm backdrop-blur-[2px]" style={{ left: "47%", top: "65%" }}>
+              Ramp Selatan
+            </span>
+          </div>
 
           {filteredSensors.map((sensor) => (
             <SensorMarker
@@ -472,95 +528,92 @@ export function MineNetworkMap() {
           )}
 
           {selectedSensor && (
-          <div className="absolute right-4 top-24 z-30 max-h-[calc(100%-7rem)] w-[320px] space-y-3 overflow-auto pr-1">
-          <section className="rounded-lg border bg-white/95 p-4 shadow-sm backdrop-blur">
-            <div className="flex items-start justify-between gap-3">
-              <div>
-                <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">{selectedSensor.id}</p>
-                <h3 className="mt-1 text-lg font-bold leading-tight">{selectedSensor.name}</h3>
-              </div>
-              <div className="flex items-center gap-2">
-                <StatusPill status={selectedSensor.status} />
-                <button
-                  type="button"
-                  onClick={() => setSelectedId(null)}
-                  className="rounded-md p-1 text-muted-foreground hover:bg-muted hover:text-foreground"
-                >
-                  <X className="h-4 w-4" />
-                </button>
-              </div>
-            </div>
-
-            <div className="mt-4 grid grid-cols-2 gap-3">
-              <div className="rounded-md border bg-muted/30 p-3">
-                <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Nilai</p>
-                <p className="mt-1 text-lg font-bold">{formatMineSensorValue(selectedSensor)}</p>
-              </div>
-              <div className="rounded-md border bg-muted/30 p-3">
-                <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Trend</p>
-                <p className="mt-1 text-lg font-bold capitalize">{selectedSensor.trend}</p>
-              </div>
-            </div>
-
-            <dl className="mt-4 space-y-3 text-sm">
-              <div className="flex justify-between gap-3">
-                <dt className="text-muted-foreground">Tipe</dt>
-                <dd className="font-semibold">{mineSensorTypeLabels[selectedSensor.type]}</dd>
-              </div>
-              <div className="flex justify-between gap-3">
-                <dt className="text-muted-foreground">Zona</dt>
-                <dd className="font-semibold">{selectedSensor.zone}</dd>
-              </div>
-              <div className="flex justify-between gap-3">
-                <dt className="text-muted-foreground">Titik kritis</dt>
-                <dd className="font-semibold">{selectedSensor.criticalPoint}</dd>
-              </div>
-              <div className="flex justify-between gap-3">
-                <dt className="text-muted-foreground">Ambang</dt>
-                <dd className="font-semibold">{selectedSensor.threshold}</dd>
-              </div>
-              <div className="flex justify-between gap-3">
-                <dt className="text-muted-foreground">Update</dt>
-                <dd className="font-semibold">{selectedSensor.lastUpdate}</dd>
-              </div>
-            </dl>
-
-            <div className="mt-4 rounded-md border bg-muted/30 p-3 text-sm text-muted-foreground">
-              {selectedSensor.note}
-            </div>
-          </section>
-
-          <section className="rounded-lg border bg-white/95 p-4 shadow-sm backdrop-blur">
-            <h3 className="text-sm font-bold">Kesehatan Perangkat</h3>
-            <div className="mt-3 space-y-3">
-              <div>
-                <div className="mb-1 flex items-center justify-between text-xs">
-                  <span className="flex items-center gap-1.5 font-semibold text-muted-foreground">
-                    <Battery className="h-3.5 w-3.5" />
-                    Battery
-                  </span>
-                  <span className="font-bold">{selectedSensor.battery}%</span>
+            <aside className="absolute right-4 top-24 z-30 max-h-[calc(100%-7rem)] w-[300px] overflow-auto rounded-lg border bg-white/94 p-3.5 shadow-sm backdrop-blur">
+              <div className="flex items-start justify-between gap-3">
+                <div className="min-w-0">
+                  <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">{selectedSensor.id}</p>
+                  <h3 className="mt-0.5 text-base font-bold leading-tight">{selectedSensor.name}</h3>
                 </div>
-                <div className="h-2 rounded-full bg-muted">
-                  <div className="h-2 rounded-full bg-emerald-500" style={{ width: `${selectedSensor.battery}%` }} />
+                <div className="flex shrink-0 items-center gap-1.5">
+                  <StatusPill status={selectedSensor.status} />
+                  <button
+                    type="button"
+                    onClick={() => setSelectedId(null)}
+                    className="rounded-md p-1 text-muted-foreground hover:bg-muted hover:text-foreground"
+                  >
+                    <X className="h-4 w-4" />
+                  </button>
                 </div>
               </div>
-              <div>
-                <div className="mb-1 flex items-center justify-between text-xs">
-                  <span className="flex items-center gap-1.5 font-semibold text-muted-foreground">
-                    <Signal className="h-3.5 w-3.5" />
-                    Signal
-                  </span>
-                  <span className="font-bold">{selectedSensor.signal}%</span>
+
+              <div className="mt-3 grid grid-cols-2 gap-2">
+                <div className="rounded-md border bg-muted/25 p-2.5">
+                  <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">Nilai</p>
+                  <p className="mt-1 text-base font-bold">{formatMineSensorValue(selectedSensor)}</p>
                 </div>
-                <div className="h-2 rounded-full bg-muted">
-                  <div className="h-2 rounded-full bg-[#303481]" style={{ width: `${selectedSensor.signal}%` }} />
+                <div className="rounded-md border bg-muted/25 p-2.5">
+                  <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">Trend</p>
+                  <p className="mt-1 text-base font-bold capitalize">{selectedSensor.trend}</p>
                 </div>
               </div>
-            </div>
-          </section>
 
-          </div>
+              <dl className="mt-3 grid gap-2 text-xs">
+                <div className="flex justify-between gap-3 border-b pb-2">
+                  <dt className="text-muted-foreground">Tipe</dt>
+                  <dd className="font-semibold">{mineSensorTypeLabels[selectedSensor.type]}</dd>
+                </div>
+                <div className="flex justify-between gap-3 border-b pb-2">
+                  <dt className="text-muted-foreground">Zona</dt>
+                  <dd className="font-semibold">{selectedSensor.zone}</dd>
+                </div>
+                <div className="flex justify-between gap-3 border-b pb-2">
+                  <dt className="text-muted-foreground">Titik kritis</dt>
+                  <dd className="text-right font-semibold">{selectedSensor.criticalPoint}</dd>
+                </div>
+                <div className="flex justify-between gap-3 border-b pb-2">
+                  <dt className="text-muted-foreground">Ambang</dt>
+                  <dd className="font-semibold">{selectedSensor.threshold}</dd>
+                </div>
+                <div className="flex justify-between gap-3">
+                  <dt className="text-muted-foreground">Update</dt>
+                  <dd className="font-semibold">{selectedSensor.lastUpdate}</dd>
+                </div>
+              </dl>
+
+              <p className="mt-3 rounded-md border bg-muted/25 p-2.5 text-xs leading-relaxed text-muted-foreground">
+                {selectedSensor.note}
+              </p>
+
+              <div className="mt-3 rounded-md border bg-white/70 p-2.5">
+                <h4 className="text-xs font-bold">Kesehatan Perangkat</h4>
+                <div className="mt-2 space-y-2.5">
+                  <div>
+                    <div className="mb-1 flex items-center justify-between text-[11px]">
+                      <span className="flex items-center gap-1.5 font-semibold text-muted-foreground">
+                        <Battery className="h-3.5 w-3.5" />
+                        Battery
+                      </span>
+                      <span className="font-bold">{selectedSensor.battery}%</span>
+                    </div>
+                    <div className="h-1.5 rounded-full bg-muted">
+                      <div className="h-1.5 rounded-full bg-emerald-500" style={{ width: `${selectedSensor.battery}%` }} />
+                    </div>
+                  </div>
+                  <div>
+                    <div className="mb-1 flex items-center justify-between text-[11px]">
+                      <span className="flex items-center gap-1.5 font-semibold text-muted-foreground">
+                        <Signal className="h-3.5 w-3.5" />
+                        Signal
+                      </span>
+                      <span className="font-bold">{selectedSensor.signal}%</span>
+                    </div>
+                    <div className="h-1.5 rounded-full bg-muted">
+                      <div className="h-1.5 rounded-full bg-[#303481]" style={{ width: `${selectedSensor.signal}%` }} />
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </aside>
           )}
     </section>
   );
