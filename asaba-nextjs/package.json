@@ -19,6 +19,10 @@
   "dependencies": {
     "@auth/prisma-adapter": "^2.11.1",
     "@base-ui/react": "^1.4.0",
+    "@deck.gl/aggregation-layers": "^9.3.2",
+    "@deck.gl/core": "^9.3.2",
+    "@deck.gl/layers": "^9.3.2",
+    "@deck.gl/react": "^9.3.2",
     "@prisma/client": "^6.19.3",
     "@types/leaflet": "^1.9.21",
     "bcryptjs": "^3.0.3",

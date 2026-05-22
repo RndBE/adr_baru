@@ -6,7 +6,7 @@ import { ColumnLayer, LineLayer, ScatterplotLayer, TextLayer } from "@deck.gl/la
 import { HeatmapLayer } from "@deck.gl/aggregation-layers";
 import type { MapViewState, PickingInfo } from "@deck.gl/core";
 import { Map } from "react-map-gl/maplibre";
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import {
   formatMineSensorValue,
   getMineSensorGeoPoints,
@@ -82,15 +82,15 @@ export function MineNetwork3DDeck({ selectedId, onSelect, showHeatmap, topView }
     bearing: -12,
   });
 
-  // Animate camera when top-view toggle changes
-  useEffect(() => {
-    setViewState((prev) => ({
-      ...prev,
-      pitch: topView ? 0 : 52,
-      bearing: topView ? 0 : -12,
-      zoom: topView ? 15 : 14.5,
-    }));
-  }, [topView]);
+  const cameraViewState = useMemo<MapViewState>(
+    () => ({
+      ...viewState,
+      pitch: topView ? 0 : viewState.pitch || 52,
+      bearing: topView ? 0 : viewState.bearing || -12,
+      zoom: topView ? Math.max(viewState.zoom, 15) : viewState.zoom,
+    }),
+    [topView, viewState]
+  );
 
   const networkData = useMemo(() => {
     return networkLineIds
@@ -214,7 +214,7 @@ export function MineNetwork3DDeck({ selectedId, onSelect, showHeatmap, topView }
 
   return (
     <DeckGL
-      viewState={viewState}
+      viewState={cameraViewState}
       onViewStateChange={({ viewState: vs }) => setViewState(vs as MapViewState)}
       controller={{ scrollZoom: true, dragPan: true, dragRotate: true, doubleClickZoom: true }}
       layers={layers}
