@@ -58,7 +58,7 @@ function StatusPill({ status }: { status: MineSensorStatus }) {
 }
 
 export function MineNetwork3DView() {
-  const [selectedId, setSelectedId] = useState("TLT-02");
+  const [selectedId, setSelectedId] = useState<string | null>(null);
   const [showHeatmap, setShowHeatmap] = useState(true);
   const [topView, setTopView] = useState(false);
   const [layersOpen, setLayersOpen] = useState(false);
@@ -67,8 +67,8 @@ export function MineNetwork3DView() {
   const geoPoints = useMemo(() => getMineSensorGeoPoints(mineNetworkSensors), []);
   const statusSummary = getMineSensorStatusSummary(mineNetworkSensors);
 
-  const selectedSensor = mineNetworkSensors.find((sensor) => sensor.id === selectedId) ?? mineNetworkSensors[0];
-  const selectedGeo = geoPoints.find((point) => point.id === selectedId);
+  const selectedSensor = selectedId ? mineNetworkSensors.find((sensor) => sensor.id === selectedId) ?? null : null;
+  const selectedGeo = selectedId ? geoPoints.find((point) => point.id === selectedId) : null;
 
   const prioritySensors = mineNetworkSensors
     .filter((sensor) => sensor.status !== "normal")
@@ -246,7 +246,7 @@ export function MineNetwork3DView() {
         ))}
       </div>
 
-      {selectedGeo && (
+      {selectedSensor && selectedGeo && (
         <div className="pointer-events-none absolute bottom-4 right-4 z-30 w-[280px] rounded-lg border border-white/15 bg-black/70 p-4 shadow backdrop-blur">
           <p className="text-[11px] font-semibold uppercase tracking-wide text-white/50">{selectedSensor.id}</p>
           <p className="mt-0.5 text-base font-bold leading-tight text-white">{selectedSensor.name}</p>

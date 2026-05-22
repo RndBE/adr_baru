@@ -27,6 +27,14 @@ const SENSOR_ELEVATION: Record<MineSensorStatus, number> = {
   danger: 115,
 };
 
+const MAP_MIN_ZOOM = 12.5;
+const MAP_MAX_ZOOM = 16.2;
+const ESRI_IMAGERY_MAX_NATIVE_ZOOM = 16;
+
+function clampMapZoom(zoom: number) {
+  return Math.min(MAP_MAX_ZOOM, Math.max(MAP_MIN_ZOOM, zoom));
+}
+
 // MapLibre style with ESRI World Imagery — free, no API key
 const SATELLITE_STYLE = {
   version: 8 as const,
@@ -37,6 +45,7 @@ const SATELLITE_STYLE = {
         "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",
       ],
       tileSize: 256,
+      maxzoom: ESRI_IMAGERY_MAX_NATIVE_ZOOM,
       attribution: "Imagery &copy; Esri",
     },
   },
@@ -62,7 +71,7 @@ const networkLineIds = [
 ];
 
 interface Props {
-  selectedId: string;
+  selectedId: string | null;
   onSelect: (id: string) => void;
   showHeatmap: boolean;
   topView: boolean;
@@ -87,7 +96,7 @@ export function MineNetwork3DDeck({ selectedId, onSelect, showHeatmap, topView }
       ...viewState,
       pitch: topView ? 0 : viewState.pitch || 52,
       bearing: topView ? 0 : viewState.bearing || -12,
-      zoom: topView ? Math.max(viewState.zoom, 15) : viewState.zoom,
+      zoom: topView ? clampMapZoom(Math.max(viewState.zoom, 15)) : clampMapZoom(viewState.zoom),
     }),
     [topView, viewState]
   );
@@ -215,7 +224,9 @@ export function MineNetwork3DDeck({ selectedId, onSelect, showHeatmap, topView }
   return (
     <DeckGL
       viewState={cameraViewState}
-      onViewStateChange={({ viewState: vs }) => setViewState(vs as MapViewState)}
+      onViewStateChange={({ viewState: vs }) =>
+        setViewState({ ...(vs as MapViewState), zoom: clampMapZoom((vs as MapViewState).zoom) })
+      }
       controller={{ scrollZoom: true, dragPan: true, dragRotate: true, doubleClickZoom: true }}
       layers={layers}
       style={{ position: "absolute", inset: "0" }}
@@ -223,7 +234,7 @@ export function MineNetwork3DDeck({ selectedId, onSelect, showHeatmap, topView }
         isDragging ? "grabbing" : isHovering ? "pointer" : "grab"
       }
     >
-      <Map mapStyle={SATELLITE_STYLE} />
+      <Map mapStyle={SATELLITE_STYLE} minZoom={MAP_MIN_ZOOM} maxZoom={MAP_MAX_ZOOM} />
     </DeckGL>
   );
 }
