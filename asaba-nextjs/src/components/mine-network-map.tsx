@@ -290,19 +290,29 @@ export function MineNetworkMap() {
 
             <div className="pointer-events-auto flex gap-2">
               <Button
-                variant={filterOpen ? "default" : "outline"}
+                variant="outline"
                 size="lg"
                 onClick={() => setFilterOpen((open) => !open)}
-                className="h-10 bg-white/95 shadow-sm backdrop-blur"
+                className={cn(
+                  "h-10 shadow-sm backdrop-blur",
+                  filterOpen
+                    ? "border-[#303481] bg-[#303481] text-white hover:bg-[#303481]/90 hover:text-white"
+                    : "bg-white/95 text-foreground hover:bg-white"
+                )}
               >
                 <SlidersHorizontal className="h-4 w-4" />
                 Filter
               </Button>
               <Button
-                variant={legendOpen ? "default" : "outline"}
+                variant="outline"
                 size="lg"
                 onClick={() => setLegendOpen((open) => !open)}
-                className="h-10 bg-white/95 shadow-sm backdrop-blur"
+                className={cn(
+                  "h-10 shadow-sm backdrop-blur",
+                  legendOpen
+                    ? "border-[#303481] bg-[#303481] text-white hover:bg-[#303481]/90 hover:text-white"
+                    : "bg-white/95 text-foreground hover:bg-white"
+                )}
               >
                 <Layers3 className="h-4 w-4" />
                 Legenda
