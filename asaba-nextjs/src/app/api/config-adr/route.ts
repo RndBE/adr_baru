@@ -1,24 +1,35 @@
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { sendRtsConfig } from "@/lib/mqtt";
 
-
 /**
- * GET /api/config-adr
- * Fetch konfigurasi ADR dari tabel config_adr (row pertama).
+ * GET /api/config-adr?site=xxx
+ * Konfigurasi RTS untuk satu site.
+ *
+ * Sebelumnya endpoint ini mengambil `ORDER BY id ASC LIMIT 1` — selalu baris
+ * yang sama apa pun site yang dipilih. Karena satu unit RTS bisa dipakai di
+ * beberapa site, job name dan titik origin harus dibedakan per site.
  *
  * PUT /api/config-adr
- * Update konfigurasi ADR (berdasarkan id) + kirim ke logger via MQTT.
+ * Update konfigurasi + kirim ke logger via MQTT. Body wajib memuat `site`.
  */
-export async function GET() {
+export async function GET(request: NextRequest) {
   try {
+    const site = request.nextUrl.searchParams.get("site");
+    if (!site) {
+      return NextResponse.json(
+        { success: false, error: "Parameter site wajib diisi" },
+        { status: 400 }
+      );
+    }
+
     const rows = await prisma.$queryRaw<Array<Record<string, unknown>>>`
-      SELECT * FROM config_adr ORDER BY id ASC LIMIT 1
+      SELECT * FROM config_adr WHERE site = ${site} LIMIT 1
     `;
 
     if (!rows || rows.length === 0) {
       return NextResponse.json(
-        { success: false, error: "Config not found" },
+        { success: false, error: `Konfigurasi untuk site "${site}" belum ada` },
         { status: 404 }
       );
     }
@@ -37,7 +48,7 @@ export async function PUT(request: Request) {
   try {
     const body = await request.json();
     const {
-      id,
+      site,
       job_name,
       prisma_cons,
       ts_high,
@@ -49,7 +60,25 @@ export async function PUT(request: Request) {
       cycle_time,
     } = body;
 
-    // Simpan ke DB
+    // Kunci baris berdasarkan site, bukan id — id bisa saja dikirim dari
+    // tampilan site lain yang belum ter-refresh.
+    if (!site) {
+      return NextResponse.json(
+        { success: false, error: "site wajib diisi" },
+        { status: 400 }
+      );
+    }
+
+    const existing = await prisma.$queryRaw<Array<{ id: number; id_logger: number }>>`
+      SELECT id, id_logger FROM config_adr WHERE site = ${site} LIMIT 1
+    `;
+    if (existing.length === 0) {
+      return NextResponse.json(
+        { success: false, error: `Konfigurasi untuk site "${site}" belum ada` },
+        { status: 404 }
+      );
+    }
+
     await prisma.$executeRaw`
       UPDATE config_adr
       SET
@@ -62,34 +91,53 @@ export async function PUT(request: Request) {
         step_record  = ${parseInt(step_record)},
         retries      = ${parseInt(retries)},
         cycle_time   = ${parseInt(cycle_time)}
-      WHERE id = ${id}
+      WHERE site = ${site}
     `;
 
-    // Ambil id_logger ADR untuk MQTT
-    const loggers = await prisma.$queryRaw<Array<{ id_logger: string }>>`
-      SELECT l.id_logger
-      FROM t_logger l
-      JOIN kategori_logger kl ON l.kategori_log = kl.id_katlogger
-      WHERE kl.nama_kategori LIKE '%ADR%' OR kl.nama_kategori LIKE '%RTS%'
-      LIMIT 1
-    `;
-    const loggerId = loggers?.[0]?.id_logger;
+    // Origin RTS juga tersimpan di t_site (dipakai menghitung deformasi).
+    // Kalau keduanya dibiarkan berbeda, perangkat memakai titik acuan yang lain
+    // dari aplikasi dan selisihnya muncul sebagai "pergeseran" palsu — jadi
+    // perbedaannya dilaporkan, bukan didiamkan.
+    const siteRow = await prisma.site.findUnique({ where: { slug: site } });
+    const selisihMm =
+      siteRow?.rts_n != null && siteRow?.rts_e != null && siteRow?.rts_z != null
+        ? {
+            N: Math.round((parseFloat(coor_x) - siteRow.rts_n) * 1000),
+            E: Math.round((parseFloat(coor_y) - siteRow.rts_e) * 1000),
+            Z: Math.round((parseFloat(coor_z) - siteRow.rts_z) * 1000),
+          }
+        : null;
+    const originBeda =
+      selisihMm !== null &&
+      (selisihMm.N !== 0 || selisihMm.E !== 0 || selisihMm.Z !== 0);
 
-    // Kirim config ke logger via MQTT
-    let mqttSent = false;
-    if (loggerId) {
-      mqttSent = await sendRtsConfig(loggerId, {
-        jobName:    job_name || "",
-        prismConst: String(prisma_cons ?? "0"),
-        tsHigh:     String(ts_high ?? "0"),
-        locCoor:    [String(coor_x ?? "0"), String(coor_y ?? "0"), String(coor_z ?? "0")],
-        stepRecord: parseInt(step_record) || 5,
-        retries:    parseInt(retries) || 2,
-        cycleTime:  parseInt(cycle_time) || 15,
-      });
-    }
+    // Logger diturunkan dari baris config site ini, bukan "logger ADR pertama".
+    const loggerId = String(existing[0].id_logger);
 
-    return NextResponse.json({ success: true, mqtt_sent: mqttSent });
+    const mqttSent = await sendRtsConfig(loggerId, {
+      jobName: job_name || "",
+      prismConst: String(prisma_cons ?? "0"),
+      tsHigh: String(ts_high ?? "0"),
+      locCoor: [String(coor_x ?? "0"), String(coor_y ?? "0"), String(coor_z ?? "0")],
+      stepRecord: parseInt(step_record) || 5,
+      retries: parseInt(retries) || 2,
+      cycleTime: parseInt(cycle_time) || 15,
+    });
+
+    return NextResponse.json({
+      success: true,
+      mqtt_sent: mqttSent,
+      site,
+      id_logger: loggerId,
+      peringatan: originBeda
+        ? [
+            `Titik origin yang dikirim ke RTS berbeda dari koordinat referensi site ` +
+              `di Master Data (selisih N ${selisihMm!.N} mm, E ${selisihMm!.E} mm, ` +
+              `Z ${selisihMm!.Z} mm). Perangkat dan perhitungan deformasi akan memakai ` +
+              `acuan yang berbeda — samakan salah satunya.`,
+          ]
+        : [],
+    });
   } catch (error) {
     console.error("[PUT /api/config-adr]", error);
     return NextResponse.json(
@@ -98,4 +146,3 @@ export async function PUT(request: Request) {
     );
   }
 }
-

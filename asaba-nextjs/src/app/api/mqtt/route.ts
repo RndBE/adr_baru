@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
-import { prisma } from "@/lib/prisma";
 import { publishMqtt } from "@/lib/mqtt";
+import { getLoggerForSite } from "@/lib/sites";
 
 /**
  * POST /api/mqtt
@@ -9,7 +9,9 @@ import { publishMqtt } from "@/lib/mqtt";
  *
  * Body: {
  *   command: "go_target" | "auto_search" | "set_config" | "update_prisma"
- *   id_logger?: string  (opsional — ambil dari DB jika tidak ada)
+ *   -- Tujuan perintah, WAJIB salah satu:
+ *   id_logger?: string  — logger tujuan, atau
+ *   site?: string       — loggernya diambil dari master data site
  *   payload?: object    (untuk custom payload)
  *   -- Jika command = "go_target"
  *   slot_id?: number
@@ -32,18 +34,27 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Ambil id_logger secara dinamis dari DB
-    let id_logger: string = body.id_logger;
-    if (!id_logger) {
-      const loggers = await prisma.$queryRaw<Array<{ id_logger: string }>>`
-        SELECT id_logger FROM t_logger WHERE kategori_log = '1' LIMIT 1
-      `;
-      id_logger = loggers?.[0]?.id_logger;
+    // Tujuan perintah ditentukan eksplisit: `id_logger` langsung, atau `site`
+    // yang diterjemahkan ke logger miliknya.
+    //
+    // Fallback lama "logger ADR pertama" (LIMIT 1 tanpa ORDER BY) dihapus:
+    // payload berbentuk { set_<id_logger>: … } dan endpoint ini mengirim
+    // perintah yang menggerakkan alat, jadi menebak tujuan berarti perintah
+    // bisa mendarat di perangkat site lain. Lebih baik menolak daripada salah
+    // sasaran.
+    let id_logger: string | null = body.id_logger ?? null;
+    if (!id_logger && body.site) {
+      id_logger = await getLoggerForSite(String(body.site));
     }
     if (!id_logger) {
       return NextResponse.json(
-        { success: false, error: "ADR logger not found in database" },
-        { status: 404 }
+        {
+          success: false,
+          error:
+            "Tujuan perintah tidak jelas — kirim `id_logger`, atau `site` yang " +
+            "loggernya sudah terdaftar.",
+        },
+        { status: 400 }
       );
     }
 

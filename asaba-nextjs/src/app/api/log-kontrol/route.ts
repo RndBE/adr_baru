@@ -44,11 +44,18 @@ export async function GET(request: NextRequest) {
       result = await Promise.all(
         logs.map(async (lg) => {
           const idLog = lg.id_log as string;
+          // Hanya baris yang benar-benar berisi pembacaan prisma.
+          // Selain hasil tembakan, tabel `rts` juga memuat baris heartbeat
+          // dengan sensor1 = '0' — jumlahnya bisa ratusan kali lipat (sesi
+          // 101109: 1183 baris heartbeat vs 10 prisma sungguhan), sehingga
+          // ikut terhitung membuat "Prisma Count" jadi ngawur.
           const rtsData = await prisma.$queryRaw<Array<Record<string, unknown>>>`
             SELECT sensor1 as id_prisma, sensor8 as E, sensor9 as N, sensor10 as Z,
               sensor3 as nama_prisma, waktu
             FROM rts
             WHERE id_kontrol = ${idLog}
+              AND sensor1 <> ''
+              AND sensor1 <> '0'
           `;
 
           const data_kirim = (rtsData as Array<Record<string, unknown>>).map((v) => ({
@@ -64,11 +71,18 @@ export async function GET(request: NextRequest) {
                 : "Failed",
           }));
 
+          // Hitung prisma yang BERBEDA, bukan jumlah baris: satu prisma bisa
+          // ditembak lebih dari sekali dalam satu sesi.
+          const prismaUnik = new Set(data_kirim.map((d) => String(d.id_prisma)));
+          const sukses = new Set(
+            data_kirim.filter((d) => d.status === "Success").map((d) => String(d.id_prisma))
+          );
+
           return {
             ...lg,
             data_kirim,
-            prisma_count: data_kirim.length,
-            success_count: data_kirim.filter((d) => d.status === "Success").length,
+            prisma_count: prismaUnik.size,
+            success_count: sukses.size,
           };
         })
       );

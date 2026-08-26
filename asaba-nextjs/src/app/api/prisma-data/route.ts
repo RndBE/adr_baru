@@ -1,32 +1,57 @@
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 
-
 /**
- * GET /api/prisma-data
- * Fetch all latest prisma data from temp_prisma grouped by id_prisma.
+ * GET /api/prisma-data?site=xxx
+ * Status live tiap prisma dari temp_prisma.
+ *
+ * Query params:
+ * - site: WAJIB diisi untuk memperoleh data satu site saja. Tanpa parameter
+ *   ini, endpoint mengembalikan seluruh prisma dari semua site — perilaku lama
+ *   yang membuat prisma site lain muncul di panel Kontrol ADR.
  *
  * Kolom:
- * - id_prisma  : nama prisma (misal P1, P2, ...)
+ * - id_prisma  : nomor slot RTS (P1, P2, …) — dipakai ulang tiap site,
+ *                jadi hanya unik bersama `site`
  * - waktu      : waktu pengukuran
  * - N1, E1, Z1 : koordinat hasil (Y, X, Z)
  * - N0, E0, Z0 : koordinat referensi
  * - status_get : 1 = success, 0 = failed, 2 = running
  * - HA, VA, SlopDis
  */
-export async function GET() {
+export async function GET(request: NextRequest) {
   try {
-    // Ambil data terbaru per id_prisma
-    const rows = await prisma.$queryRaw<Array<Record<string, unknown>>>`
-      SELECT tp.*
-      FROM temp_prisma tp
-      INNER JOIN (
-        SELECT id_prisma, MAX(id) AS max_id
-        FROM temp_prisma
-        GROUP BY id_prisma
-      ) latest ON tp.id_prisma = latest.id_prisma AND tp.id = latest.max_id
-      ORDER BY tp.id_prisma ASC
-    `;
+    const site = request.nextUrl.searchParams.get("site");
+
+    // Baris terbaru per prisma, di-scope per site.
+    const rows = site
+      ? await prisma.$queryRaw<Array<Record<string, unknown>>>`
+          SELECT tp.*
+          FROM temp_prisma tp
+          INNER JOIN (
+            SELECT site, id_prisma, MAX(id) AS max_id
+            FROM temp_prisma
+            WHERE site = ${site}
+            GROUP BY site, id_prisma
+          ) latest
+            ON tp.site = latest.site
+           AND tp.id_prisma = latest.id_prisma
+           AND tp.id = latest.max_id
+          ORDER BY tp.id_prisma ASC
+        `
+      : await prisma.$queryRaw<Array<Record<string, unknown>>>`
+          SELECT tp.*
+          FROM temp_prisma tp
+          INNER JOIN (
+            SELECT site, id_prisma, MAX(id) AS max_id
+            FROM temp_prisma
+            GROUP BY site, id_prisma
+          ) latest
+            ON tp.site = latest.site
+           AND tp.id_prisma = latest.id_prisma
+           AND tp.id = latest.max_id
+          ORDER BY tp.site ASC, tp.id_prisma ASC
+        `;
 
     return NextResponse.json({ success: true, data: rows });
   } catch (error) {

@@ -1,31 +1,35 @@
 import { NextRequest, NextResponse } from "next/server";
-import { prisma } from "@/lib/prisma";
 import mqtt from "mqtt";
+import { getLoggerForSite } from "@/lib/sites";
 
 /**
  * POST /api/kontrol/power
  * Power On/Off RTS via MQTT (fire-and-forget).
  * Balasan dari logger akan ditangkap langsung oleh frontend via MQTT.
  *
- * Body: { action: "on" | "off" }
+ * Body: { action: "on" | "off", site: string }
  */
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
-    const { action } = body;
+    const { action, site } = body;
 
     if (action !== "on" && action !== "off") {
-      return NextResponse.json({ success: false, error: 'action harus "on" atau "off"' }, { status: 400 });
+      return NextResponse.json({ success: false, error: `action harus "on" atau "off"` }, { status: 400 });
     }
 
-    const loggers = await prisma.$queryRaw<Array<{ id_logger: string }>>`
-      SELECT l.id_logger FROM t_logger l
-      JOIN kategori_logger kl ON l.kategori_log = kl.id_katlogger
-      WHERE kl.nama_kategori LIKE '%ADR%' OR kl.nama_kategori LIKE '%RTS%' LIMIT 1
-    `;
-    const id_logger = loggers?.[0]?.id_logger;
+    // Perintah ini menyalakan/mematikan unit RTS. Logger diturunkan dari site,
+    // bukan "logger ADR pertama" — dengan lebih dari satu unit terdaftar,
+    // LIMIT 1 tanpa ORDER BY bisa mematikan perangkat milik site lain.
+    if (!site) {
+      return NextResponse.json({ success: false, error: "site wajib diisi" }, { status: 400 });
+    }
+    const id_logger = await getLoggerForSite(site);
     if (!id_logger) {
-      return NextResponse.json({ success: false, error: "ADR logger not found" }, { status: 404 });
+      return NextResponse.json(
+        { success: false, error: `Logger untuk site "${site}" tidak ditemukan` },
+        { status: 404 }
+      );
     }
 
     const topicTarget = process.env.MQTT_TOPIC || "ADR_Tambang_Kaltara";

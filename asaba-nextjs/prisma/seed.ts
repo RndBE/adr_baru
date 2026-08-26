@@ -85,8 +85,8 @@ async function main() {
 
   for (const p of prismas) {
     await prisma.$executeRaw`
-      INSERT INTO t_prisma (id, id_prisma, id_logger, nama_prisma, status_controller, target_height, HA, VA, SlopDis)
-      VALUES (${p.id}, ${p.id_prisma}, 30002, ${p.nama}, 'sensor9', 0, ${p.HA}, ${p.VA}, 0)
+      INSERT INTO t_prisma (id, id_prisma, id_logger, nama_prisma, status_controller, target_height, HA, VA, SlopDis, site)
+      VALUES (${p.id}, ${p.id_prisma}, 30002, ${p.nama}, 'sensor9', 0, ${p.HA}, ${p.VA}, 0, 'ccp')
     `;
   }
 

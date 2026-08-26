@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { prisma } from "@/lib/prisma";
+import { verifikasiKodeAkses } from "@/lib/kode-akses";
 
 /**
  * POST /api/kontrol/verify-access
@@ -13,24 +13,13 @@ export async function POST(request: NextRequest) {
     const body = await request.json();
     const { kode_akses } = body;
 
-    if (!kode_akses) {
+    // verifikasiKodeAkses() sekaligus memeriksa masa berlaku — sebelumnya
+    // hanya hash yang dicocokkan, sehingga kode kedaluwarsa tetap diterima.
+    const hasil = await verifikasiKodeAkses(String(kode_akses ?? ""));
+    if (!hasil.valid) {
       return NextResponse.json(
-        { success: false, error: "Kode akses wajib diisi" },
-        { status: 400 }
-      );
-    }
-
-    const { createHash } = await import("crypto");
-    const hashedInput = createHash("md5").update(kode_akses).digest("hex");
-
-    const accessCode = await prisma.kodeAkses.findFirst({
-      where: { kode_akses: hashedInput },
-    });
-
-    if (!accessCode) {
-      return NextResponse.json(
-        { success: false, error: "Kode Akses Salah" },
-        { status: 403 }
+        { success: false, error: hasil.alasan },
+        { status: hasil.alasan === "Kode akses wajib diisi" ? 400 : 403 }
       );
     }
 

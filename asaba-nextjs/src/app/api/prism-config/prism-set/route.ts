@@ -7,16 +7,24 @@ import { prisma } from "@/lib/prisma";
  * Dipanggil oleh frontend saat menerima MQTT response recordTarget dari logger.
  * Simpan HA dan VA ke t_prisma.
  *
- * Body: { nama_prisma: string, HA: string, VA: string }
+ * Body: { nama_prisma: string, HA: string, VA: string, site: string }
  */
 export async function PATCH(request: NextRequest) {
   try {
     const body = await request.json();
-    const { nama_prisma, HA, VA } = body;
+    const { nama_prisma, HA, VA, site } = body;
 
     if (!nama_prisma) {
       return NextResponse.json(
         { success: false, error: "nama_prisma wajib dikirim" },
+        { status: 400 }
+      );
+    }
+    // Nama prisma tidak dijamin unik antar site, jadi tanpa site update ini
+    // bisa mengenai target milik site lain.
+    if (!site) {
+      return NextResponse.json(
+        { success: false, error: "site wajib dikirim" },
         { status: 400 }
       );
     }
@@ -27,11 +35,11 @@ export async function PATCH(request: NextRequest) {
       );
     }
 
-    // Update HA/VA di t_prisma berdasarkan nama_prisma
+    // Update HA/VA di t_prisma berdasarkan nama_prisma, dibatasi per site
     await prisma.$executeRaw`
       UPDATE t_prisma
       SET HA = ${String(HA)}, VA = ${String(VA)}
-      WHERE nama_prisma = ${nama_prisma}
+      WHERE nama_prisma = ${nama_prisma} AND site = ${site}
     `;
 
     return NextResponse.json({

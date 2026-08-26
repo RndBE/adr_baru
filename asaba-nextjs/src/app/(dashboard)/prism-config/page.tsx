@@ -12,6 +12,7 @@ import Image from "next/image";
 import { cn } from "@/lib/utils";
 import { RtsConnectionBadge } from "@/components/RtsConnectionBadge";
 import { useRtsConnectionStatus } from "@/hooks/use-api";
+import { useSites } from "@/hooks/use-sites";
 import mqtt from "mqtt";
 
 // =================== TYPES ===================
@@ -40,11 +41,14 @@ interface ApiResponse {
 function PrismaModal({
   mode,
   slot,
+  site,
   onClose,
   onSuccess,
 }: {
   mode: "set" | "edit";
   slot: PrismaSlot;
+  /** Slot prisma hanya unik bersama site — lihat catatan di t_prisma.site. */
+  site: string;
   onClose: () => void;
   onSuccess: () => void;
 }) {
@@ -110,6 +114,7 @@ function PrismaModal({
               nama_prisma: rt.TargetName,
               HA: rt.HA,
               VA: rt.VA,
+              site,
             }),
           }).then(() => {
             // Reload data setelah simpan
@@ -152,7 +157,9 @@ function PrismaModal({
         mqttClientRef.current = null;
       }
     };
-  }, [onSuccess]);
+    // `site` ikut jadi dependency: handler MQTT mengirimnya ke prism-set,
+    // jadi handler lama akan menyimpan HA/VA ke site yang sudah tidak dipilih.
+  }, [onSuccess, site]);
 
   const doRequest = async (method: string, body: object) => {
     setLoading(true);
@@ -183,7 +190,7 @@ function PrismaModal({
       const res = await fetch("/api/kontrol/auto-search", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ slot_id: slot.slot }),
+        body: JSON.stringify({ slot_id: slot.slot, site }),
       });
       const json = await res.json();
       if (!json.success) throw new Error(json.error || "Gagal Auto Search");
@@ -231,6 +238,7 @@ function PrismaModal({
           slot_id: slot.slot,
           nama_prisma: namaPrisma,
           target_height: targetHeight,
+          site,
         }),
       });
       const json = await res.json();
@@ -488,7 +496,16 @@ const PAGE_SIZE = 10;
 
 export default function PrismConfigPage() {
   const { isConnected } = useRtsConnectionStatus();
-  
+  const { sites: siteList } = useSites();
+
+  // Slot prisma (P1, P2, …) dipakai ulang di tiap site dan menunjuk target
+  // fisik yang berbeda, jadi halaman ini harus selalu terikat ke satu site.
+  // Nilai efektifnya diturunkan, bukan disinkronkan lewat effect: sebelum
+  // daftar site termuat, `site` berisi "" dan fetch-nya memang ditunda.
+  const [sitePilihan, setSitePilihan] = useState("");
+  const site = sitePilihan || siteList[0]?.slug || "";
+  const setSite = setSitePilihan;
+
   const [searchTerm, setSearchTerm] = useState("");
   const [allData, setAllData] = useState<PrismaSlot[]>([]);
   const [loading, setLoading] = useState(true);
@@ -504,10 +521,11 @@ export default function PrismConfigPage() {
 
   // ── Fetch data dari /api/prism-config ──
   const fetchData = useCallback(async () => {
+    if (!site) return;
     setLoading(true);
     setError("");
     try {
-      const res = await fetch("/api/prism-config");
+      const res = await fetch(`/api/prism-config?site=${encodeURIComponent(site)}`);
       const json: ApiResponse = await res.json();
       if (!json.success) throw new Error(json.error || "Gagal mengambil data");
       setAllData(json.data);
@@ -516,11 +534,16 @@ export default function PrismConfigPage() {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [site]);
 
   useEffect(() => {
     fetchData();
   }, [fetchData]);
+
+  // Ganti site → kembali ke halaman 1, karena daftar slotnya berbeda.
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [site]);
 
   // ── Filter berdasarkan search ──
   const filtered = allData.filter((row) => {
@@ -592,16 +615,30 @@ export default function PrismConfigPage() {
               </span>
             )}
           </div>
-          <div className="relative w-[320px] group text-gray-400 focus-within:text-[#303481] transition-colors duration-300">
-            <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 group-focus-within:scale-110 transition-transform duration-300" />
-            <Input
-              type="text"
-              placeholder="Cari nama/ID prisma..."
-              value={searchTerm}
-              onChange={(e) => { setSearchTerm(e.target.value); setCurrentPage(1); }}
-              autoComplete="off"
-              className="pl-9 pr-4 h-[38px] text-[13px] border-gray-300 focus-visible:ring-[#303481] rounded-lg bg-white transition-shadow duration-300"
-            />
+          <div className="flex items-center gap-3">
+            {/* Slot P1 di site berbeda adalah target fisik berbeda, jadi daftar
+                ini selalu terikat ke satu site. */}
+            <select
+              value={site}
+              onChange={(e) => setSite(e.target.value)}
+              className="h-[38px] cursor-pointer rounded-lg border border-gray-300 bg-white px-3 text-[13px] font-semibold text-gray-700 outline-none focus:border-[#303481]"
+              title="Site"
+            >
+              {siteList.map((s) => (
+                <option key={s.slug} value={s.slug}>{s.nama}</option>
+              ))}
+            </select>
+            <div className="relative w-[320px] group text-gray-400 focus-within:text-[#303481] transition-colors duration-300">
+              <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 group-focus-within:scale-110 transition-transform duration-300" />
+              <Input
+                type="text"
+                placeholder="Cari nama/ID prisma..."
+                value={searchTerm}
+                onChange={(e) => { setSearchTerm(e.target.value); setCurrentPage(1); }}
+                autoComplete="off"
+                className="pl-9 pr-4 h-[38px] text-[13px] border-gray-300 focus-visible:ring-[#303481] rounded-lg bg-white transition-shadow duration-300"
+              />
+            </div>
           </div>
         </div>
 
@@ -767,6 +804,7 @@ export default function PrismConfigPage() {
         <PrismaModal
           mode={modal.mode}
           slot={modal.slot}
+          site={site}
           onClose={() => setModal({ open: false, mode: "set", slot: null })}
           onSuccess={handleModalSuccess}
         />

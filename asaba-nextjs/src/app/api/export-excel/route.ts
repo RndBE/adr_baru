@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
+import { getSite } from "@/lib/sites";
 import ExcelJS from "exceljs";
 
 function nfloat(v: unknown): number {
@@ -31,6 +32,9 @@ export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
     const { id_log, site = "unknown" } = body;
+    // Judul dan nama file pakai nama resmi site dari master data, bukan slug mentah.
+    const siteConfig = await getSite(site);
+    const siteName = siteConfig.nama;
 
     if (!id_log) {
       return NextResponse.json(
@@ -59,12 +63,17 @@ export async function POST(request: NextRequest) {
     `;
     const logFirst = r0Rows?.[0]?.id_log || id_log;
 
-    // Get all prisma
+    // Prisma milik site ini saja. Sebelumnya query ini tanpa filter sama sekali,
+    // sehingga file ekspor satu site ikut memuat baris prisma site lain.
     const prisms = await prisma.$queryRaw<Array<Record<string, unknown>>>`
       SELECT t_prisma.*, temp_prisma.N1, temp_prisma.E1, temp_prisma.Z1,
              temp_prisma.N0, temp_prisma.E0, temp_prisma.Z0, temp_prisma.status_get
       FROM t_prisma
-      LEFT JOIN temp_prisma ON temp_prisma.id_prisma = t_prisma.id_prisma
+      LEFT JOIN temp_prisma
+        ON temp_prisma.id_prisma = t_prisma.id_prisma
+       AND temp_prisma.site = t_prisma.site
+      WHERE t_prisma.site = ${siteConfig.slug}
+      ORDER BY t_prisma.id_prisma
     `;
 
     // Build measurement data
@@ -121,7 +130,7 @@ export async function POST(request: NextRequest) {
     // Title
     sheet.mergeCells("A1:S1");
     const titleCell = sheet.getCell("A1");
-    titleCell.value = `Hasil Penembakan RTS ${site} PT MIP`;
+    titleCell.value = `Hasil Penembakan RTS ${siteName} PT MIP`;
     titleCell.font = { bold: true, size: 14 };
     titleCell.alignment = { horizontal: "center", vertical: "middle" };
     sheet.getRow(1).height = 30;
@@ -209,7 +218,7 @@ export async function POST(request: NextRequest) {
 
     // Generate buffer
     const buffer = await workbook.xlsx.writeBuffer();
-    const filename = `Hasil_Penembakan_RTS_${site}_${datetime.replace(/[: ]/g, "_")}.xlsx`;
+    const filename = `Hasil_Penembakan_RTS_${siteConfig.slug}_${datetime.replace(/[: ]/g, "_")}.xlsx`;
 
     return new NextResponse(buffer as ArrayBuffer, {
       headers: {

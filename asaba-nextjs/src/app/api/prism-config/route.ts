@@ -1,58 +1,49 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { publishMqtt } from "@/lib/mqtt";
+import { getLoggerForSite } from "@/lib/sites";
 
 
 /**
- * Helper: Ambil id_logger ADR secara dinamis dari kategori_log = '1'
- */
-async function getAdrLoggerId(): Promise<string | null> {
-  const loggers = await prisma.$queryRaw<Array<{ id_logger: string }>>`
-    SELECT id_logger FROM t_logger WHERE kategori_log = '1' LIMIT 1
-  `;
-  return loggers?.[0]?.id_logger ?? null;
-}
-
-/**
- * GET /api/prism-config
+ * GET /api/prism-config?site=xxx
  * Daftar 50 slot prisma (dinamis dari t_prisma + temp_prisma).
  * Setara dengan Adr::daftar_prisma() di CI3.
- * 
+ *
  * Query params:
- * - id_logger: (optional) override logger ID
+ * - site: WAJIB. Slot "P1" di site berbeda adalah target fisik yang berbeda,
+ *   jadi daftar slot hanya bermakna dalam konteks satu site. Mode "per logger"
+ *   dihapus karena satu logger bisa melayani beberapa site, sehingga hasilnya
+ *   mencampur target dari site yang berlainan.
  */
 export async function GET(request: NextRequest) {
   try {
     const { searchParams } = new URL(request.url);
-    const idLoggerParam = searchParams.get("id_logger");
-    const id_logger = idLoggerParam ?? await getAdrLoggerId();
+    const site = searchParams.get("site");
 
+    if (!site) {
+      return NextResponse.json(
+        { success: false, error: "Parameter site wajib diisi" },
+        { status: 400 }
+      );
+    }
+
+    const id_logger = await getLoggerForSite(site);
     if (!id_logger) {
       return NextResponse.json(
-        { success: false, error: "ADR logger not found in database" },
+        { success: false, error: `Logger untuk site "${site}" tidak ditemukan` },
         { status: 404 }
       );
     }
 
-    // Ambil semua prisma terdaftar untuk logger ini
     const registeredPrisma = await prisma.$queryRaw<Array<Record<string, unknown>>>`
-      SELECT 
-        p.id,
-        p.id_prisma,
-        p.id_logger,
-        p.nama_prisma,
-        p.status_controller,
-        p.target_height,
-        p.HA,
-        p.VA,
-        p.SlopDis,
-        tp.waktu,
-        tp.N1, tp.E1, tp.Z1,
-        tp.N0, tp.E0, tp.Z0,
-        tp.status_get
+      SELECT
+        p.id, p.id_prisma, p.id_logger, p.nama_prisma, p.status_controller,
+        p.target_height, p.HA, p.VA, p.SlopDis, p.site,
+        tp.waktu, tp.N1, tp.E1, tp.Z1, tp.N0, tp.E0, tp.Z0, tp.status_get
       FROM t_prisma p
-      LEFT JOIN temp_prisma tp ON tp.id_prisma = p.id_prisma
-      WHERE p.id_logger = ${id_logger}
+      LEFT JOIN temp_prisma tp
+        ON tp.id_prisma = p.id_prisma AND tp.site = p.site
+      WHERE p.site = ${site}
       ORDER BY p.id ASC
     `;
 
@@ -101,12 +92,12 @@ export async function GET(request: NextRequest) {
  * Insert prisma baru ke t_prisma, temp_prisma, parameter_prisma + kirim MQTT.
  * Setara dengan Adr::input_prisma() di CI3.
  * 
- * Body: { slot_id, nama_prisma, target_height }
+ * Body: { slot_id, nama_prisma, target_height, site }
  */
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
-    const { slot_id, nama_prisma, target_height } = body;
+    const { slot_id, nama_prisma, target_height, site } = body;
 
     if (!slot_id || !nama_prisma) {
       return NextResponse.json(
@@ -115,23 +106,35 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const id_logger = await getAdrLoggerId();
+    // Site wajib: slot "P1" di site berbeda adalah target fisik yang berbeda,
+    // jadi mendaftarkan slot tanpa site berisiko menimpa milik site lain.
+    if (!site) {
+      return NextResponse.json(
+        { success: false, error: "site wajib diisi" },
+        { status: 400 }
+      );
+    }
+
+    // Logger diturunkan dari SITE, tanpa fallback ke "logger ADR pertama":
+    // payload MQTT berbentuk { set_<id_logger>: … }, jadi menebak logger berarti
+    // perintah bisa nyasar ke perangkat site lain. Lebih baik gagal terang.
+    const id_logger = await getLoggerForSite(site);
     if (!id_logger) {
       return NextResponse.json(
-        { success: false, error: "ADR logger not found in database" },
+        { success: false, error: `Logger untuk site "${site}" tidak ditemukan` },
         { status: 404 }
       );
     }
 
     const id_prisma = `P${slot_id}`;
 
-    // Cek apakah sudah ada
+    // Cek apakah slot ini sudah dipakai DI SITE INI
     const existing = await prisma.$queryRaw<Array<{ id: number }>>`
-      SELECT id FROM t_prisma WHERE id_prisma = ${id_prisma} LIMIT 1
+      SELECT id FROM t_prisma WHERE id_prisma = ${id_prisma} AND site = ${site} LIMIT 1
     `;
     if (existing.length > 0) {
       return NextResponse.json(
-        { success: false, error: `Prisma ${id_prisma} sudah terdaftar. Gunakan PUT untuk update.` },
+        { success: false, error: `Prisma ${id_prisma} sudah terdaftar di site ini. Gunakan PUT untuk update.` },
         { status: 409 }
       );
     }
@@ -144,28 +147,28 @@ export async function POST(request: NextRequest) {
 
     // 1. INSERT ke t_prisma
     await prisma.$executeRaw`
-      INSERT INTO t_prisma (id, id_logger, id_prisma, nama_prisma, status_controller, target_height)
-      VALUES (${new_id}, ${id_logger}, ${id_prisma}, ${nama_prisma}, 'sensor9', ${target_height ?? 0})
+      INSERT INTO t_prisma (id, id_logger, id_prisma, nama_prisma, status_controller, target_height, site)
+      VALUES (${new_id}, ${id_logger}, ${id_prisma}, ${nama_prisma}, 'sensor9', ${target_height ?? 0}, ${site})
     `;
 
     // 2. INSERT ke temp_prisma
     await prisma.$executeRaw`
-      INSERT INTO temp_prisma (id_prisma, waktu, N1, E1, Z1, N0, E0, Z0, status_get)
-      VALUES (${id_prisma}, '-', '0', '0', '0', '0', '0', '0', '1')
+      INSERT INTO temp_prisma (id_prisma, waktu, N1, E1, Z1, N0, E0, Z0, status_get, site)
+      VALUES (${id_prisma}, '-', '0', '0', '0', '0', '0', '0', '1', ${site})
     `;
 
     // 3. INSERT parameter_prisma (Northing, Easting, Elevation)
     await prisma.$executeRaw`
-      INSERT INTO parameter_prisma (id_prisma, nama_parameter, kolom_sensor, analisa, tipe_graf, icon_sensor)
-      VALUES (${id_prisma}, 'Northing_Y', 'sensor8', '1', 'spline', 'northing')
+      INSERT INTO parameter_prisma (id_prisma, nama_parameter, kolom_sensor, analisa, tipe_graf, icon_sensor, site)
+      VALUES (${id_prisma}, 'Northing_Y', 'sensor8', '1', 'spline', 'northing', ${site})
     `;
     await prisma.$executeRaw`
-      INSERT INTO parameter_prisma (id_prisma, nama_parameter, kolom_sensor, analisa, tipe_graf, icon_sensor)
-      VALUES (${id_prisma}, 'Easting_X', 'sensor9', '1', 'spline', 'easting')
+      INSERT INTO parameter_prisma (id_prisma, nama_parameter, kolom_sensor, analisa, tipe_graf, icon_sensor, site)
+      VALUES (${id_prisma}, 'Easting_X', 'sensor9', '1', 'spline', 'easting', ${site})
     `;
     await prisma.$executeRaw`
-      INSERT INTO parameter_prisma (id_prisma, nama_parameter, kolom_sensor, analisa, tipe_graf, icon_sensor)
-      VALUES (${id_prisma}, 'Elevation', 'sensor10', '1', 'spline', 'elevation_z')
+      INSERT INTO parameter_prisma (id_prisma, nama_parameter, kolom_sensor, analisa, tipe_graf, icon_sensor, site)
+      VALUES (${id_prisma}, 'Elevation', 'sensor10', '1', 'spline', 'elevation_z', ${site})
     `;
 
     // 4. Kirim recordTarget ke logger via MQTT
@@ -206,12 +209,12 @@ export async function POST(request: NextRequest) {
  * 3. Kirim recordTarget via publishMqtt
  * 4. Logger balas dengan HA/VA → simpan ke t_prisma
  *
- * Body: { slot_id, nama_prisma?, target_height? }
+ * Body: { slot_id, nama_prisma?, target_height?, site }
  */
 export async function PUT(request: NextRequest) {
   try {
     const body = await request.json();
-    const { slot_id, nama_prisma, target_height } = body;
+    const { slot_id, nama_prisma, target_height, site } = body;
 
     if (!slot_id) {
       return NextResponse.json(
@@ -220,25 +223,40 @@ export async function PUT(request: NextRequest) {
       );
     }
 
-    const id_logger = await getAdrLoggerId();
+    if (!site) {
+      return NextResponse.json(
+        { success: false, error: "site wajib diisi" },
+        { status: 400 }
+      );
+    }
+
+    // Logger diturunkan dari SITE, tanpa fallback ke "logger ADR pertama":
+    // payload MQTT berbentuk { set_<id_logger>: … }, jadi menebak logger berarti
+    // perintah bisa nyasar ke perangkat site lain. Lebih baik gagal terang.
+    const id_logger = await getLoggerForSite(site);
     if (!id_logger) {
       return NextResponse.json(
-        { success: false, error: "ADR logger not found in database" },
+        { success: false, error: `Logger untuk site "${site}" tidak ditemukan` },
         { status: 404 }
       );
     }
 
     const id_prisma = `P${slot_id}`;
 
-    // Update t_prisma (nama_prisma + target_height saja)
+    // Update t_prisma (nama_prisma + target_height saja).
+    // Nilai dikirim sebagai parameter, bukan disisipkan ke string SQL — nama
+    // prisma berasal dari input pengguna dan bisa memuat kutip tunggal.
     const updates: string[] = [];
-    if (nama_prisma !== undefined) updates.push(`nama_prisma = '${nama_prisma}'`);
-    if (target_height !== undefined) updates.push(`target_height = '${target_height}'`);
+    const nilai: unknown[] = [];
+    if (nama_prisma !== undefined) { updates.push("nama_prisma = ?"); nilai.push(nama_prisma); }
+    if (target_height !== undefined) { updates.push("target_height = ?"); nilai.push(target_height); }
 
     if (updates.length > 0) {
       await prisma.$executeRawUnsafe(
-        `UPDATE t_prisma SET ${updates.join(", ")} WHERE id_prisma = ?`,
-        id_prisma
+        `UPDATE t_prisma SET ${updates.join(", ")} WHERE id_prisma = ? AND site = ?`,
+        ...nilai,
+        id_prisma,
+        site
       );
     }
 
@@ -277,12 +295,12 @@ export async function PUT(request: NextRequest) {
  * DELETE /api/prism-config
  * Hapus prisma dari t_prisma, temp_prisma, parameter_prisma.
  * 
- * Body: { slot_id }
+ * Body: { slot_id, site }
  */
 export async function DELETE(request: NextRequest) {
   try {
     const body = await request.json();
-    const { slot_id } = body;
+    const { slot_id, site } = body;
 
     if (!slot_id) {
       return NextResponse.json(
@@ -291,11 +309,19 @@ export async function DELETE(request: NextRequest) {
       );
     }
 
+    // Tanpa site, penghapusan ini akan menghapus slot yang sama di SEMUA site.
+    if (!site) {
+      return NextResponse.json(
+        { success: false, error: "site wajib diisi" },
+        { status: 400 }
+      );
+    }
+
     const id_prisma = `P${slot_id}`;
 
-    await prisma.$executeRaw`DELETE FROM parameter_prisma WHERE id_prisma = ${id_prisma}`;
-    await prisma.$executeRaw`DELETE FROM temp_prisma WHERE id_prisma = ${id_prisma}`;
-    await prisma.$executeRaw`DELETE FROM t_prisma WHERE id_prisma = ${id_prisma}`;
+    await prisma.$executeRaw`DELETE FROM parameter_prisma WHERE id_prisma = ${id_prisma} AND site = ${site}`;
+    await prisma.$executeRaw`DELETE FROM temp_prisma WHERE id_prisma = ${id_prisma} AND site = ${site}`;
+    await prisma.$executeRaw`DELETE FROM t_prisma WHERE id_prisma = ${id_prisma} AND site = ${site}`;
 
     return NextResponse.json({ success: true, message: "Prisma berhasil dihapus" });
   } catch (error) {

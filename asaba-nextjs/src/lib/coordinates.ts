@@ -94,24 +94,34 @@ export function utm2ll(
 
 // ─── Coordinate Rotation ────────────────────────────────────────────────
 
+/** Parameter rotasi UTM milik satu site. Dipenuhi oleh SiteRotation di lib/sites.ts. */
+export interface RotationParams {
+  /** Sudut rotasi dalam derajat. */
+  degree: number;
+  /** Pivot sebenarnya (koordinat GNSS). */
+  pivotE: number;
+  pivotN: number;
+  /** Posisi pivot yang terukur RTS (posisi keliru yang dikoreksi). */
+  ukurE: number;
+  ukurN: number;
+}
+
 /**
- * Rotate Easting/Northing coordinates around CCP pivot point.
+ * Rotate Easting/Northing coordinates around a site's pivot point.
  * Ported from PHP Beranda::rotateEN().
+ *
+ * Pivot dulu di-hardcode ke nilai milik CCP, sehingga site lain yang memanggil
+ * fungsi ini akan dikoreksi memakai pivot site yang salah. Sekarang pivot
+ * datang dari konfigurasi site.
  */
 export function rotateEN(
   E: number,
   N: number,
-  degree: number
+  rot: RotationParams
 ): [number, number] {
-  // Pivot = BS_1 (actual GNSS coordinates)
-  const pivotE = 525919.314;
-  const pivotN = 401306.514;
+  const { degree, pivotE, pivotN, ukurE: measE, ukurN: measN } = rot;
 
-  // BS_1 measured by RTS (incorrect position)
-  const measE = 525951.9891;
-  const measN = 401356.7348;
-
-  // Relative vector from measured BS_1
+  // Relative vector from measured pivot
   const x = E - measE;
   const y = N - measN;
 
@@ -127,19 +137,31 @@ export function rotateEN(
   return [newE, newN];
 }
 
+/** Parameter rotasi dalam lat/lng milik satu site. */
+export interface RotationParamsLL {
+  degree: number;
+  pivotLat: number;
+  pivotLng: number;
+  ukurLat: number;
+  ukurLng: number;
+}
+
 /**
- * Rotate Lat/Lng coordinates.
+ * Rotate Lat/Lng coordinates around a site's pivot point.
  * Ported from PHP Beranda::rotateCoordinate().
  */
 export function rotateCoordinate(
   lat: number,
   lng: number,
-  degree: number
+  rot: RotationParamsLL
 ): [number, number] {
-  const pivotLat = 3.630666916497659;
-  const pivotLng = 117.23339499051768;
-  const bs1MeasLat = 3.6311211814254656;
-  const bs1MeasLng = 117.23368933432215;
+  const {
+    degree,
+    pivotLat,
+    pivotLng,
+    ukurLat: bs1MeasLat,
+    ukurLng: bs1MeasLng,
+  } = rot;
 
   const theta = (degree * Math.PI) / 180;
   const R = 6378137.0;

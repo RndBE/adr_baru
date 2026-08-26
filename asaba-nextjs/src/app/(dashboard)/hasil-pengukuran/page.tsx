@@ -22,6 +22,7 @@ import dynamic from "next/dynamic";
 import { cn } from "@/lib/utils";
 import { RtsConnectionBadge } from "@/components/RtsConnectionBadge";
 import { useRtsConnectionStatus } from "@/hooks/use-api";
+import { useSites } from "@/hooks/use-sites";
 import type { PrismaMarkerData } from "@/components/PrismaMap";
 import {
   Popover,
@@ -223,11 +224,8 @@ function formatDate(dt: string) {
   return `${pad(d.getDate())}-${pad(d.getMonth() + 1)}-${d.getFullYear()} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
 }
 
-function siteBadge(site: string | null) {
-  if (!site) return { label: "?", color: "bg-gray-500" };
-  if (site.toLowerCase().includes("ccp")) return { label: "CPP 3", color: "bg-[#5B8DEF]" };
-  return { label: "VP", color: "bg-[#F3722C]" };
-}
+// Badge site berasal dari master data `t_site` lewat useSites() —
+// lihat pemakaian `siteBadge` di dalam komponen.
 
 function fval(v: unknown): string {
   if (v === null || v === undefined || v === "") return "-";
@@ -243,6 +241,7 @@ function HasilPengukuranContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const { isConnected } = useRtsConnectionStatus();
+  const { sites: siteList, badge: siteBadge, bySlug: siteBySlug } = useSites();
   
   const [activeTab, setActiveTab] = useState("Event");
   const [activeView, setActiveView] = useState(() => searchParams.get("view") ?? "Tabel");
@@ -318,6 +317,9 @@ function HasilPengukuranContent() {
   const [currentPage, setCurrentPage] = useState(1);
   const [totalRuns, setTotalRuns] = useState(0);
   const [allRuns, setAllRuns] = useState<LogKontrol[]>([]);
+  // "" = semua site. Diambil dari ?site= supaya tautan dari Dashboard
+  // membawa serta site yang sedang dilihat.
+  const [siteFilter, setSiteFilter] = useState<string>(searchParams.get("site") ?? "");
 
   // Modal R0 states
   const [isR0ModalOpen, setIsR0ModalOpen] = useState(false);
@@ -334,12 +336,16 @@ function HasilPengukuranContent() {
   const [selectedDate, setSelectedDate] = useState("-");
 
   // ── Fetch log kontrol ──
-  const fetchRuns = useCallback(async (page: number) => {
+  // `siteFilter` kosong = semua site (perilaku lama). Daftar ini memang lintas
+  // site — tiap baris punya badge site-nya — jadi filter bersifat menambah,
+  // bukan mengubah tampilan bawaan.
+  const fetchRuns = useCallback(async (page: number, site: string) => {
     setRunsLoading(true);
     setRunsError("");
     try {
-      const limit = RUNS_PER_PAGE * 3; // ambil lebih banyak untuk paginasi client
-      const res = await fetch(`/api/log-kontrol?limit=100&with_prisma=false`);
+      const params = new URLSearchParams({ limit: "100", with_prisma: "false" });
+      if (site) params.set("site", site);
+      const res = await fetch(`/api/log-kontrol?${params}`);
       const json = await res.json();
       if (!json.success) throw new Error(json.error || "Gagal memuat riwayat");
       setTotalRuns(json.data.length);
@@ -348,18 +354,22 @@ function HasilPengukuranContent() {
       const start = (page - 1) * RUNS_PER_PAGE;
       const pageData = json.data.slice(start, start + RUNS_PER_PAGE);
       setRuns(pageData);
-      // Auto-select first run on initial load
-      if (page === 1 && json.data.length > 0 && !selectedLog) {
-        setSelectedLog(json.data[0]);
-      }
+      // Pilih sesi pertama bila belum ada pilihan, atau bila sesi yang sedang
+      // dipilih tidak ada lagi di daftar hasil filter.
+      setSelectedLog((sebelumnya) => {
+        if (sebelumnya && json.data.some((r: LogKontrol) => r.id_log === sebelumnya.id_log)) {
+          return sebelumnya;
+        }
+        return json.data[0] ?? null;
+      });
     } catch (e: unknown) {
       setRunsError(e instanceof Error ? e.message : "Terjadi kesalahan");
     } finally {
       setRunsLoading(false);
     }
-  }, [selectedLog]);
+  }, []);
 
-  useEffect(() => { fetchRuns(currentPage); }, [currentPage]);
+  useEffect(() => { fetchRuns(currentPage, siteFilter); }, [currentPage, siteFilter, fetchRuns]);
 
   // ── Auto-select run dari query param ?log= ──
   useEffect(() => {
@@ -436,7 +446,8 @@ function HasilPengukuranContent() {
       ];
 
       // Row 1: Title
-      const siteName = selectedLog.site === "ccp" ? "CPP 3" : (selectedLog.site?.toUpperCase() || "");
+      const siteName =
+        siteBySlug(selectedLog.site)?.nama ?? (selectedLog.site?.toUpperCase() || "");
       const titleRow = sheet.addRow([`Hasil Penembakan RTS ${siteName} PT MIP`]);
       sheet.mergeCells("A1:S1");
       titleRow.getCell(1).font = { size: 14, bold: true };
@@ -565,8 +576,21 @@ function HasilPengukuranContent() {
         {/* ── Left: Tanggal Running ── */}
         <div className="bg-white border border-[#EAEAEA] rounded-xl shadow-sm overflow-hidden flex flex-col">
           <div className="px-5 py-4 flex items-center justify-between border-b border-[#EAEAEA]">
-            <h3 className="font-extrabold text-gray-900 text-[15px]">Tanggal Running</h3>
-            <button 
+            <div className="flex items-center gap-2.5">
+              <h3 className="font-extrabold text-gray-900 text-[15px]">Tanggal Running</h3>
+              <select
+                value={siteFilter}
+                onChange={(e) => { setSiteFilter(e.target.value); setCurrentPage(1); }}
+                className="h-7 max-w-[150px] cursor-pointer rounded-md border border-gray-200 bg-white px-2 text-[11.5px] font-semibold text-gray-700 outline-none focus:border-[#303481]"
+                title="Saring berdasarkan site"
+              >
+                <option value="">Semua site</option>
+                {siteList.map((s) => (
+                  <option key={s.slug} value={s.slug}>{s.nama}</option>
+                ))}
+              </select>
+            </div>
+            <button
               onClick={() => setIsR0ModalOpen(true)}
               className="flex items-center gap-1.5 px-3 py-1.5 bg-gray-50 hover:bg-gray-100 border border-gray-200 rounded-md text-[11px] font-bold text-gray-700 transition-colors cursor-pointer"
             >
@@ -605,8 +629,13 @@ function HasilPengukuranContent() {
                     <span className="text-[12.5px] text-gray-800 font-medium flex-1 whitespace-nowrap overflow-hidden text-ellipsis">
                       {formatDate(run.datetime)}
                     </span>
-                    <span className={`px-2.5 py-[2px] rounded-full text-white text-[9.5px] font-bold tracking-wide shadow-sm flex-shrink-0 ${badge.color}`}>
+                    <span
+                      className="px-2.5 py-[2px] rounded-full text-white text-[9.5px] font-bold tracking-wide shadow-sm flex-shrink-0"
+                      style={{ backgroundColor: badge.color }}
+                      title={badge.peringatan ?? badge.nama}
+                    >
                       {badge.label}
+                      {badge.peringatan && " ⚠"}
                     </span>
                     {run.r0 === 1 && (
                       <span className="px-2.5 py-[2px] rounded-full bg-[#64748B] text-white text-[9.5px] font-bold tracking-wide shadow-sm flex-shrink-0">

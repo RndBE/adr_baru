@@ -1,7 +1,7 @@
 "use client";
 
-import { useState, useMemo, useEffect } from "react";
-import { useRouter } from "next/navigation";
+import { useState, useMemo, useEffect, Suspense } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import {
   Select,
   SelectContent,
@@ -28,10 +28,12 @@ import {
   ArrowRight,
   Loader2,
   Check,
-  X
+  X,
+  AlertTriangle
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useLoggers, useLogKontrol, useDeformasi, useLoggerDetail } from "@/hooks/use-api";
+import { useSites } from "@/hooks/use-sites";
 import Image from "next/image";
 
 // ─── Helper: parse waktu dari berbagai format MySQL ──────────────────────────
@@ -79,20 +81,8 @@ function fmtDate(d: string | Date | null, showSeconds = false, shortYear = false
   return "-";
 }
 
-// ─── Helper: badge colors ───────────────────────
-function getSiteBadge(site: string) {
-  switch (site?.toLowerCase()) {
-    case "ccp":
-    case "cpp 3":
-      return { text: "CPP 3", bg: "bg-[#5484EE]" };
-    case "wp":
-      return { text: "WP", bg: "bg-[#EC7D30]" };
-    case "rd":
-      return { text: "RD", bg: "bg-[#8D93A4]" };
-    default:
-      return { text: site?.toUpperCase() || "UNK", bg: "bg-gray-400" };
-  }
-}
+// Badge site sekarang berasal dari master data `t_site` lewat useSites(),
+// bukan dari daftar switch-case yang harus diedit tiap kali ada site baru.
 
 // ─── Helper: group loggers by category ───────────────────────
 export interface LoggerRow {
@@ -152,6 +142,11 @@ interface PengukuranRow {
     linear?: string | number;
     arah_pergeseran?: string;
   };
+  daily?: {
+    pergeseran_mm?: number | null;
+    kecepatan_mmd?: number | null;
+    last_time?: string | null;
+  };
 }
 
 export function groupByCategory(loggers: LoggerRow[]) {
@@ -167,10 +162,24 @@ export function groupByCategory(loggers: LoggerRow[]) {
 }
 
 // ─── RTS Detail Dashboard Component ────────────────────────────────
-function RtsDashboard({ logger }: { logger: LoggerRow }) {
+function RtsDashboard({
+  logger,
+  site,
+  jumlahSesi,
+}: {
+  logger: LoggerRow;
+  site: string;
+  /** Jumlah sesi sebenarnya untuk site ini, dihitung server. */
+  jumlahSesi: number;
+}) {
   const router = useRouter();
   const { detail } = useLoggerDetail(logger.id_logger) as { detail: LoggerDetail | null };
-  const { logs, isLoading: logsLoading } = useLogKontrol(undefined, 30);
+  // Riwayat DIFILTER per site. Tanpa filter, daftar ini menampilkan sesi dari
+  // semua site sekaligus, dan `activeLog` di bawah bisa menunjuk sesi milik
+  // site lain — sehingga kartu deformasi menampilkan angka site yang berbeda
+  // dari yang dipilih di selektor.
+  const { logs, isLoading: logsLoading } = useLogKontrol(site, 30);
+  const { badge: siteBadge } = useSites();
   const [selectedLog, setSelectedLog] = useState<string | null>(null);
   const [showInfo, setShowInfo] = useState(false);
   const [nowMs, setNowMs] = useState(Date.now);
@@ -181,6 +190,10 @@ function RtsDashboard({ logger }: { logger: LoggerRow }) {
     const id = setInterval(() => setNowMs(Date.now()), 60_000);
     return () => clearInterval(id);
   }, []);
+
+  // Catatan: state di komponen ini tidak perlu di-reset manual saat site
+  // berganti — pemanggilnya memberi `key={site}` sehingga komponen di-remount
+  // dan `selectedLog` (yang berisi id_log milik site lama) ikut hilang.
 
   const typedLogs = logs as LogKontrolRow[];
   const activeLog = selectedLog || (typedLogs.length > 0 ? typedLogs[0].id_log : null);
@@ -229,14 +242,51 @@ function RtsDashboard({ logger }: { logger: LoggerRow }) {
   const temperature = tempRts?.sensor22 ?? 0;   // Temperature (°C)
   // Status SD Card dari sensor17: 1 = OK, 0 = Error
   const isSdCardOk = Number(tempRts?.sensor17 ?? 0) === 1;
-  const lastUpdateStr = tempRts?.waktu ? fmtDate(tempRts.waktu, true) : "01-01-2026 17:19:00";
+  // "-" bila logger belum pernah mengirim data. Sebelumnya jatuh ke tanggal
+  // hardcode "01-01-2026 17:19:00" yang terbaca seperti timestamp sungguhan.
+  const lastUpdateStr = tempRts?.waktu ? fmtDate(tempRts.waktu, true) : "-";
+  const lastUpdateJam = lastUpdateStr.split(" ")[1] ?? null;
 
-  const pengukuran = (deformasi?.data_pengukuran || []) as PengukuranRow[];
-  
-  const totalRunning = logs.length;
-  // Mocking exact values from your image
-  const maxPergeseran = 13.74;
-  const maxKecepatan = 2.25;
+  const pengukuran = useMemo(
+    () => (deformasi?.data_pengukuran ?? []) as PengukuranRow[],
+    [deformasi]
+  );
+
+  // Dari server, bukan logs.length — daftar log dibatasi limit 30 sehingga
+  // site dengan sesi lebih banyak akan salah hitung.
+  const totalRunning = jumlahSesi;
+
+  // Pergeseran & kecepatan maksimum dihitung dari data sesi aktif. Sebelumnya
+  // keduanya konstanta hardcode (13.74 / 2.25) dengan label prisma karangan
+  // ("Prism C1", "Prism C6") — angkanya tidak pernah berubah meski site atau
+  // sesinya berganti, jadi terbaca seolah nyata padahal bukan.
+  const ringkasan = useMemo(() => {
+    let maxGeser: { nilai: number; prisma: string; waktu: string | null } | null = null;
+    let maxLaju: { nilai: number; prisma: string; waktu: string | null } | null = null;
+
+    for (const row of pengukuran) {
+      const nama = String(row.nama_prisma || row.id_prisma || "-");
+      const geser = row.daily?.pergeseran_mm;
+      const laju = row.daily?.kecepatan_mmd;
+      const waktu = row.daily?.last_time ?? null;
+
+      if (typeof geser === "number" && (!maxGeser || geser > maxGeser.nilai)) {
+        maxGeser = { nilai: geser, prisma: nama, waktu };
+      }
+      if (typeof laju === "number" && (!maxLaju || laju > maxLaju.nilai)) {
+        maxLaju = { nilai: laju, prisma: nama, waktu };
+      }
+    }
+    return { maxGeser, maxLaju };
+  }, [pengukuran]);
+
+  /** Jam saja dari timestamp; "-" bila tidak ada. */
+  const jamDari = (w: string | null) => {
+    if (!w) return null;
+    const d = new Date(w);
+    if (isNaN(d.getTime())) return null;
+    return d.toTimeString().slice(0, 8);
+  };
 
   return (
     <div className="space-y-3 md:space-y-4">
@@ -399,7 +449,7 @@ function RtsDashboard({ logger }: { logger: LoggerRow }) {
               recentLogs.map((log) => {
                 const isActive = log.id_log === activeLog;
                 const activeClasses = isActive ? "border-l-[3px] border-[#2B3270] bg-[#F4F6F9]" : "border-l-[3px] border-transparent";
-                const badgeInfo = getSiteBadge(log.site ?? "");
+                const badgeInfo = siteBadge(log.site ?? "");
                 const isR0 = log.r0 === 1;
 
                 return (
@@ -415,8 +465,13 @@ function RtsDashboard({ logger }: { logger: LoggerRow }) {
                   >
                     <span className="text-[13px] text-gray-700 font-medium min-w-[110px]">{fmtDate(log.datetime ?? null)}</span>
                     <div className="flex gap-1">
-                       <span className={cn("text-[9px] font-bold px-2.5 py-0.5 rounded-full text-white", badgeInfo.bg)}>
-                         {badgeInfo.text}
+                       <span
+                         className="text-[9px] font-bold px-2.5 py-0.5 rounded-full text-white"
+                         style={{ backgroundColor: badgeInfo.color }}
+                         title={badgeInfo.peringatan ?? badgeInfo.nama}
+                       >
+                         {badgeInfo.label}
+                         {badgeInfo.peringatan && " ⚠"}
                        </span>
                        {isR0 && (
                           <span className="text-[9px] font-bold px-2.5 py-0.5 rounded-full text-white bg-gray-500">
@@ -559,7 +614,16 @@ function RtsDashboard({ logger }: { logger: LoggerRow }) {
                 <div>
                    <p className="text-[8px] xl:text-[9px] text-gray-400 uppercase font-bold tracking-wider mb-0.5">Running Terakhir</p>
                    {/* mock time layout */}
-                   <p className="font-extrabold text-lg xl:text-xl text-gray-900 leading-none">{lastUpdateStr.split(' ')[1]?.slice(0,5)}<span className="text-[10px] font-bold text-gray-500">:{lastUpdateStr.split(' ')[1]?.slice(6)}</span></p>
+                   <p className="font-extrabold text-lg xl:text-xl text-gray-900 leading-none">
+                     {lastUpdateJam ? (
+                       <>
+                         {lastUpdateJam.slice(0, 5)}
+                         <span className="text-[10px] font-bold text-gray-500">:{lastUpdateJam.slice(6)}</span>
+                       </>
+                     ) : (
+                       "-"
+                     )}
+                   </p>
                 </div>
              </div>
              {/* Pergeseran Maks */}
@@ -569,8 +633,15 @@ function RtsDashboard({ logger }: { logger: LoggerRow }) {
                 </div>
                 <div>
                    <p className="text-[8px] xl:text-[9px] text-gray-400 uppercase font-bold tracking-wider mb-0.5">Pergeseran Maks.</p>
-                   <p className="font-extrabold text-lg xl:text-xl text-gray-900 leading-none mb-1">{maxPergeseran} <span className="text-[10px] font-medium text-gray-500">mm</span></p>
-                   <div className="inline-block bg-[#FFF4E5] text-[#F1A23A] text-[8px] font-bold px-1.5 py-0.5 rounded-sm">Prism C1 • 10:54:00</div>
+                   <p className="font-extrabold text-lg xl:text-xl text-gray-900 leading-none mb-1">
+                     {ringkasan.maxGeser ? ringkasan.maxGeser.nilai.toFixed(2) : "-"} <span className="text-[10px] font-medium text-gray-500">mm</span>
+                   </p>
+                   {ringkasan.maxGeser && (
+                     <div className="inline-block bg-[#FFF4E5] text-[#F1A23A] text-[8px] font-bold px-1.5 py-0.5 rounded-sm">
+                       {ringkasan.maxGeser.prisma}
+                       {jamDari(ringkasan.maxGeser.waktu) ? ` • ${jamDari(ringkasan.maxGeser.waktu)}` : ""}
+                     </div>
+                   )}
                 </div>
              </div>
              {/* Kecepatan Maks */}
@@ -580,8 +651,15 @@ function RtsDashboard({ logger }: { logger: LoggerRow }) {
                 </div>
                 <div>
                    <p className="text-[8px] xl:text-[9px] text-gray-400 uppercase font-bold tracking-wider mb-0.5">Kecepatan Maks.</p>
-                   <p className="font-extrabold text-lg xl:text-xl text-gray-900 leading-none mb-1">{maxKecepatan} <span className="text-[10px] font-medium text-gray-500">mm/hari</span></p>
-                   <div className="inline-block bg-[#E8EAFD] text-[#6A78D1] text-[8px] font-bold px-1.5 py-0.5 rounded-sm">Prism C6 • 10:50:00</div>
+                   <p className="font-extrabold text-lg xl:text-xl text-gray-900 leading-none mb-1">
+                     {ringkasan.maxLaju ? ringkasan.maxLaju.nilai.toFixed(2) : "-"} <span className="text-[10px] font-medium text-gray-500">mm/hari</span>
+                   </p>
+                   {ringkasan.maxLaju && (
+                     <div className="inline-block bg-[#E8EAFD] text-[#6A78D1] text-[8px] font-bold px-1.5 py-0.5 rounded-sm">
+                       {ringkasan.maxLaju.prisma}
+                       {jamDari(ringkasan.maxLaju.waktu) ? ` • ${jamDari(ringkasan.maxLaju.waktu)}` : ""}
+                     </div>
+                   )}
                 </div>
              </div>
           </CardContent>
@@ -674,7 +752,8 @@ function SmallMetricCard({title, value, unit, iconBg, iconColor, Icon, imageSrc,
 }
 
 // ─── Main Page ───────────────────────────────────────────────
-export default function BerandaPage() {
+function BerandaContent() {
+  const router = useRouter();
   const { loggers, isLoading, isError } = useLoggers();
 
   const categories = useMemo(() => groupByCategory(loggers), [loggers]);
@@ -683,10 +762,35 @@ export default function BerandaPage() {
     return rtsCategory?.loggers || [];
   }, [categories]);
   
-  const [selectedPos, setSelectedPos] = useState<string>("");
+  // Selektor sekarang memilih SITE, bukan logger. Sebelumnya memilih logger tapi
+  // menampilkan nama lokasi — terbaca seperti site, padahal riwayat dan angka
+  // deformasi di bawahnya tidak ikut tersaring. Ambang bahaya, rotasi, dan peta
+  // semuanya berkunci pada site, jadi site yang seharusnya jadi kendali utama.
+  const { sites, badge: siteBadge } = useSites(false, true);
 
-  const activeLogger = rtsLoggers.find(l => l.id_logger === selectedPos) || rtsLoggers[0];
-  const activePosValue = activeLogger?.id_logger ?? "";
+  // Site aktif ikut di URL (`?site=`) supaya bisa dibagikan dan tidak hilang
+  // saat halaman di-reload — pola yang sama dipakai halaman Hasil Pengukuran.
+  const searchParams = useSearchParams();
+  const siteDariUrl = searchParams.get("site") ?? "";
+  const [selectedSite, setSelectedSite] = useState<string>(siteDariUrl);
+
+  const activeSite = sites.find((s) => s.slug === selectedSite) ?? sites[0];
+  const activeSiteSlug = activeSite?.slug ?? "";
+
+  const gantiSite = (slug: string) => {
+    setSelectedSite(slug);
+    // replace, bukan push — ganti site bukan langkah navigasi yang perlu
+    // bisa ditekan Back berkali-kali.
+    const q = new URLSearchParams(searchParams.toString());
+    q.set("site", slug);
+    router.replace(`/beranda?${q}`, { scroll: false });
+  };
+
+  // Logger diturunkan dari site (lihat /api/sites?with_logger=1). Kalau site
+  // belum punya data sama sekali, jatuh ke logger RTS pertama supaya panel
+  // telemetri tetap punya sesuatu untuk ditampilkan.
+  const activeLogger =
+    rtsLoggers.find((l) => l.id_logger === activeSite?.id_logger) ?? rtsLoggers[0];
 
   return (
     <div className="-m-4 md:-m-6 bg-[#F4F6F9] min-h-[calc(100vh-3.5rem)] p-3 sm:p-4 md:p-6 space-y-3 md:space-y-6">
@@ -713,25 +817,34 @@ export default function BerandaPage() {
         </Card>
       ) : (
         <>
-          {/* Top Controls: Pos Selector */}
+          {/* Top Controls: Site Selector */}
           <div className="flex w-full flex-col gap-2 bg-white border border-[#EAEAEA] rounded-[8px] px-4 py-3 sm:w-max sm:flex-row sm:items-center sm:gap-3 sm:py-2">
-            <span className="text-[13px] font-bold text-gray-800">Pos Aktif:</span>
+            <span className="text-[13px] font-bold text-gray-800">Site Aktif:</span>
             {isLoading ? (
               <div className="h-8 w-full bg-gray-200 animate-pulse rounded-md sm:w-[200px]" />
             ) : (
-              <Select value={activePosValue} onValueChange={(val) => { if (val) setSelectedPos(val); }}>
-                <SelectTrigger className="h-8 w-full bg-transparent border-none shadow-none text-[13px] font-semibold text-gray-800 focus:ring-0 p-0 sm:w-[240px]">
+              <Select value={activeSiteSlug} onValueChange={(val) => { if (val) gantiSite(val); }}>
+                <SelectTrigger className="h-8 w-full bg-transparent border-none shadow-none text-[13px] font-semibold text-gray-800 focus:ring-0 p-0 sm:w-[260px]">
                   <div className="flex items-center gap-2">
                     <MapPin className="w-4 h-4 text-[#303481]" />
-                    <span className="truncate">
-                      {activeLogger?.nama_lokasi || activeLogger?.nama_logger || "Pilih Pos"}
-                    </span>
+                    <span className="truncate">{activeSite?.nama || "Pilih Site"}</span>
+                    {activeSite && (
+                      <span
+                        className="rounded-full px-2 py-[1px] text-[9px] font-bold text-white"
+                        style={{ backgroundColor: activeSite.badge_color }}
+                      >
+                        {activeSite.badge_label}
+                      </span>
+                    )}
                   </div>
                 </SelectTrigger>
                 <SelectContent alignItemWithTrigger={false} sideOffset={4} className="rounded-xl border-gray-100 shadow-lg">
-                  {rtsLoggers.map((l) => (
-                    <SelectItem key={l.id_logger} value={l.id_logger} className="text-[13px] font-medium cursor-pointer">
-                      {l.nama_lokasi || l.nama_logger || `Logger ${l.id_logger}`}
+                  {sites.map((s) => (
+                    <SelectItem key={s.slug} value={s.slug} className="text-[13px] font-medium cursor-pointer">
+                      {s.nama}
+                      <span className="ml-1.5 text-[11px] text-gray-400">
+                        {s.jumlah_sesi ?? 0} sesi
+                      </span>
                     </SelectItem>
                   ))}
                 </SelectContent>
@@ -739,11 +852,45 @@ export default function BerandaPage() {
             )}
           </div>
 
-          {activeLogger && (
-             <RtsDashboard logger={activeLogger} />
+          {/* Peringatan site — muncul sekali di atas, bukan hanya di tooltip badge */}
+          {activeSiteSlug && siteBadge(activeSiteSlug).peringatan && (
+            <div className="flex items-start gap-2.5 rounded-[8px] border border-amber-300 bg-amber-50 px-4 py-3">
+              <AlertTriangle className="mt-0.5 h-4 w-4 flex-shrink-0 text-amber-600" />
+              <div className="text-[12.5px] leading-relaxed text-amber-900">
+                {siteBadge(activeSiteSlug).peringatan}. Angka pergeseran di bawah
+                belum bisa dipakai mengambil keputusan.
+              </div>
+            </div>
+          )}
+
+          {activeLogger && activeSiteSlug && (
+             // key=site → remount saat site berganti, jadi state internal
+             // (mis. sesi yang dipilih) tidak terbawa dari site sebelumnya.
+             <RtsDashboard
+               key={activeSiteSlug}
+               logger={activeLogger}
+               site={activeSiteSlug}
+               jumlahSesi={activeSite?.jumlah_sesi ?? 0}
+             />
           )}
         </>
       )}
     </div>
+  );
+}
+
+// useSearchParams() memaksa halaman jadi dinamis; Suspense boundary menjaga
+// shell-nya tetap bisa di-prerender — pola yang sama dipakai Hasil Pengukuran.
+export default function BerandaPage() {
+  return (
+    <Suspense
+      fallback={
+        <div className="flex items-center justify-center p-10">
+          <Loader2 className="w-8 h-8 animate-spin text-[#303481]" />
+        </div>
+      }
+    >
+      <BerandaContent />
+    </Suspense>
   );
 }

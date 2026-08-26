@@ -2,7 +2,8 @@
 
 import { useEffect, useRef, useState } from "react";
 import "leaflet/dist/leaflet.css";
-import { Maximize, Check } from "lucide-react";
+import { Maximize, Check, AlertTriangle } from "lucide-react";
+import { useSites, fallbackBadge } from "@/hooks/use-sites";
 
 export interface PrismaMarkerData {
   id_prisma: string;
@@ -32,7 +33,25 @@ function parseDelta(value: string): number | null {
   return Number.isFinite(parsed) ? parsed : null;
 }
 
+/** Rata-rata posisi marker — dipakai sebagai center cadangan untuk site
+ *  yang center petanya belum diisi. */
+function averageMarkerLatLng(
+  markers: PrismaMarkerData[]
+): [number, number] | null {
+  const titik = markers
+    .map((m) => [m.lat1 ?? m.lat0, m.lon1 ?? m.lon0] as const)
+    .filter(
+      (p): p is readonly [number, number] =>
+        p[0] !== null && p[1] !== null && Number.isFinite(p[0]) && Number.isFinite(p[1])
+    );
+  if (titik.length === 0) return null;
+  const lat = titik.reduce((a, p) => a + p[0], 0) / titik.length;
+  const lng = titik.reduce((a, p) => a + p[1], 0) / titik.length;
+  return [lat, lng];
+}
+
 export default function PrismaMap({ markers, site }: Props) {
+  const { bySlug: siteBySlug } = useSites();
   const containerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<HTMLDivElement>(null);
   const mapInstanceRef = useRef<import("leaflet").Map | null>(null);
@@ -45,13 +64,21 @@ export default function PrismaMap({ markers, site }: Props) {
   const [showTerrain, setShowTerrain] = useState(true);
   const [showLabels, setShowLabels] = useState(true);
 
-  const isCcp = (site || "").toLowerCase().includes("ccp");
+  const siteRow = siteBySlug(site);
+  const siteLabel = siteRow?.badge_label ?? fallbackBadge(site).label;
+  const siteNama = siteRow?.nama ?? fallbackBadge(site).nama;
 
-  // Center coordinates based on site (same hardcoded as PHP)
-  const center: [number, number] = isCcp
-    ? [3.6307977846194737, 117.23368934932883]
-    : [3.6444116043375363, 117.24226908676536];
-  const zoom = isCcp ? 18 : 15;
+  // Center peta berasal dari master data site. Site yang belum dikalibrasi
+  // (map_lat/map_lng masih null) di-fallback ke rata-rata posisi marker agar
+  // peta tetap menunjukkan sesuatu yang benar, bukan koordinat site lain.
+  const markerCenter = averageMarkerLatLng(markers);
+  const center: [number, number] =
+    siteRow?.map_lat != null && siteRow?.map_lng != null
+      ? [siteRow.map_lat, siteRow.map_lng]
+      : markerCenter ?? [0, 0];
+  const zoom = siteRow?.map_lat != null ? siteRow.map_zoom : markerCenter ? 16 : 2;
+  const belumTerkalibrasi = !siteRow || !siteRow.terkalibrasi;
+  const dataDummy = !!siteRow?.data_dummy;
 
   useEffect(() => {
     if (!mapRef.current) return;
@@ -139,7 +166,7 @@ export default function PrismaMap({ markers, site }: Props) {
       .bindPopup(`
         <div style="font-family:system-ui;padding:2px;">
           <div style="font-weight:800;font-size:13px;color:#1f2937;margin-bottom:3px;">📡 ADR / RTS</div>
-          <div style="font-size:11px;color:#6b7280">Site ${isCcp ? "CCP 3" : "VP"}</div>
+          <div style="font-size:11px;color:#6b7280">Site ${siteNama}</div>
         </div>`, { className: "prisma-popup" });
 
     // ── Prisma markers ──
@@ -393,8 +420,31 @@ export default function PrismaMap({ markers, site }: Props) {
       {/* Site badge */}
       <div className="absolute z-[1000] top-3 left-3 bg-white/90 backdrop-blur-sm rounded-lg shadow-lg border border-white/40 px-3 py-2">
         <div className="text-[10px] font-bold text-gray-500 uppercase tracking-wider">Site</div>
-        <div className="text-[13px] font-extrabold text-[#303481]">{isCcp ? "CCP 3" : "VP"}</div>
+        <div className="text-[13px] font-extrabold text-[#303481]">{siteLabel}</div>
       </div>
+
+      {/* Peringatan — posisi/nilai site ini belum bisa dipercaya */}
+      {(belumTerkalibrasi || dataDummy) && (
+        <div className="absolute z-[1000] top-3 left-1/2 -translate-x-1/2 flex items-start gap-2 max-w-[380px] bg-amber-50/95 backdrop-blur-sm border border-amber-300 rounded-lg shadow-lg px-3 py-2">
+          <AlertTriangle className="w-4 h-4 text-amber-600 flex-shrink-0 mt-[1px]" />
+          <div className="text-[11.5px] leading-snug text-amber-900">
+            {belumTerkalibrasi ? (
+              <>
+                <span className="font-bold">Site belum dikalibrasi.</span>{" "}
+                {siteRow
+                  ? "Center peta belum diisi — tampilan memakai rata-rata posisi prisma."
+                  : `Site "${site ?? "?"}" belum terdaftar di Master Data → Site.`}{" "}
+                Posisi dan nilai pergeseran belum bisa dianggap sahih.
+              </>
+            ) : (
+              <>
+                <span className="font-bold">Data contoh.</span> Koordinat dan ambang
+                site ini belum berasal dari survei — tampilan hanya untuk demo.
+              </>
+            )}
+          </div>
+        </div>
+      )}
 
       {/* Legend */}
       <div className="absolute z-[1000] bottom-10 left-3 bg-white/90 backdrop-blur-sm rounded-xl shadow-lg border border-white/40 px-3 py-3 flex flex-col gap-2">

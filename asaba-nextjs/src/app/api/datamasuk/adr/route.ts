@@ -125,13 +125,18 @@ export async function POST(request: NextRequest) {
     console.log("[datamasuk/adr] waktu (computed):", waktu);
 
     if (sensorData.sensor1) {
-      const latestLog = await prisma.$queryRaw<Array<{ id_log: string }>>`
-        SELECT id_log
+      const latestLog = await prisma.$queryRaw<Array<{ id_log: string; site: string | null }>>`
+        SELECT id_log, site
         FROM log_kontrol
         WHERE id_logger = ${idAlat}
         ORDER BY datetime DESC
         LIMIT 1
       `;
+
+      // Site sesi yang sedang berjalan. Dipakai untuk membatasi update prisma —
+      // `id_prisma` cuma nomor slot RTS yang dipakai ulang tiap site, jadi
+      // meng-update berdasarkan id_prisma saja akan menimpa baris milik site lain.
+      const siteAktif = latestLog[0]?.site ?? null;
 
       if (latestLog[0]?.id_log) {
         idLog = latestLog[0].id_log;
@@ -160,16 +165,27 @@ export async function POST(request: NextRequest) {
         "id_prisma",
         String(sensorData.sensor1)
       );
-      await prisma.$executeRawUnsafe(
-        tempPrismaUpdate.sql,
-        ...tempPrismaUpdate.values
-      );
 
-      await prisma.$executeRaw`
-        UPDATE t_prisma
-        SET nama_prisma = ${sensorData.sensor3}
-        WHERE id_prisma = ${sensorData.sensor1}
-      `;
+      if (siteAktif) {
+        // Batasi ke site sesi berjalan.
+        await prisma.$executeRawUnsafe(
+          `${tempPrismaUpdate.sql} AND site = ?`,
+          ...tempPrismaUpdate.values,
+          siteAktif
+        );
+        await prisma.$executeRaw`
+          UPDATE t_prisma
+          SET nama_prisma = ${sensorData.sensor3}
+          WHERE id_prisma = ${sensorData.sensor1} AND site = ${siteAktif}
+        `;
+      } else {
+        // Tidak ada sesi aktif untuk logger ini — tanpa site, update apa pun
+        // berisiko mengenai baris site yang salah. Lewati dan catat.
+        console.warn(
+          `[datamasuk/adr] Tidak ada sesi log_kontrol untuk logger ${idAlat}; ` +
+            `update prisma "${sensorData.sensor1}" dilewati agar tidak menimpa site lain.`
+        );
+      }
 
       mqttPrismaSent = await publishMqtt(mqttPrismaTopic, prismaUpdate);
     }

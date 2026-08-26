@@ -1,8 +1,9 @@
 "use client";
 
 import React, { useState, useEffect, useRef, useCallback } from "react";
-import { History, Target, Sliders, Crosshair, Play, ChevronDown, Loader2, Maximize, Database } from "lucide-react";
+import { History, Target, Sliders, Crosshair, Play, ChevronDown, Loader2, Maximize, Database, MapPinned } from "lucide-react";
 import { Input } from "@/components/ui/input";
+import { useSites } from "@/hooks/use-sites";
 
 // ─── Plotly loaded via CDN (same as legacy) ──────────────────────────────────
 declare global {
@@ -104,6 +105,8 @@ function finiteArr(a: number[]) { return a.filter(Number.isFinite); }
 
 // ─── Main Page ───────────────────────────────────────────────────────────────
 export default function Visualisasi3DPage() {
+  const { sites: siteList, badge: siteBadge } = useSites();
+
   // Form state
   const [rtsE, setRtsE] = useState("");
   const [rtsN, setRtsN] = useState("");
@@ -115,6 +118,8 @@ export default function Visualisasi3DPage() {
   const [logs, setLogs] = useState<any[]>([]);
   const [logsLoading, setLogsLoading] = useState(true);
   const [selectedLogId, setSelectedLogId] = useState("");
+  /** "" = semua site. */
+  const [siteFilter, setSiteFilter] = useState("");
 
   // Render state
   const [loading, setLoading] = useState(false);
@@ -139,14 +144,23 @@ export default function Visualisasi3DPage() {
     document.head.appendChild(s);
   }, []);
 
-  // Fetch log list — setelah dapat, cek cache
+  // Fetch log list — setelah dapat, cek cache.
+  // `siteFilter` kosong = semua site (perilaku lama). Tiap opsi punya label
+  // site-nya, jadi filter ini menambah kemampuan tanpa mengubah bawaan.
   useEffect(() => {
-    fetch("/api/log-kontrol?limit=200&with_prisma=false")
+    setLogsLoading(true);
+    const params = new URLSearchParams({ limit: "200", with_prisma: "false" });
+    if (siteFilter) params.set("site", siteFilter);
+    fetch(`/api/log-kontrol?${params}`)
       .then(r => r.json())
       .then(json => {
         if (json.success) {
           setLogs(json.data);
-          if (json.data.length > 0) {
+          if (json.data.length === 0) {
+            setSelectedLogId("");
+            return;
+          }
+          {
             const cache = loadCache();
             // Cek apakah cache ada dan log-nya masih valid
             const cachedLog = cache && json.data.find((l: any) => String(l.id_log) === String(cache.id_log));
@@ -172,7 +186,7 @@ export default function Visualisasi3DPage() {
       })
       .catch(() => {})
       .finally(() => setLogsLoading(false));
-  }, []);
+  }, [siteFilter]);
 
   // Fullscreen listener
   useEffect(() => {
@@ -434,6 +448,30 @@ export default function Visualisasi3DPage() {
           {/* Main Controls Card */}
           <div className="bg-white border border-[#EAEAEA] rounded-[8px] p-5 flex flex-col gap-6 shadow-sm">
             
+            {/* SITE */}
+            <div className="flex flex-col gap-3">
+              <div className="flex items-center gap-2 text-[#303481]">
+                <MapPinned className="w-[14px] h-[14px]" strokeWidth={2.5} />
+                <span className="text-[11px] font-bold tracking-[0.5px] uppercase">Site</span>
+              </div>
+              <div className="relative">
+                <select
+                  value={siteFilter}
+                  onChange={e => setSiteFilter(e.target.value)}
+                  className="w-full appearance-none bg-white border border-gray-200 text-[#0f172a] text-[13px] rounded-md px-3 py-2.5 font-medium outline-none focus:border-[#303481] cursor-pointer pr-8"
+                >
+                  <option value="">Semua site</option>
+                  {siteList.map(s => (
+                    <option key={s.slug} value={s.slug}>
+                      {s.nama}
+                      {!s.terkalibrasi ? " (belum dikalibrasi)" : s.data_dummy ? " (data contoh)" : ""}
+                    </option>
+                  ))}
+                </select>
+                <ChevronDown className="w-4 h-4 text-gray-400 absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none" />
+              </div>
+            </div>
+
             {/* WAKTU PENGUKURAN */}
             <div className="flex flex-col gap-3">
               <div className="flex items-center gap-2 text-[#303481]">
@@ -454,7 +492,7 @@ export default function Visualisasi3DPage() {
                     >
                       {logs.map(log => (
                         <option key={log.id_log} value={log.id_log}>
-                          {formatLogDate(log.datetime)} ({log.site === "ccp" ? "CPP3" : "VP"})
+                          {formatLogDate(log.datetime)} ({siteBadge(log.site).label})
                           {log.r0 === 1 ? " [R0]" : ""}
                         </option>
                       ))}

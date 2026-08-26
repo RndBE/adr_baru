@@ -20,11 +20,14 @@ import { prisma } from "@/lib/prisma";
  *
  * Query params:
  * - id_logger: (optional) override logger ID
+ * - site: (optional) batasi daftar prisma ke satu site. Tanpa ini, daftar
+ *   diambil per logger — dan satu logger bisa melayani lebih dari satu site.
  */
 export async function GET(request: NextRequest) {
   try {
     const { searchParams } = new URL(request.url);
     let id_logger = searchParams.get("id_logger");
+    const site = searchParams.get("site");
 
     // Ambil id_logger secara dinamis dari DB jika tidak disediakan
     if (!id_logger) {
@@ -119,14 +122,27 @@ export async function GET(request: NextRequest) {
       })
     );
 
-    // 7. Data prisma aktif dengan temp_prisma
-    const dataPrisma = await prisma.$queryRaw<Array<Record<string, unknown>>>`
-      SELECT p.*, tp.N1, tp.E1, tp.Z1, tp.N0, tp.E0, tp.Z0, tp.status_get, tp.waktu as waktu_tembak
-      FROM t_prisma p
-      LEFT JOIN temp_prisma tp ON tp.id_prisma = p.id_prisma
-      WHERE p.id_logger = ${id_logger}
-      ORDER BY p.id ASC
-    `;
+    // 7. Data prisma aktif dengan temp_prisma.
+    // JOIN harus menyertakan `site`: id_prisma cuma nomor slot RTS yang dipakai
+    // ulang tiap site, jadi join pada id_prisma saja akan memasangkan prisma
+    // dengan status live milik site lain.
+    const dataPrisma = site
+      ? await prisma.$queryRaw<Array<Record<string, unknown>>>`
+          SELECT p.*, tp.N1, tp.E1, tp.Z1, tp.N0, tp.E0, tp.Z0, tp.status_get, tp.waktu as waktu_tembak
+          FROM t_prisma p
+          LEFT JOIN temp_prisma tp
+            ON tp.id_prisma = p.id_prisma AND tp.site = p.site
+          WHERE p.site = ${site}
+          ORDER BY p.id ASC
+        `
+      : await prisma.$queryRaw<Array<Record<string, unknown>>>`
+          SELECT p.*, tp.N1, tp.E1, tp.Z1, tp.N0, tp.E0, tp.Z0, tp.status_get, tp.waktu as waktu_tembak
+          FROM t_prisma p
+          LEFT JOIN temp_prisma tp
+            ON tp.id_prisma = p.id_prisma AND tp.site = p.site
+          WHERE p.id_logger = ${id_logger}
+          ORDER BY p.id ASC
+        `;
 
     // 8. Config ADR
     const configAdrRows = await prisma.$queryRaw<Array<Record<string, unknown>>>`

@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState, useCallback } from "react";
-import { Plus, Pencil, Trash2, Loader2, MapPin, Users, Radio, X, Check } from "lucide-react";
+import { Plus, Pencil, Trash2, Loader2, MapPin, Users, Radio, Layers, KeyRound, X, Check } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -14,6 +14,9 @@ import {
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@/components/ui/select";
+import { TabSite } from "@/components/master-data/tab-site";
+import { TabKodeAkses } from "@/components/master-data/tab-kode-akses";
+
 // Simple toast helper
 const toast = { success: (msg: string) => console.log("✅", msg), error: (msg: string) => alert(msg) };
 
@@ -25,23 +28,25 @@ type LoggerData = { id: number; id_logger: string; nama_logger: string; lokasi_l
 type KategoriLogger = { id_katlogger: number; nama_kategori: string; tabel: string };
 
 const TABS = [
+  { key: "site", label: "Site", icon: Layers },
   { key: "lokasi", label: "Lokasi", icon: MapPin },
   { key: "user", label: "User", icon: Users },
   { key: "logger", label: "Logger", icon: Radio },
+  { key: "kode-akses", label: "Kode Akses", icon: KeyRound },
 ] as const;
 type TabKey = typeof TABS[number]["key"];
 
 // ─── Main Page ──────────────────────────────────────────────────────────────
 
 export default function MasterDataPage() {
-  const [activeTab, setActiveTab] = useState<TabKey>("lokasi");
+  const [activeTab, setActiveTab] = useState<TabKey>("site");
 
   return (
     <div className="flex flex-col gap-6 p-6 min-h-screen bg-[#F5F6FA]">
       {/* Header */}
       <div>
         <h1 className="text-[22px] font-bold text-gray-900">Master Data</h1>
-        <p className="text-sm text-gray-500 mt-0.5">Kelola data Lokasi, User, dan Logger</p>
+        <p className="text-sm text-gray-500 mt-0.5">Kelola data Site, Lokasi, User, Logger, dan Kode Akses</p>
       </div>
 
       {/* Tabs */}
@@ -64,9 +69,11 @@ export default function MasterDataPage() {
 
       {/* Content */}
       <div>
+        {activeTab === "site" && <TabSite />}
         {activeTab === "lokasi" && <TabLokasi />}
         {activeTab === "user" && <TabUser />}
         {activeTab === "logger" && <TabLogger />}
+        {activeTab === "kode-akses" && <TabKodeAkses />}
       </div>
     </div>
   );

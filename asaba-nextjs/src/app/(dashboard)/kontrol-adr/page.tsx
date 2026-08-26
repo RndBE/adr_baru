@@ -124,7 +124,8 @@ function RTSAnimation({ isRunning }: { isRunning: boolean }) {
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
 import { RtsConnectionBadge } from "@/components/RtsConnectionBadge";
-import { useRtsConnectionStatus } from "@/hooks/use-api";
+import { useRtsConnectionStatus, useLogKontrol } from "@/hooks/use-api";
+import { useSites } from "@/hooks/use-sites";
 
 // --- Helper Date Formatter ---
 function fmtDate(d: string | Date | null) {
@@ -172,12 +173,10 @@ const TOP_METRICS = [
   },
 ];
 
-const RIWAYAT_DATA = [
-  { date: "21-11-2025", time: "10:11:09", count: 10 },
-  { date: "21-11-2025", time: "10:11:09", count: 10 },
-  { date: "21-11-2025", time: "10:11:09", count: 10 },
-  { date: "21-11-2025", time: "10:11:09", count: 10 },
-];
+// Riwayat running dulu berupa array hardcode berisi 4 baris identik
+// ("21-11-2025 10:11:09, 10 prisma") yang tidak pernah berubah, apa pun
+// site-nya. Sekarang diambil dari log_kontrol per site — lihat `riwayat`
+// di dalam komponen.
 
 // --- Types ---
 type TempPrisma = {
@@ -196,25 +195,64 @@ type TempPrisma = {
   SlopDis: number | null;
 };
 
+/**
+ * "Running..."    – sesi kontrol sedang berjalan, menunggu hasil tembakan
+ * "Menunggu"      – status di-reset tapi tidak ada sesi berjalan
+ * "Belum diukur"  – prisma terdaftar tapi belum pernah ditembak sama sekali
+ */
+type PrismaStatus = "Success" | "Failed" | "Running..." | "Menunggu" | "Belum diukur";
+
 type PrismaCard = {
   name: string;
-  status: "Success" | "Failed" | "Running...";
+  status: PrismaStatus;
   y: string;
   x: string;
   z: string;
   waktu?: string;
 };
 
-function mapStatus(status_get: number | string, n1: string, e1: string, z1: string): "Success" | "Failed" | "Running..." {
-  // Di DB: status_get = 0 artinya Waiting/Running, 1 artinya Done
+/**
+ * Prisma yang belum pernah diukur menyimpan '0' di temp_prisma. Menampilkannya
+ * apa adanya membuatnya terbaca seperti koordinat nol yang sah, padahal artinya
+ * "tidak ada data" — jadi ditampilkan sebagai tanda hubung.
+ */
+function nilaiPrisma(status: PrismaStatus, nilai: string): string {
+  if (status === "Belum diukur" || status === "Menunggu") return "–";
+  return nilai;
+}
+
+/**
+ * Terjemahkan baris temp_prisma menjadi status kartu.
+ *
+ * `status_get = 0` di DB mencampur DUA keadaan yang berbeda: "sedang menunggu
+ * hasil tembakan" dan "belum pernah diukur sama sekali". Dulu keduanya
+ * diterjemahkan jadi "Running...", sehingga prisma yang tidak pernah tertembak
+ * berputar selamanya meski tidak ada kontrol yang berjalan.
+ *
+ * Pembedanya dua hal yang memang tersedia:
+ *   - `kontrolBerjalan` — apakah RTS sedang menjalankan sesi (sensor16).
+ *   - `waktu` — prisma yang belum pernah diukur nilainya '-' atau kosong.
+ */
+function mapStatus(
+  status_get: number | string,
+  n1: string,
+  e1: string,
+  z1: string,
+  kontrolBerjalan: boolean,
+  waktu?: string | null
+): PrismaStatus {
   // Gunakan String() karena dari raw query Prisma bisa berupa number atau string
-  if (String(status_get) === "0") return "Running...";
-  
+  if (String(status_get) === "0") {
+    if (kontrolBerjalan) return "Running...";
+    const pernahDiukur = !!waktu && waktu !== "-" && waktu.trim() !== "";
+    return pernahDiukur ? "Menunggu" : "Belum diukur";
+  }
+
   // Jika sudah Done (1) tapi nilainya 0 semua, berarti Failed / Not Found
   if (Number(n1) === 0 && Number(e1) === 0 && Number(z1) === 0) {
     return "Failed";
   }
-  
+
   return "Success";
 }
 
@@ -268,6 +306,15 @@ export default function KontrolAdrPage() {
   }, []);
 
   const [accessCode, setAccessCode] = useState("");
+  const { sites: siteList, badge: siteBadge } = useSites();
+  // Nilai efektifnya diturunkan, bukan disinkronkan lewat effect: sebelum daftar
+  // site termuat, `selectedSite` masih "" dan semua fetch-nya memang ditunda.
+  const [sitePilihan, setSitePilihan] = useState("");
+  const selectedSite = sitePilihan || siteList[0]?.slug || "";
+  const setSelectedSite = setSitePilihan;
+  const selectedSiteBadge = selectedSite ? siteBadge(selectedSite) : null;
+  // Riwayat running site terpilih (4 sesi terakhir).
+  const { logs: riwayatLogs } = useLogKontrol(selectedSite || undefined, 4);
   const [showPassword, setShowPassword] = useState(false);
   const [prismaCards, setPrismaCards] = useState<PrismaCard[]>([]);
   const [prismaLoading, setPrismaLoading] = useState(true);
@@ -295,7 +342,8 @@ export default function KontrolAdrPage() {
       const res = await fetch("/api/kontrol/power", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action }),
+        // site menentukan unit RTS mana yang dinyalakan/dimatikan
+        body: JSON.stringify({ action, site: selectedSite }),
       });
       const json = await res.json();
       if (!json.success) {
@@ -451,7 +499,8 @@ export default function KontrolAdrPage() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
   const [showRtsConfig, setShowRtsConfig] = useState(false);
-  const [configId, setConfigId] = useState<number>(1);
+  // (state configId dihapus: PUT /api/config-adr sekarang dikunci berdasarkan
+  //  `site`, bukan id baris, jadi id-nya tidak perlu disimpan di klien.)
   const [configLoading, setConfigLoading] = useState(false);
   const [configSaving, setConfigSaving] = useState(false);
   const [rtsConfig, setRtsConfig] = useState<RtsConfig>({
@@ -579,11 +628,10 @@ export default function KontrolAdrPage() {
     setShowRtsConfig(true);
     setConfigLoading(true);
     try {
-      const res = await fetch("/api/config-adr");
+      const res = await fetch(`/api/config-adr?site=${encodeURIComponent(selectedSite)}`);
       const json = await res.json();
       if (json.success && json.data) {
         const d = json.data;
-        setConfigId(d.id);
         setRtsConfig({
           jobName:     String(d.job_name   ?? ""),
           prismaConst: String(d.prisma_cons ?? ""),
@@ -611,7 +659,7 @@ export default function KontrolAdrPage() {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          id:          configId,
+          site:        selectedSite,
           job_name:    rtsConfig.jobName,
           prisma_cons: rtsConfig.prismaConst,
           ts_high:     rtsConfig.tsHigh,
@@ -634,14 +682,35 @@ export default function KontrolAdrPage() {
     }
   };
 
+  // Daftar prisma DIBATASI per site. Nomor slot (P1, P2, …) dipakai ulang di
+  // tiap site dan menunjuk target fisik yang berbeda, jadi tanpa scope ini
+  // panel menampilkan prisma milik site lain.
   const fetchPrisma = useCallback(async () => {
+    if (!selectedSite) {
+      setPrismaCards([]);
+      setTotalPrisma(0);
+      // Wajib dimatikan juga di jalur ini — kalau tidak, skeleton loading
+      // tidak pernah selesai dan panel terlihat menggantung selamanya.
+      setPrismaLoading(false);
+      return;
+    }
     try {
-      const res = await fetch("/api/prisma-data");
+      const res = await fetch(`/api/prisma-data?site=${encodeURIComponent(selectedSite)}`);
       const json = await res.json();
       if (json.success && Array.isArray(json.data)) {
         const dbCards: PrismaCard[] = (json.data as TempPrisma[]).map((row) => ({
           name: row.id_prisma,
-          status: mapStatus(row.status_get, row.N1, row.E1, row.Z1),
+          // sensor16 = 1 berarti RTS sedang menjalankan sesi. Dipakai langsung
+          // (bukan state isControlRunning) supaya nilainya selalu sinkron dengan
+          // hardware, termasuk saat halaman baru dimuat ulang.
+          status: mapStatus(
+            row.status_get,
+            row.N1,
+            row.E1,
+            row.Z1,
+            String(sensor16) === "1",
+            row.waktu
+          ),
           y: row.N1,
           x: row.E1,
           z: row.Z1,
@@ -665,7 +734,7 @@ export default function KontrolAdrPage() {
     } finally {
       setPrismaLoading(false);
     }
-  }, []);
+  }, [selectedSite, sensor16]);
 
   // Sinkronkan isControlRunning dengan sensor16 dari hardware (PENTING untuk saat page di-refresh)
   // sensor16 === "1" → animasi jalan + semua cards jadi Running
@@ -684,16 +753,16 @@ export default function KontrolAdrPage() {
     }
   }, [sensor16, fetchPrisma]);
 
-  // Initial fetch saat halaman dibuka
+  // Fetch ulang tiap kali site berganti — konfigurasi RTS (job name, prism
+  // constant, titik origin) berbeda per site.
   useEffect(() => {
     fetchPrisma();
-    
-    // Fetch initial config for RTS Card display
-    fetch("/api/config-adr")
+
+    if (!selectedSite) return;
+    fetch(`/api/config-adr?site=${encodeURIComponent(selectedSite)}`)
       .then(res => res.json())
       .then(json => {
         if (json.success && json.data) {
-          setConfigId(json.data.id);
           setRtsConfig({
             jobName:     String(json.data.job_name   ?? ""),
             prismaConst: String(json.data.prisma_cons ?? ""),
@@ -708,7 +777,7 @@ export default function KontrolAdrPage() {
         }
       })
       .catch(console.error);
-  }, [fetchPrisma]);
+  }, [fetchPrisma, selectedSite]);
 
   // Cleanup polling saat unmount
   useEffect(() => {
@@ -719,6 +788,7 @@ export default function KontrolAdrPage() {
 
   const handleMulaiKontrol = async () => {
     if (!accessCode.trim()) return;
+    if (!selectedSite) { setAccessCodeError("Pilih site pengukuran lebih dulu."); return; }
 
     // Reset error
     setAccessCodeError("");
@@ -732,7 +802,7 @@ export default function KontrolAdrPage() {
       const res = await fetch("/api/kontrol/start", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ kode_akses: accessCode }),
+        body: JSON.stringify({ kode_akses: accessCode, site: selectedSite }),
       });
       const json = await res.json();
 
@@ -844,6 +914,34 @@ export default function KontrolAdrPage() {
                 <h3 className="font-bold text-[#303481] text-[14px]">Kontrol ADR</h3>
               </div>
               <div className="px-4 py-4">
+                {/* Selektor site SENGAJA tidak ikut dinonaktifkan saat logger
+                    terputus. Memilih site adalah tindakan melihat data (riwayat,
+                    daftar prisma, konfigurasi RTS) yang tetap berguna meski
+                    perangkat offline — yang butuh koneksi hanya tombol Mulai
+                    Kontrol di bawah. */}
+                <label className="block text-[12.5px] font-bold mb-2 text-gray-900">Site Pengukuran</label>
+                <select
+                  value={selectedSite}
+                  onChange={(e) => { setSelectedSite(e.target.value); setAccessCodeError(""); }}
+                  className="mb-3 h-[38px] w-full cursor-pointer rounded-md border border-gray-300 px-3 text-[13px] font-medium outline-none transition-colors focus:border-[#303481]"
+                >
+                  {siteList.map((s) => (
+                    <option key={s.slug} value={s.slug}>
+                      {s.nama}
+                      {!s.terkalibrasi ? " (belum dikalibrasi)" : s.data_dummy ? " (data contoh)" : ""}
+                    </option>
+                  ))}
+                </select>
+                {selectedSiteBadge?.peringatan && (
+                  <div className="mb-3 flex items-start gap-2 rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-[11.5px] leading-snug text-amber-900">
+                    <AlertTriangle className="mt-[1px] h-3.5 w-3.5 flex-shrink-0 text-amber-600" />
+                    <span>
+                      {selectedSiteBadge.peringatan}. Hasil pengukuran di site ini
+                      belum bisa dipakai mengambil keputusan.
+                    </span>
+                  </div>
+                )}
+
                 <label className={`block text-[12.5px] font-bold mb-2 ${!isConnected ? 'text-gray-400' : 'text-gray-900'}`}>Masukkan Kode Akses</label>
                 <div className="flex items-center gap-3">
                   <div className="relative flex-1">
@@ -868,7 +966,7 @@ export default function KontrolAdrPage() {
                   </div>
                   <Button
                     onClick={handleMulaiKontrol}
-                    disabled={!accessCode.trim() || isControlRunning || !isConnected}
+                    disabled={!accessCode.trim() || !selectedSite || isControlRunning || !isConnected}
                     className="shrink-0 h-[38px] px-6 bg-[#303481] hover:bg-[#1f2259] text-white font-medium text-[13px] rounded-lg transition-colors border-none cursor-pointer disabled:opacity-60"
                   >
                     {isControlRunning
@@ -984,27 +1082,46 @@ export default function KontrolAdrPage() {
                 <h3 className="font-bold text-[#303481] text-[14px]">Riwayat Running</h3>
               </div>
               <div className="flex flex-col">
-                {RIWAYAT_DATA.map((item, idx) => (
-                  <div key={idx} className="p-4 py-3.5 border-b border-gray-100 last:border-b-0 hover:bg-gray-50 transition-colors">
-                    <div className="flex items-center gap-3 mb-1.5">
-                      <p className="text-[13px] text-gray-800 font-medium">Running Date: {item.date}</p>
-                      <div className="flex items-center gap-1.5 text-gray-500">
-                        <Clock className="w-[13px] h-[13px]" />
-                        <span className="text-[12px] font-medium">{item.time}</span>
+                {!selectedSite ? (
+                  <p className="px-4 py-8 text-center text-[12.5px] text-gray-400">
+                    Pilih site untuk melihat riwayat.
+                  </p>
+                ) : riwayatLogs.length === 0 ? (
+                  <p className="px-4 py-8 text-center text-[12.5px] text-gray-400">
+                    Belum ada riwayat running untuk site ini.
+                  </p>
+                ) : (
+                  riwayatLogs.map((item: { id_log: string; datetime?: string | null; prisma_count?: number }) => {
+                    const d = item.datetime ? new Date(item.datetime) : null;
+                    const pad = (n: number) => String(n).padStart(2, "0");
+                    const tanggal = d ? `${pad(d.getDate())}-${pad(d.getMonth() + 1)}-${d.getFullYear()}` : "-";
+                    const jam = d ? `${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}` : "-";
+                    return (
+                      <div key={item.id_log} className="p-4 py-3.5 border-b border-gray-100 last:border-b-0 hover:bg-gray-50 transition-colors">
+                        <div className="flex items-center gap-3 mb-1.5">
+                          <p className="text-[13px] text-gray-800 font-medium">Running Date: {tanggal}</p>
+                          <div className="flex items-center gap-1.5 text-gray-500">
+                            <Clock className="w-[13px] h-[13px]" />
+                            <span className="text-[12px] font-medium">{jam}</span>
+                          </div>
+                        </div>
+                        <div className="flex items-center gap-2 mt-2">
+                          <p className="text-[13px] text-gray-700 font-medium tracking-tight">Prisma Count:</p>
+                          <span className="px-2 py-[3px] bg-[#EBF0FF] text-[#303481] rounded-[4px] text-[11px] font-bold leading-none">
+                            {item.prisma_count ?? 0}
+                          </span>
+                        </div>
                       </div>
-                    </div>
-                    <div className="flex items-center gap-2 mt-2">
-                      <p className="text-[13px] text-gray-700 font-medium tracking-tight">Prisma Count:</p>
-                      <span className="px-2 py-[3px] bg-[#EBF0FF] text-[#303481] rounded-[4px] text-[11px] font-bold leading-none">
-                        {item.count}
-                      </span>
-                    </div>
-                  </div>
-                ))}
+                    );
+                  })
+                )}
                 <div className="p-3.5 border-t border-gray-100 flex justify-end">
-                  <button className="text-[12.5px] font-bold text-[#303481] hover:text-[#1f2259] flex items-center gap-1.5 transition-colors hover:underline cursor-pointer">
+                  <a
+                    href={`/hasil-pengukuran${selectedSite ? `?site=${encodeURIComponent(selectedSite)}` : ""}`}
+                    className="text-[12.5px] font-bold text-[#303481] hover:text-[#1f2259] flex items-center gap-1.5 transition-colors hover:underline cursor-pointer"
+                  >
                     Lihat Semua <ArrowRight className="w-3.5 h-3.5" />
-                  </button>
+                  </a>
                 </div>
               </div>
             </div>
@@ -1119,9 +1236,13 @@ export default function KontrolAdrPage() {
                       </div>
                     </div>
                   ))
+                ) : !selectedSite ? (
+                  <div className="col-span-4 py-12 text-center text-gray-400 text-[13px]">
+                    Pilih site pengukuran untuk melihat daftar prisma.
+                  </div>
                 ) : prismaCards.length === 0 ? (
                   <div className="col-span-4 py-12 text-center text-gray-400 text-[13px]">
-                    Tidak ada data prisma tersedia.
+                    Tidak ada data prisma untuk site ini.
                   </div>
                 ) : (
                   prismaCards.map((prisma, idx) => (
@@ -1140,25 +1261,33 @@ export default function KontrolAdrPage() {
                             Running... <Loader2 className="w-2.5 h-2.5 animate-spin" />
                           </span>
                         )}
+                        {/* Keadaan diam — tanpa spinner, supaya tidak terbaca
+                            seolah ada proses yang sedang berjalan. */}
+                        {prisma.status === "Menunggu" && (
+                          <span className="px-2.5 py-[3px] bg-[#FFF4E5] text-[#B26A00] text-[10px] font-bold rounded-full leading-none">Menunggu</span>
+                        )}
+                        {prisma.status === "Belum diukur" && (
+                          <span className="px-2.5 py-[3px] bg-[#F0F1F5] text-[#6B7280] text-[10px] font-bold rounded-full leading-none">Belum diukur</span>
+                        )}
                       </div>
                       {/* Card Body */}
                       <div className="flex flex-col pb-1">
                         <div className="grid grid-cols-[1fr_2fr] border-b border-gray-100 px-2 py-2.5">
                           <div className="text-[13.5px] text-gray-500 font-bold text-center">Y</div>
                           <div className="text-[13.5px] text-gray-900 text-center font-medium">
-                            {prisma.status === "Running..." ? <Loader2 className="w-[14px] h-[14px] animate-spin mx-auto text-gray-400" /> : prisma.y}
+                            {prisma.status === "Running..." ? <Loader2 className="w-[14px] h-[14px] animate-spin mx-auto text-gray-400" /> : nilaiPrisma(prisma.status, prisma.y)}
                           </div>
                         </div>
                         <div className="grid grid-cols-[1fr_2fr] border-b border-gray-100 px-2 py-2.5">
                           <div className="text-[13.5px] text-gray-500 font-bold text-center">X</div>
                           <div className="text-[13.5px] text-gray-900 text-center font-medium">
-                            {prisma.status === "Running..." ? <Loader2 className="w-[14px] h-[14px] animate-spin mx-auto text-gray-400" /> : prisma.x}
+                            {prisma.status === "Running..." ? <Loader2 className="w-[14px] h-[14px] animate-spin mx-auto text-gray-400" /> : nilaiPrisma(prisma.status, prisma.x)}
                           </div>
                         </div>
                         <div className="grid grid-cols-[1fr_2fr] px-2 py-2.5">
                           <div className="text-[13.5px] text-gray-500 font-bold text-center">Z</div>
                           <div className="text-[13.5px] text-gray-900 text-center font-medium">
-                            {prisma.status === "Running..." ? <Loader2 className="w-[14px] h-[14px] animate-spin mx-auto text-gray-400" /> : prisma.z}
+                            {prisma.status === "Running..." ? <Loader2 className="w-[14px] h-[14px] animate-spin mx-auto text-gray-400" /> : nilaiPrisma(prisma.status, prisma.z)}
                           </div>
                         </div>
                       </div>

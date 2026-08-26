@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
-import { prisma } from "@/lib/prisma";
 import { publishMqtt } from "@/lib/mqtt";
+import { getLoggerForSite } from "@/lib/sites";
 
 /**
  * POST /api/kontrol/auto-search
@@ -8,24 +8,25 @@ import { publishMqtt } from "@/lib/mqtt";
  * Hanya kirim auto_search ke logger — fire-and-forget.
  * Response dari logger ditangkap oleh frontend via MQTT WebSocket.
  *
- * Body: { slot_id?: number }
+ * Body: { slot_id?: number, site: string }
  */
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json().catch(() => ({}));
+    const { site } = body as { site?: string };
 
-    // Ambil id_logger ADR
-    const loggers = await prisma.$queryRaw<Array<{ id_logger: string }>>`
-      SELECT l.id_logger
-      FROM t_logger l
-      JOIN kategori_logger kl ON l.kategori_log = kl.id_katlogger
-      WHERE kl.nama_kategori LIKE '%ADR%' OR kl.nama_kategori LIKE '%RTS%'
-      LIMIT 1
-    `;
-    const id_logger = loggers?.[0]?.id_logger;
+    // Logger diturunkan dari site — perintah auto_search menggerakkan unit RTS,
+    // jadi memilih "logger ADR pertama" bisa menyapu perangkat milik site lain.
+    if (!site) {
+      return NextResponse.json(
+        { success: false, error: "site wajib diisi" },
+        { status: 400 }
+      );
+    }
+    const id_logger = await getLoggerForSite(site);
     if (!id_logger) {
       return NextResponse.json(
-        { success: false, error: "ADR logger not found" },
+        { success: false, error: `Logger untuk site "${site}" tidak ditemukan` },
         { status: 404 }
       );
     }

@@ -2,17 +2,21 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 
 /**
- * GET /api/loggers/[id]
+ * GET /api/loggers/[id]?site=xxx
  * Get logger detail including prisms, latest sensor data, and dashboard info.
  * Replaces CI3 Beranda::index() per-logger detail queries.
+ *
+ * `site` opsional — membatasi daftar prisma ke satu site. Berguna karena satu
+ * logger bisa melayani lebih dari satu site.
  */
 export async function GET(
-  _request: Request,
+  request: Request,
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
     const { id } = await params;
     const idLogger = id;
+    const site = new URL(request.url).searchParams.get("site");
 
     // Get logger with location
     const loggers = await prisma.$queryRaw<Array<Record<string, unknown>>>`
@@ -34,18 +38,34 @@ export async function GET(
 
     const logger = loggers[0];
 
-    // Get prisms for this logger
-    // temp_prisma uses N1/E1/Z1/N0/E0/Z0 columns (not sensor*)
-    const prisms = await prisma.$queryRaw`
-      SELECT p.*,
-             tp.N1, tp.E1, tp.Z1,
-             tp.N0, tp.E0, tp.Z0,
-             tp.status_get,
-             tp.waktu as tp_waktu
-      FROM t_prisma p
-      LEFT JOIN temp_prisma tp ON tp.id_prisma = p.id_prisma
-      WHERE p.id_logger = ${parseInt(idLogger)}
-    `;
+    // Get prisms for this logger.
+    // temp_prisma uses N1/E1/Z1/N0/E0/Z0 columns (not sensor*).
+    // JOIN menyertakan `site` — id_prisma dipakai ulang antar site, jadi tanpa
+    // itu prisma bisa dipasangkan dengan status live milik site lain.
+    // Filter `site` opsional; tanpa itu hasilnya semua prisma milik logger.
+    const prisms = site
+      ? await prisma.$queryRaw`
+          SELECT p.*,
+                 tp.N1, tp.E1, tp.Z1,
+                 tp.N0, tp.E0, tp.Z0,
+                 tp.status_get,
+                 tp.waktu as tp_waktu
+          FROM t_prisma p
+          LEFT JOIN temp_prisma tp
+            ON tp.id_prisma = p.id_prisma AND tp.site = p.site
+          WHERE p.id_logger = ${parseInt(idLogger)} AND p.site = ${site}
+        `
+      : await prisma.$queryRaw`
+          SELECT p.*,
+                 tp.N1, tp.E1, tp.Z1,
+                 tp.N0, tp.E0, tp.Z0,
+                 tp.status_get,
+                 tp.waktu as tp_waktu
+          FROM t_prisma p
+          LEFT JOIN temp_prisma tp
+            ON tp.id_prisma = p.id_prisma AND tp.site = p.site
+          WHERE p.id_logger = ${parseInt(idLogger)}
+        `;
 
     // Get latest temp_rts data — ORDER BY waktu DESC untuk pastikan dapat data terbaru
     const tempData = await prisma.$queryRaw`

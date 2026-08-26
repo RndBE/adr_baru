@@ -2,37 +2,40 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { Prisma } from "@prisma/client";
 import { nfloat, fmt, rotateEN, arah8ID, utm2ll } from "@/lib/coordinates";
-import { getRtsBySite } from "@/lib/deformasi";
+import {
+  getSite,
+  statusPergeseran,
+  statusKecepatan,
+  type SiteConfig,
+} from "@/lib/sites";
 
-
-function statusPergeseran(mm: number, site: string) {
-  if (site === 'ccp') {
-    if (mm < 100) return { label: 'Normal', class: 'bg-emerald-100 text-emerald-700' };
-    if (mm < 200) return { label: 'Waspada', class: 'bg-yellow-100 text-yellow-700' };
-    if (mm < 400) return { label: 'Siaga', class: 'bg-orange-100 text-orange-700' };
-    return { label: 'Awas', class: 'bg-red-100 text-red-700' };
+/**
+ * Peringatan yang harus terlihat operator. Angka deformasi dari site yang
+ * belum dikalibrasi tetap dihitung, tapi tidak boleh dianggap sahih — jadi
+ * peringatannya ikut di response, bukan hanya di log server.
+ */
+function buildPeringatan(site: SiteConfig): string[] {
+  const pesan: string[] = [];
+  if (site.tidakDikenal) {
+    pesan.push(
+      `Site "${site.slug}" belum terdaftar di Master Data → Site. ` +
+        `Perhitungan memakai ambang default paling ketat dan tanpa koreksi rotasi.`
+    );
+  } else if (!site.terkalibrasi) {
+    pesan.push(
+      `Site "${site.nama}" belum dikalibrasi — koordinat referensi RTS dan/atau ` +
+        `center peta belum diisi. Nilai pergeseran belum bisa dianggap sahih.`
+    );
+  } else if (site.dataDummy) {
+    // Field-nya lengkap, tapi isinya nilai contoh — tanpa peringatan ini
+    // angkanya akan terlihat sama meyakinkannya dengan site yang benar-benar disurvei.
+    pesan.push(
+      `Site "${site.nama}" memakai DATA CONTOH. Koordinat referensi dan ambang ` +
+        `bahayanya belum berasal dari survei, jadi angka pergeseran di sini hanya ` +
+        `untuk demo dan tidak boleh dipakai mengambil keputusan.`
+    );
   }
-  if (mm < 50) return { label: 'Normal', class: 'bg-emerald-100 text-emerald-700' };
-  if (mm < 100) return { label: 'Waspada', class: 'bg-yellow-100 text-yellow-700' };
-  if (mm < 200) return { label: 'Siaga', class: 'bg-orange-100 text-orange-700' };
-  return { label: 'Awas', class: 'bg-red-100 text-red-700' };
-}
-
-function statusKecepatan(mmd: number, site: string) {
-  let level = 0;
-  if (site === 'ccp') {
-    if (mmd > 150) level = 3;
-    else if (mmd > 100) level = 2;
-    else if (mmd > 50) level = 1;
-  } else {
-    if (mmd > 120) level = 3;
-    else if (mmd > 80) level = 2;
-    else if (mmd > 40) level = 1;
-  }
-  if (level === 0) return { label: 'Normal', class: 'bg-emerald-100 text-emerald-700' };
-  if (level === 1) return { label: 'Waspada', class: 'bg-yellow-100 text-yellow-700' };
-  if (level === 2) return { label: 'Siaga', class: 'bg-orange-100 text-orange-700' };
-  return { label: 'Awas', class: 'bg-red-100 text-red-700' };
+  return pesan;
 }
 
 /**
@@ -65,7 +68,10 @@ export async function GET(request: NextRequest) {
 
     const site = log.site || "unknown";
     const datetime = log.datetime?.toISOString() || new Date().toISOString();
-    const lokasiRts = getRtsBySite(site);
+    const siteConfig = await getSite(site);
+    // null bila site belum dikalibrasi — jangan diganti 0, karena 0 terlihat
+    // seperti koordinat sah dan menghasilkan pergeseran raksasa yang palsu.
+    const lokasiRts = siteConfig.rts;
 
     // Get first log (r0=1 or earliest) for baseline
     let logFirst = await prisma.logKontrol.findFirst({
@@ -88,26 +94,24 @@ export async function GET(request: NextRequest) {
     `;
     const dailyLogIds = dailyLogs.map(l => l.id_log);
 
-    // Get all distinct logger IDs from t_prisma
-    const rtsLoggerIds = await prisma.$queryRaw<Array<{ id_logger: number }>>`
-      SELECT DISTINCT id_logger FROM t_prisma
+    // Prisma milik SITE ini. Sebelumnya diambil per logger dengan menelusuri
+    // semua logger di t_prisma, padahal satu logger bisa melayani lebih dari
+    // satu site — jadi prisma site lain ikut terbawa dan baru tersaring secara
+    // kebetulan karena tidak punya baris `rts` di sesi ini.
+    const prisms = await prisma.$queryRaw<Array<Record<string, unknown>>>`
+      SELECT p.*
+      FROM t_prisma p
+      WHERE p.site = ${site}
+      ORDER BY p.id_prisma
     `;
 
     const dataPengukuran: Array<Record<string, unknown>> = [];
 
-    for (const lg of rtsLoggerIds) {
-      const idLogger = Number(lg.id_logger);
-
-      // Get prisms  select only from t_prisma (no JOIN to temp_prisma)
-      const prisms = await prisma.$queryRaw<Array<Record<string, unknown>>>`
-        SELECT p.*
-        FROM t_prisma p
-        WHERE p.id_logger = ${idLogger}
-      `;
-
+    {
       for (const p of prisms) {
         const idPrisma = p.id_prisma as string;
         if (!idPrisma) continue;
+        const idLogger = Number(p.id_logger);
 
         // Current measurement
         const cekTembak = await prisma.$queryRaw<Array<Record<string, unknown>>>`
@@ -140,22 +144,22 @@ export async function GET(request: NextRequest) {
         const rawE0 = E0; const rawN0 = N0;
         const rawE1 = E1; const rawN1 = N1;
 
-        // Apply rotation for CCP site
-        if (site === "ccp") {
-          const [rE1, rN1] = rotateEN(E1, N1, 114);
+        // Koreksi rotasi — hanya untuk site yang memang punya parameternya.
+        if (siteConfig.rotation) {
+          const [rE1, rN1] = rotateEN(E1, N1, siteConfig.rotation);
           E1 = rE1;
           N1 = rN1;
-          const [rE0, rN0] = rotateEN(E0, N0, 114);
+          const [rE0, rN0] = rotateEN(E0, N0, siteConfig.rotation);
           E0 = rE0;
           N0 = rN0;
         }
 
-        // Compute map lat/lon using the SAME logic as PHP utm2ll()
-        // CCP dan Viewpoint sama-sama berada di area Tarakan (Zone 50 North)
+        // Compute map lat/lon using the SAME logic as PHP utm2ll().
+        // Zona UTM per site — jangan diasumsikan semua site di Zone 50 North.
         let mapLat0: number | null = null, mapLon0: number | null = null;
         let mapLat1: number | null = null, mapLon1: number | null = null;
-        const mapZone  = 50;
-        const mapNorth = true;
+        const mapZone  = siteConfig.utm.zone;
+        const mapNorth = siteConfig.utm.north;
         if (E0 !== 0 || N0 !== 0) {
           const ll0 = utm2ll(E0, N0, mapZone, mapNorth);
           mapLat0 = ll0.lat; mapLon0 = ll0.lon;
@@ -254,8 +258,8 @@ export async function GET(request: NextRequest) {
               continue;
             }
 
-            if (site === 'ccp') {
-              const [e1r_d, n1r_d] = rotateEN(e1_d, n1_d, 114);
+            if (siteConfig.rotation) {
+              const [e1r_d, n1r_d] = rotateEN(e1_d, n1_d, siteConfig.rotation);
               e1_d = e1r_d;
               n1_d = n1r_d;
             }
@@ -286,8 +290,8 @@ export async function GET(request: NextRequest) {
               last_time,
               pergeseran_mm,
               kecepatan_mmd,
-              status_pergeseran: statusPergeseran(pergeseran_mm, site),
-              status_kecepatan: statusKecepatan(kecepatan_mmd, site),
+              status_pergeseran: statusPergeseran(pergeseran_mm, siteConfig),
+              status_kecepatan: statusKecepatan(kecepatan_mmd, siteConfig),
               series
             };
           }
@@ -303,6 +307,18 @@ export async function GET(request: NextRequest) {
         tanggal: datetime,
         posisi_rts: lokasiRts,
         data_pengukuran: dataPengukuran,
+        site: {
+          slug: siteConfig.slug,
+          nama: siteConfig.nama,
+          badge_label: siteConfig.badgeLabel,
+          badge_color: siteConfig.badgeColor,
+          map: siteConfig.map,
+          terkalibrasi: siteConfig.terkalibrasi,
+          data_dummy: siteConfig.dataDummy,
+          tidak_dikenal: siteConfig.tidakDikenal,
+        },
+        // Peringatan yang harus ditampilkan di UI, bukan sekadar log server.
+        peringatan: buildPeringatan(siteConfig),
       },
     });
   } catch (error) {
