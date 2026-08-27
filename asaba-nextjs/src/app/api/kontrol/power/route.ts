@@ -1,13 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
 import mqtt from "mqtt";
-import { getLoggerForSite } from "@/lib/sites";
+import { getLoggerForCommand } from "@/lib/sites";
 
 /**
  * POST /api/kontrol/power
  * Power On/Off RTS via MQTT (fire-and-forget).
  * Balasan dari logger akan ditangkap langsung oleh frontend via MQTT.
  *
- * Body: { action: "on" | "off", site: string }
+ * Body: { action: "on" | "off", site?: string }
  */
 export async function POST(request: NextRequest) {
   try {
@@ -18,16 +18,22 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ success: false, error: `action harus "on" atau "off"` }, { status: 400 });
     }
 
-    // Perintah ini menyalakan/mematikan unit RTS. Logger diturunkan dari site,
-    // bukan "logger ADR pertama" — dengan lebih dari satu unit terdaftar,
-    // LIMIT 1 tanpa ORDER BY bisa mematikan perangkat milik site lain.
-    if (!site) {
-      return NextResponse.json({ success: false, error: "site wajib diisi" }, { status: 400 });
-    }
-    const id_logger = await getLoggerForSite(site);
+    // Perintah ini menyalakan/mematikan unit RTS, jadi logger tujuannya penting:
+    // salah logger = salah perangkat yang dimatikan.
+    //
+    // `site` OPSIONAL — tanpa itu perilakunya sama seperti sebelum refactor
+    // ("logger ADR pertama"), supaya pemanggil lama tidak berhenti bekerja.
+    // Kirim `site` bila sudah ada lebih dari satu unit RTS terdaftar; lihat
+    // peringatan di getLoggerForCommand().
+    const id_logger = await getLoggerForCommand(site);
     if (!id_logger) {
       return NextResponse.json(
-        { success: false, error: `Logger untuk site "${site}" tidak ditemukan` },
+        {
+          success: false,
+          error: site
+            ? `Logger untuk site "${site}" tidak ditemukan`
+            : "ADR logger not found",
+        },
         { status: 404 }
       );
     }

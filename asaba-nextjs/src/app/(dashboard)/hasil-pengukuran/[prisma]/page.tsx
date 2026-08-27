@@ -18,6 +18,7 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { cn } from "@/lib/utils";
 import { RtsConnectionBadge } from "@/components/RtsConnectionBadge";
 import { useRtsConnectionStatus } from "@/hooks/use-api";
+import { useSites } from "@/hooks/use-sites";
 import {
   Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger,
 } from "@/components/ui/sheet";
@@ -125,6 +126,8 @@ function PrismaDetailContent() {
   const searchParams = useSearchParams();
   const router = useRouter();
   const { isConnected } = useRtsConnectionStatus();
+  // withLogger=true supaya `nama_lokasi` ikut terbawa untuk judul pos RTS.
+  const { namaPos } = useSites(false, true);
 
   const prismaName = decodeURIComponent(params.prisma as string);
   const idLog = searchParams.get("log") || "";
@@ -153,6 +156,9 @@ function PrismaDetailContent() {
   const [tableData, setTableData] = useState<any[]>([]);
   const [isFetching, setIsFetching] = useState(false);
   const [tanggalData, setTanggalData] = useState("");
+  // Halaman ini hanya menerima ?log=, bukan ?site=. Slug site-nya datang dari
+  // respons /api/deformasi, yang menurunkannya dari log_kontrol.site.
+  const [siteSlug, setSiteSlug] = useState("");
 
   const paramLabel = PARAM_OPTIONS.find(p => p.value === parameter)?.label || "Northing Y";
   const paramShort = PARAM_OPTIONS.find(p => p.value === parameter)?.short || "NORTHING Y";
@@ -167,6 +173,7 @@ function PrismaDetailContent() {
         if (json.success && json.data) {
           setPrismaList(json.data.data_pengukuran);
           setTanggalData(json.data.tanggal || "");
+          setSiteSlug(json.data.site?.slug || "");
           const found = json.data.data_pengukuran.find((p: PrismaRow) => p.nama_prisma === selectedPrisma);
           if (found) setCurrentPrisma(found);
         }
@@ -311,7 +318,7 @@ function PrismaDetailContent() {
             <div className={cn("w-2.5 h-2.5 rounded-full relative z-10", isConnected ? "bg-[#06C022]" : "bg-gray-800")} />
           </div>
           <div className="flex flex-col gap-0.5">
-            <p className="font-bold text-black text-[15.5px] leading-tight">Pos RTS Site MIP</p>
+            <p className="font-bold text-black text-[15.5px] leading-tight">{namaPos(siteSlug)}</p>
             <RtsConnectionBadge />
           </div>
         </div>
@@ -563,7 +570,7 @@ function PrismaDetailContent() {
           {/* Chart */}
           <div className="bg-white border border-[#EAEAEA] rounded-[8px] p-5 pb-4">
             <h2 className="text-center font-bold text-gray-900 text-[15px] leading-tight mb-0.5">{chartTitle}</h2>
-            <p className="text-center text-xs text-gray-500 mb-4">Pos RTS Site MIP</p>
+            <p className="text-center text-xs text-gray-500 mb-4">{namaPos(siteSlug)}</p>
             {isFetching ? (
               <div className="flex items-center justify-center h-[300px] text-gray-400">
                 <div className="flex flex-col items-center gap-3">

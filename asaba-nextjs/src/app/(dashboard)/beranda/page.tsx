@@ -33,7 +33,7 @@ import {
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useLoggers, useLogKontrol, useDeformasi, useLoggerDetail } from "@/hooks/use-api";
-import { useSites } from "@/hooks/use-sites";
+import { useSites, POS_RTS_TANPA_NAMA } from "@/hooks/use-sites";
 import Image from "next/image";
 
 // ─── Helper: parse waktu dari berbagai format MySQL ──────────────────────────
@@ -293,11 +293,12 @@ function RtsDashboard({
       {/* ─── TOP SEC: OVERVIEW CARDS ─── */}
       <div className="grid grid-cols-1 gap-3 md:gap-5 xl:grid-cols-12">
         {/* Pos RTS Site Map */}
-        <Card className="col-span-1 xl:col-span-3 rounded-[6px] shadow-sm border-[#EAEAEA] overflow-visible">
+        <Card className="col-span-1 xl:col-span-3 rounded-[6px] shadow-sm border-[#EAEAEA] overflow-visible gap-0 py-0">
           <CardContent className="p-4 lg:p-4.5 flex flex-col h-full justify-center">
             <div className="mb-4">
               <div className="flex items-center gap-2 mb-1.5 relative w-full">
-                <h3 className="min-w-0 flex-1 truncate font-extrabold text-gray-900 text-[17px]">{logger.nama_logger || "Pos RTS Site Map"}</h3>
+                {/* Nama pos RTS dari t_lokasi; nama_logger hanya cadangan. */}
+                <h3 className="min-w-0 flex-1 truncate font-extrabold text-gray-900 text-[17px]">{logger.nama_lokasi || logger.nama_logger || POS_RTS_TANPA_NAMA}</h3>
                 <button 
                   onClick={() => setShowInfo(!showInfo)}
                   className="w-5 h-5 shrink-0 bg-[#2B3270] rounded-full flex items-center justify-center text-white text-[12px] font-bold hover:bg-[#1a1e4a] transition-colors cursor-pointer"
@@ -381,11 +382,12 @@ function RtsDashboard({
             <div className="flex-1 min-w-0 pl-1 lg:pl-3">
               <p className="text-[10px] lg:text-[11px] uppercase tracking-wider text-gray-500 font-bold mb-1 lg:mb-1.5">STATUS RTS</p>
               <div className="flex items-center gap-1.5 lg:gap-2 mb-2 lg:mb-2.5">
-                <div className={cn("h-4 w-4 lg:h-[18px] lg:w-[18px] rounded-full flex-shrink-0", isRtsConnected ? "bg-[#2DB77B]" : "bg-[#EF4444]")}></div>
-                <span className={cn("font-extrabold text-[20px] sm:text-2xl lg:text-[26px] xl:text-[28px] tracking-tight truncate", isRtsConnected ? "text-[#2DB77B]" : "text-[#EF4444]")}>
+                {/* Titik ikut mengecil bersama teksnya supaya proporsinya tetap. */}
+                <div className={cn("h-3 w-3 lg:h-3.5 lg:w-3.5 rounded-full flex-shrink-0", isRtsConnected ? "bg-[#2DB77B]" : "bg-[#EF4444]")}></div>
+                <span className={cn("font-extrabold text-[16px] sm:text-[17px] lg:text-[19px] xl:text-[20px] tracking-tight truncate", isRtsConnected ? "text-[#2DB77B]" : "text-[#EF4444]")}>
                   {statusRtsText}
                 </span>
-              </div>   
+              </div>
               <p className="text-[10px] lg:text-[11px] uppercase tracking-wider text-gray-500 font-bold mb-1">TILT</p>
               <div className="flex items-center gap-2">
                 <div className="relative w-[40px] h-[40px] flex-shrink-0">
@@ -433,8 +435,11 @@ function RtsDashboard({
       {/* ─── MIDDLE SEC: HISTORY & PRISMA DATA ─── */}
       <div className="grid grid-cols-1 gap-3 md:gap-5 xl:grid-cols-12">
         {/* Riwayat Running Terbaru */}
-        <Card className="col-span-1 xl:col-span-3 rounded-lg shadow-sm border-[#EAEAEA] h-[360px] md:h-[520px] flex flex-col pt-5 bg-white">
-          <div className="px-4 md:px-5 flex items-center justify-between mb-4">
+        {/* py-0 gap-0 mematikan padding & gap bawaan Card: header, daftar, dan
+            footer di dalamnya sudah mengatur spasinya masing-masing, jadi tanpa
+            ini keduanya bertumpuk. */}
+        <Card className="col-span-1 xl:col-span-3 rounded-lg shadow-sm border-[#EAEAEA] h-[360px] md:h-[520px] flex flex-col gap-0 py-0 bg-white">
+          <div className="px-4 md:px-5 pt-4 pb-3 flex items-center justify-between">
             <h3 className="font-extrabold text-gray-900 text-base">Riwayat Running Terbaru</h3>
             <History className="h-4 w-4 text-gray-800" />
           </div>
@@ -484,7 +489,7 @@ function RtsDashboard({
               })
             )}
           </div>
-          <div className="border-t border-gray-100 p-3.5 flex justify-end">
+          <div className="border-t border-gray-100 px-4 py-3 md:px-5 flex justify-end">
              <button
                onClick={() => router.push(`/hasil-pengukuran?log=${activeLog ?? ""}&view=Tabel`)}
                className="text-[13px] text-[#2B3270] font-bold flex items-center gap-1.5 hover:underline cursor-pointer"
@@ -495,8 +500,10 @@ function RtsDashboard({
         </Card>
 
         {/* Preview Data Prisma */}
-        <Card className="col-span-1 xl:col-span-9 rounded-lg shadow-sm border-[#EAEAEA] overflow-hidden flex flex-col h-[520px] bg-white">
-          <div className="px-4 py-3 md:pt-1 md:pb-1 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+        <Card className="col-span-1 xl:col-span-9 rounded-lg shadow-sm border-[#EAEAEA] overflow-hidden flex flex-col h-[520px] gap-0 py-0 bg-white">
+          {/* md:pt-1/pb-1 dulu dipakai untuk mengimbangi py-4 + gap-4 bawaan Card.
+              Setelah keduanya dimatikan, header ini butuh padding sebenarnya. */}
+          <div className="px-4 py-3 md:px-5 md:py-3.5 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
             <div className="min-w-0">
               <h3 className="font-extrabold text-gray-900 text-lg mb-1.5">Preview Data Prisma</h3>
               <div className="flex flex-wrap items-center gap-2 md:gap-4">
@@ -577,7 +584,7 @@ function RtsDashboard({
               </TableBody>
             </Table>
           </div>
-          <div className="border-t border-gray-100 p-3.5 flex justify-end">
+          <div className="border-t border-gray-100 px-4 py-3 md:px-5 flex justify-end">
             <button
               onClick={() => router.push(`/hasil-pengukuran?log=${activeLog ?? ""}&view=Tabel`)}
               className="text-[13px] text-[#2B3270] font-bold flex items-center gap-1.5 hover:underline cursor-pointer"
@@ -591,7 +598,7 @@ function RtsDashboard({
       {/* ─── BOTTOM SEC: SUMMARIES & MAP PREVIEWS ─── */}
       <div className="grid grid-cols-1 gap-3 md:gap-5 xl:grid-cols-12">
         {/* Ringkasan Harian */}
-        <Card className="rounded-lg shadow-sm border-[#EAEAEA] bg-white xl:col-span-3">
+        <Card className="rounded-lg shadow-sm border-[#EAEAEA] bg-white xl:col-span-3 gap-0 py-0">
           <CardHeader className="p-4 2xl:px-5 pb-0">
             <CardTitle className="text-[15px] font-extrabold text-gray-900">Ringkasan Harian</CardTitle>
           </CardHeader>
@@ -668,7 +675,7 @@ function RtsDashboard({
         {/* Wrapper Peta & 3D */}
         <div className="xl:col-span-9 grid grid-cols-1 gap-3 md:gap-5 lg:grid-cols-2">
           {/* Peta Prisma Preview */}
-          <Card className="rounded-lg shadow-sm border-[#EAEAEA] bg-white min-h-[190px] sm:min-h-[160px] relative overflow-hidden flex flex-col">
+          <Card className="rounded-lg shadow-sm border-[#EAEAEA] bg-white min-h-[190px] sm:min-h-[160px] relative overflow-hidden flex flex-col gap-0 py-0">
            <div className="p-4 2xl:p-5 flex-1 z-10 relative w-[45%] sm:w-[35%]">
               <h3 className="font-extrabold text-[15px] text-gray-900 mb-0.5">Peta Prisma</h3>
               <p className="text-[11px] text-gray-500 font-medium leading-tight mb-4 pr-1">Preview persebaran titik prisma</p>
@@ -692,7 +699,7 @@ function RtsDashboard({
         </Card>
 
         {/* Visualisasi 3D Preview */}
-        <Card className="rounded-lg shadow-sm border-[#EAEAEA] bg-white min-h-[190px] sm:min-h-[160px] relative overflow-hidden flex flex-col">
+        <Card className="rounded-lg shadow-sm border-[#EAEAEA] bg-white min-h-[190px] sm:min-h-[160px] relative overflow-hidden flex flex-col gap-0 py-0">
            <div className="p-4 2xl:p-5 flex-1 z-10 relative w-[45%] sm:w-[35%]">
               <h3 className="font-extrabold text-[15px] text-gray-900 mb-0.5">Visualisasi 3D</h3>
               <p className="text-[11px] text-gray-500 font-medium leading-tight mb-4 pr-1">Preview visualisasi deformasi prisma</p>
@@ -727,11 +734,12 @@ function SmallMetricCard({title, value, unit, iconBg, iconColor, Icon, imageSrc,
     <Card 
       onClick={onClick}
       className={cn(
-        "col-span-1 border-[#EAEAEA] shadow-sm rounded-md relative overflow-hidden min-h-[128px] h-full transition-all duration-300",
+        // gap-0 py-0: div di dalam sudah punya p-3/p-4 sendiri.
+        "col-span-1 border-[#EAEAEA] shadow-sm rounded-md relative overflow-hidden min-h-[128px] h-full transition-all duration-300 gap-0 py-0",
         onClick && "cursor-pointer hover:border-gray-400 hover:shadow-md active:scale-[0.98]"
       )}
     >
-      <div className="p-3 lg:p-4 h-full flex flex-col justify-center items-start gap-2.5 lg:gap-3">
+      <div className="p-3 lg:p-4 h-full flex flex-col justify-center items-center gap-2.5 lg:gap-3">
         <div className={cn("w-10 h-10 lg:w-11 lg:h-11 flex-shrink-0 rounded-[10px] flex items-center justify-center", iconBg)}>
           {imageSrc ? (
              <Image src={imageSrc} width={35} height={35} alt={title} className="object-contain w-5 h-5 lg:w-[30px] lg:h-[30px]" />
@@ -739,10 +747,13 @@ function SmallMetricCard({title, value, unit, iconBg, iconColor, Icon, imageSrc,
              <Icon className={cn("h-5 w-5 lg:h-[22px] lg:w-[22px]", iconColor)} strokeWidth={2.5} />
           ) : null}
         </div>
-        <div className="flex flex-col gap-0.5">
-          <p className="text-[10px] lg:text-[11px] uppercase tracking-wider text-gray-700 font-bold w-full truncate">{title}</p>
-          <div className="flex items-baseline gap-1">
-            <span className="font-extrabold text-[21px] sm:text-2xl lg:text-[26px] xl:text-[28px] tracking-tight leading-none">{value}</span>
+        {/* w-full supaya `truncate` pada judul punya lebar acuan — tanpa itu
+            items-center menyusutkan kolom ini seukuran isinya dan judul panjang
+            (TEMPERATURE LOGGER) melebar keluar, bukan terpotong. */}
+        <div className="flex flex-col items-center gap-0.5 w-full">
+          <p className="text-[10px] lg:text-[11px] uppercase tracking-wider text-gray-700 font-bold w-full text-center truncate">{title}</p>
+          <div className="flex items-baseline justify-center gap-1">
+            <span className="font-extrabold text-[18px] sm:text-[19px] lg:text-[21px] xl:text-[22px] tracking-tight leading-none">{value}</span>
             <span className="text-[11px] lg:text-[12px] font-medium text-gray-800">{unit}</span>
           </div>
         </div>
@@ -804,13 +815,13 @@ function BerandaContent() {
           </div>
         </div>
       ) : isError ? (
-        <Card>
+        <Card className="py-0">
           <CardContent className="py-12 text-center text-red-500 font-medium">
             Gagal memuat data dashboard. Pastikan koneksi database sudah benar.
           </CardContent>
         </Card>
       ) : loggers.length === 0 ? (
-        <Card>
+        <Card className="py-0">
           <CardContent className="py-12 text-center text-gray-500 font-medium">
             Belum ada logger terdaftar di sistem.
           </CardContent>

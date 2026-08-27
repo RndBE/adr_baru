@@ -41,8 +41,19 @@ export interface SiteRow {
   catatan: string | null;
   /** Diturunkan dari log_kontrol — hanya ada bila diminta with_logger=1. */
   id_logger?: string | null;
+  /** Nama logger dari t_logger — hanya ada bila diminta with_logger=1. */
+  nama_logger?: string | null;
+  /**
+   * Nama pos RTS dari t_lokasi, lewat logger yang melayani site ini.
+   * Hanya ada bila diminta with_logger=1; null bila loggernya belum punya
+   * lokasi terdaftar. Pakai namaPos() supaya fallback-nya seragam.
+   */
+  nama_lokasi?: string | null;
   jumlah_sesi?: number;
 }
+
+/** Dipakai saat nama pos belum bisa ditentukan — jangan sebut site tertentu. */
+export const POS_RTS_TANPA_NAMA = "Pos RTS";
 
 export interface SiteBadge {
   label: string;
@@ -131,10 +142,30 @@ export function useSites(includeInactive = false, withLogger = false) {
     [sites]
   );
 
+  /**
+   * Nama pos RTS untuk dijadikan judul halaman.
+   *
+   * Butuh withLogger=true — tanpa itu `nama_lokasi` tidak ikut diminta dan
+   * hasilnya selalu jatuh ke fallback. Urutan: t_lokasi.nama_lokasi →
+   * t_logger.nama_logger → "Pos RTS". Nama site TIDAK dipakai sebagai
+   * fallback: t_site menamai area pemantauan, bukan pos RTS-nya.
+   *
+   * `slug` kosong berarti belum ada site terpilih (mis. filter "semua site"),
+   * jadi tidak ada satu pos yang bisa disebut.
+   */
+  const namaPos = useCallback(
+    (slug: string | null | undefined): string => {
+      const found = slug ? sites.find((s) => s.slug === slug) : null;
+      return found?.nama_lokasi || found?.nama_logger || POS_RTS_TANPA_NAMA;
+    },
+    [sites]
+  );
+
   return {
     sites,
     badge,
     bySlug,
+    namaPos,
     isLoading,
     isError: !!error || data?.success === false,
     mutate,

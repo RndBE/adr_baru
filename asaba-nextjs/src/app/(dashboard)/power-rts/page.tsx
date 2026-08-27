@@ -47,6 +47,7 @@ import {
 } from "@/components/ui/sheet";
 import { cn } from "@/lib/utils";
 import { useLoggers } from "@/hooks/use-api";
+import { POS_RTS_TANPA_NAMA } from "@/hooks/use-sites";
 
 // ─── API Data Fetching Config ───
 
@@ -214,7 +215,7 @@ export default function PowerRtsPage() {
             </div>
             <div className="flex flex-col gap-0.5">
               <p className="font-bold text-black text-[15.5px] leading-tight">
-                {loggerInfo?.nama_lokasi || rtsLoggers.find((l: any) => l.id_logger === selectedPos)?.nama_logger || "Pos RTS Site MIP"}
+                {loggerInfo?.nama_lokasi || rtsLoggers.find((l: any) => l.id_logger === selectedPos)?.nama_logger || POS_RTS_TANPA_NAMA}
               </p>
               <p className="text-[13px] text-gray-800 font-medium">
                 {isConnected ? "Koneksi Terhubung" : "Koneksi Terputus"}
@@ -359,7 +360,7 @@ export default function PowerRtsPage() {
               {chartTitle}
             </h2>
             <p className="text-center text-xs text-gray-500 mb-4">
-              {loggerInfo?.nama_lokasi || rtsLoggers.find((l: any) => l.id_logger === selectedPos)?.nama_logger || "Pos RTS Site MIP"}
+              {loggerInfo?.nama_lokasi || rtsLoggers.find((l: any) => l.id_logger === selectedPos)?.nama_logger || POS_RTS_TANPA_NAMA}
             </p>
 
             <ResponsiveContainer width="100%" height={300}>

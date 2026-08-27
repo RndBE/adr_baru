@@ -241,7 +241,8 @@ function HasilPengukuranContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const { isConnected } = useRtsConnectionStatus();
-  const { sites: siteList, badge: siteBadge, bySlug: siteBySlug } = useSites();
+  // withLogger=true supaya `nama_lokasi` ikut terbawa untuk judul pos RTS.
+  const { sites: siteList, badge: siteBadge, bySlug: siteBySlug, namaPos } = useSites(false, true);
   
   const [activeTab, setActiveTab] = useState("Event");
   const [activeView, setActiveView] = useState(() => searchParams.get("view") ?? "Tabel");
@@ -558,15 +559,46 @@ function HasilPengukuranContent() {
   return (
     <div className="flex flex-col gap-6 w-full pb-10">
 
-      {/* Sub Header */}
-      <div className="flex items-center gap-4">
-        <div className="w-10 h-10 rounded-full border border-gray-200 bg-[#E5E5E5] flex items-center justify-center shadow-inner relative">
-          {isConnected && <div className="absolute w-3.5 h-3.5 rounded-full bg-green-400/80 animate-ping" />}
-          <div className={cn("w-3.5 h-3.5 rounded-full relative z-10", isConnected ? "bg-[#06C022]" : "bg-gray-800")} />
+      {/* Sub Header.
+          Filter site dan "Atur R0" ada di sini, bukan di header panel Tanggal
+          Running. Panel itu lebarnya dipatok 300px oleh grid di bawah, jadi
+          ruang isinya hanya 260px — tidak cukup untuk judul + select + tombol
+          sekaligus, dan ketiganya saling membungkus. Keduanya juga memang
+          bersifat sehalaman: filter site ikut menyaring tabel di kanan, dan R0
+          mengubah acuan seluruh perhitungan. */}
+      <div className="flex flex-wrap items-center justify-between gap-4">
+        <div className="flex items-center gap-4">
+          <div className="w-10 h-10 rounded-full border border-gray-200 bg-[#E5E5E5] flex items-center justify-center shadow-inner relative flex-shrink-0">
+            {isConnected && <div className="absolute w-3.5 h-3.5 rounded-full bg-green-400/80 animate-ping" />}
+            <div className={cn("w-3.5 h-3.5 rounded-full relative z-10", isConnected ? "bg-[#06C022]" : "bg-gray-800")} />
+          </div>
+          <div className="flex flex-col gap-1 items-start">
+            {/* siteFilter kosong = filter "semua site", jadi tidak ada satu pos
+                yang bisa disebut dan namaPos() jatuh ke label umum. */}
+            <h2 className="font-extrabold text-[#1f2937] text-[18px] leading-tight">{namaPos(siteFilter)}</h2>
+            <RtsConnectionBadge />
+          </div>
         </div>
-        <div className="flex flex-col gap-1 items-start">
-          <h2 className="font-extrabold text-[#1f2937] text-[18px] leading-tight">Pos RTS Site MIP</h2>
-          <RtsConnectionBadge />
+
+        <div className="flex items-center gap-2.5">
+          <select
+            value={siteFilter}
+            onChange={(e) => { setSiteFilter(e.target.value); setCurrentPage(1); }}
+            className="h-[38px] cursor-pointer rounded-md border border-gray-200 bg-white px-3 text-[12.5px] font-semibold text-gray-700 outline-none focus:border-[#303481]"
+            title="Saring berdasarkan site"
+          >
+            <option value="">Semua site</option>
+            {siteList.map((s) => (
+              <option key={s.slug} value={s.slug}>{s.nama}</option>
+            ))}
+          </select>
+          <button
+            onClick={() => setIsR0ModalOpen(true)}
+            className="flex h-[38px] flex-shrink-0 items-center gap-2 whitespace-nowrap rounded-md border border-gray-200 bg-gray-50 px-3.5 text-[12.5px] font-bold text-gray-700 transition-colors hover:bg-gray-100 cursor-pointer"
+          >
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M4 21v-7"/><path d="M4 10V3"/><path d="M12 21v-9"/><path d="M12 8V3"/><path d="M20 21v-5"/><path d="M20 12V3"/><path d="M1 14h6"/><path d="M9 8h6"/><path d="M17 16h6"/></svg>
+            Atur R0
+          </button>
         </div>
       </div>
 
@@ -575,28 +607,13 @@ function HasilPengukuranContent() {
 
         {/* ── Left: Tanggal Running ── */}
         <div className="bg-white border border-[#EAEAEA] rounded-xl shadow-sm overflow-hidden flex flex-col">
-          <div className="px-5 py-4 flex items-center justify-between border-b border-[#EAEAEA]">
-            <div className="flex items-center gap-2.5">
-              <h3 className="font-extrabold text-gray-900 text-[15px]">Tanggal Running</h3>
-              <select
-                value={siteFilter}
-                onChange={(e) => { setSiteFilter(e.target.value); setCurrentPage(1); }}
-                className="h-7 max-w-[150px] cursor-pointer rounded-md border border-gray-200 bg-white px-2 text-[11.5px] font-semibold text-gray-700 outline-none focus:border-[#303481]"
-                title="Saring berdasarkan site"
-              >
-                <option value="">Semua site</option>
-                {siteList.map((s) => (
-                  <option key={s.slug} value={s.slug}>{s.nama}</option>
-                ))}
-              </select>
-            </div>
-            <button
-              onClick={() => setIsR0ModalOpen(true)}
-              className="flex items-center gap-1.5 px-3 py-1.5 bg-gray-50 hover:bg-gray-100 border border-gray-200 rounded-md text-[11px] font-bold text-gray-700 transition-colors cursor-pointer"
-            >
-              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M4 21v-7"/><path d="M4 10V3"/><path d="M12 21v-9"/><path d="M12 8V3"/><path d="M20 21v-5"/><path d="M20 12V3"/><path d="M1 14h6"/><path d="M9 8h6"/><path d="M17 16h6"/></svg>
-              Atur R0
-            </button>
+          <div className="flex items-center justify-between border-b border-[#EAEAEA] px-5 py-4">
+            <h3 className="whitespace-nowrap font-extrabold text-gray-900 text-[15px]">Tanggal Running</h3>
+            {/* Jumlah sesi menggantikan ruang yang dulu dipakai select + tombol —
+                menjawab "ada berapa" tanpa perlu menghitung baris. */}
+            <span className="text-[11.5px] font-semibold text-gray-500">
+              {runsLoading ? "" : `${totalRuns} sesi`}
+            </span>
           </div>
 
           {/* List */}

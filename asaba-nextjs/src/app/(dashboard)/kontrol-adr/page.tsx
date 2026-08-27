@@ -306,7 +306,8 @@ export default function KontrolAdrPage() {
   }, []);
 
   const [accessCode, setAccessCode] = useState("");
-  const { sites: siteList, badge: siteBadge } = useSites();
+  // withLogger=true supaya `nama_lokasi` ikut terbawa untuk judul pos RTS.
+  const { sites: siteList, badge: siteBadge, namaPos } = useSites(false, true);
   // Nilai efektifnya diturunkan, bukan disinkronkan lewat effect: sebelum daftar
   // site termuat, `selectedSite` masih "" dan semua fetch-nya memang ditunda.
   const [sitePilihan, setSitePilihan] = useState("");
@@ -843,7 +844,7 @@ export default function KontrolAdrPage() {
                 <div className={cn("w-3.5 h-3.5 rounded-full relative z-10", isConnected ? "bg-[#06C022]" : "bg-gray-800")} />
               </div>
               <div className="flex flex-col gap-1 items-start">
-                <h2 className="font-extrabold text-[#1f2937] text-[18px] leading-tight">Pos RTS Site MIP</h2>
+                <h2 className="font-extrabold text-[#1f2937] text-[18px] leading-tight">{namaPos(selectedSite)}</h2>
                 <RtsConnectionBadge />
               </div>
             </div>

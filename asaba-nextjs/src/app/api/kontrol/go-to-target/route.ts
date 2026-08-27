@@ -1,13 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { publishMqtt } from "@/lib/mqtt";
-import { getLoggerForSite } from "@/lib/sites";
+import { getLoggerForCommand } from "@/lib/sites";
 
 /**
  * POST /api/kontrol/go-to-target
  * Kirim perintah turning_target ke logger via MQTT.
  *
- * Body: { slot_id: number, site: string }
+ * Body: { slot_id: number, site?: string }
  *
  * Payload MQTT:
  * {"set_XXXXX": {"command":"set_rts","turning_target":"<id dari t_prisma>"}}
@@ -24,33 +24,35 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Perintah ini memutar teleskop RTS ke arah target. Tanpa site, slot "P1"
-    // bisa merujuk target milik site lain DAN dikirim ke perangkat yang salah —
-    // dua kesalahan sekaligus pada perintah yang menggerakkan alat.
-    if (!site) {
-      return NextResponse.json(
-        { success: false, error: "site wajib diisi" },
-        { status: 400 }
-      );
-    }
-
     const id_prisma = `P${slot_id}`;
 
-    // Logger diturunkan dari site, bukan "logger ADR pertama" — dengan lebih
-    // dari satu unit RTS terdaftar, LIMIT 1 tanpa ORDER BY tidak deterministik.
-    const id_logger = await getLoggerForSite(site);
+    // `site` OPSIONAL — tanpa itu perilakunya sama seperti sebelum refactor.
+    const id_logger = await getLoggerForCommand(site);
     if (!id_logger) {
       return NextResponse.json(
-        { success: false, error: `Logger untuk site "${site}" tidak ditemukan` },
+        {
+          success: false,
+          error: site
+            ? `Logger untuk site "${site}" tidak ditemukan`
+            : "ADR logger not found",
+        },
         { status: 404 }
       );
     }
 
-    // Ambil id dari t_prisma, di-scope per site — slot yang sama ada di
-    // beberapa site dan menunjuk target fisik yang berbeda.
-    const prismaRows = await prisma.$queryRaw<Array<{ id: number }>>`
-      SELECT id FROM t_prisma WHERE id_prisma = ${id_prisma} AND site = ${site} LIMIT 1
-    `;
+    // Target dicari per site bila site diketahui. Tanpa site, dipakai penyaringan
+    // lama (per logger) — dan itu AMBIGU: satu unit RTS bisa melayani beberapa
+    // site, sehingga slot "P1" cocok ke lebih dari satu baris t_prisma yang
+    // menunjuk target fisik berbeda (di data ini ccp/"A" dan viewpoint/"TS_1",
+    // berjarak ~1,5 km), lalu LIMIT 1 memilih salah satu tanpa urutan pasti.
+    // Kirim `site` untuk memastikan teleskop diputar ke target yang benar.
+    const prismaRows = site
+      ? await prisma.$queryRaw<Array<{ id: number }>>`
+          SELECT id FROM t_prisma WHERE id_prisma = ${id_prisma} AND site = ${site} LIMIT 1
+        `
+      : await prisma.$queryRaw<Array<{ id: number }>>`
+          SELECT id FROM t_prisma WHERE id_prisma = ${id_prisma} AND id_logger = ${id_logger} LIMIT 1
+        `;
     const prismaId = prismaRows?.[0]?.id;
     if (prismaId === undefined || prismaId === null) {
       return NextResponse.json(

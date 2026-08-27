@@ -4,6 +4,7 @@ import "maplibre-gl/dist/maplibre-gl.css";
 import DeckGL from "@deck.gl/react";
 import { ColumnLayer, LineLayer, ScatterplotLayer, TextLayer } from "@deck.gl/layers";
 import { HeatmapLayer } from "@deck.gl/aggregation-layers";
+import { fontMono } from "@/lib/fonts";
 import type { MapViewState, PickingInfo } from "@deck.gl/core";
 import { Map } from "react-map-gl/maplibre";
 import { useMemo, useState } from "react";
@@ -210,7 +211,9 @@ export function MineNetwork3DDeck({ selectedId, onSelect, showHeatmap, topView }
       getBackgroundColor: [15, 15, 30, 210],
       background: true,
       backgroundPadding: [6, 3, 6, 3],
-      fontFamily: "'JetBrains Mono', monospace",
+      // deck.gl merender teks ke atlas canvas, jadi butuh nama family sebagai
+      // string — var(--font-sans) tidak bisa diresolusi di canvas.
+      fontFamily: fontMono.style.fontFamily,
       fontWeight: 700,
       billboard: true,
       sizeUnits: "pixels",

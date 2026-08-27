@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { publishMqtt } from "@/lib/mqtt";
-import { getLoggerForSite } from "@/lib/sites";
+import { getLoggerForCommand } from "@/lib/sites";
 
 /**
  * POST /api/mqtt
@@ -9,7 +9,7 @@ import { getLoggerForSite } from "@/lib/sites";
  *
  * Body: {
  *   command: "go_target" | "auto_search" | "set_config" | "update_prisma"
- *   -- Tujuan perintah, WAJIB salah satu:
+ *   -- Tujuan perintah, opsional (tanpa keduanya: logger ADR pertama):
  *   id_logger?: string  — logger tujuan, atau
  *   site?: string       — loggernya diambil dari master data site
  *   payload?: object    (untuk custom payload)
@@ -34,17 +34,17 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Tujuan perintah ditentukan eksplisit: `id_logger` langsung, atau `site`
-    // yang diterjemahkan ke logger miliknya.
+    // Urutan penentuan tujuan: `id_logger` eksplisit → dari `site` → fallback
+    // lama "logger ADR pertama". Fallback terakhir dipertahankan supaya pemanggil
+    // yang belum mengirim keduanya berperilaku sama seperti sebelum refactor.
     //
-    // Fallback lama "logger ADR pertama" (LIMIT 1 tanpa ORDER BY) dihapus:
-    // payload berbentuk { set_<id_logger>: … } dan endpoint ini mengirim
-    // perintah yang menggerakkan alat, jadi menebak tujuan berarti perintah
-    // bisa mendarat di perangkat site lain. Lebih baik menolak daripada salah
-    // sasaran.
+    // Fallback itu memakai LIMIT 1 tanpa ORDER BY, jadi tidak deterministik
+    // begitu ada lebih dari satu unit ADR/RTS. Payload berbentuk
+    // { set_<id_logger>: … } dan endpoint ini mengirim perintah yang
+    // menggerakkan alat — kirim `id_logger` atau `site` agar tidak salah sasaran.
     let id_logger: string | null = body.id_logger ?? null;
-    if (!id_logger && body.site) {
-      id_logger = await getLoggerForSite(String(body.site));
+    if (!id_logger) {
+      id_logger = await getLoggerForCommand(body.site ? String(body.site) : null);
     }
     if (!id_logger) {
       return NextResponse.json(

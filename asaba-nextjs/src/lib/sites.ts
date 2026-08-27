@@ -277,6 +277,32 @@ export async function getLoggerForSite(slug: string): Promise<string | null> {
   return dariPrisma[0]?.id_logger != null ? String(dariPrisma[0].id_logger) : null;
 }
 
+/**
+ * Logger tujuan sebuah perintah MQTT, dengan `site` OPSIONAL.
+ *
+ * - `site` diisi  → diturunkan dari site lewat getLoggerForSite().
+ * - `site` kosong → jatuh ke perilaku lama: "logger ADR/RTS pertama". Query ini
+ *   disalin apa adanya dari versi sebelum refactor supaya pemanggil yang belum
+ *   mengirim `site` berperilaku sama persis seperti dulu, bukan ditolak 400.
+ *
+ * PERINGATAN: `LIMIT 1` tanpa `ORDER BY` tidak menjamin urutan. Selama hanya ada
+ * satu unit ADR/RTS terdaftar hasilnya selalu unit itu, jadi identik dengan
+ * perilaku lama. Begitu unit kedua didaftarkan, jalur fallback ini bisa memilih
+ * perangkat yang salah — dan perintah seperti PowerOff atau go-to-target akan
+ * mendarat di site lain. Pemanggil wajib mulai mengirim `site` sebelum itu.
+ */
+export async function getLoggerForCommand(site?: string | null): Promise<string | null> {
+  const slug = (site ?? "").trim();
+  if (slug) return getLoggerForSite(slug);
+
+  const rows = await prisma.$queryRaw<Array<{ id_logger: string }>>`
+    SELECT l.id_logger FROM t_logger l
+    JOIN kategori_logger kl ON l.kategori_log = kl.id_katlogger
+    WHERE kl.nama_kategori LIKE '%ADR%' OR kl.nama_kategori LIKE '%RTS%' LIMIT 1
+  `;
+  return rows?.[0]?.id_logger ?? null;
+}
+
 // ─── Penentuan status ───────────────────────────────────────────────────────
 
 export type StatusLabel = "Normal" | "Waspada" | "Siaga" | "Awas";

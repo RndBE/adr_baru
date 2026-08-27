@@ -1,12 +1,7 @@
 import type { Metadata } from "next";
-import { Plus_Jakarta_Sans } from "next/font/google";
 import { TooltipProvider } from "@/components/ui/tooltip";
+import { fontSans, fontMono } from "@/lib/fonts";
 import "./globals.css";
-
-const primaryFont = Plus_Jakarta_Sans({
-  variable: "--font-sans",
-  subsets: ["latin"],
-});
 
 export const metadata: Metadata = {
   title: "Sistem Monitoring Deformasi",
@@ -20,7 +15,10 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="id" className={`${primaryFont.variable} h-full antialiased`}>
+    <html
+      lang="id"
+      className={`${fontSans.variable} ${fontMono.variable} h-full antialiased`}
+    >
       <body className="min-h-full flex flex-col font-sans">
         <TooltipProvider>{children}</TooltipProvider>
       </body>

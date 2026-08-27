@@ -208,10 +208,13 @@ function PrismaModal({
     setGoTargetStatus("waiting");
     setSimpanEnabled(false);
     try {
+      // `site` wajib dikirim walau endpoint-nya menerima tanpa itu: slot "P1"
+      // ada di beberapa site dan menunjuk target fisik berbeda, jadi tanpa site
+      // teleskop bisa diputar ke target site lain.
       const res = await fetch("/api/kontrol/go-to-target", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ slot_id: slot.slot }),
+        body: JSON.stringify({ slot_id: slot.slot, site }),
       });
       const json = await res.json();
       if (!json.success) throw new Error(json.error || "Gagal Go To Target");
@@ -496,7 +499,8 @@ const PAGE_SIZE = 10;
 
 export default function PrismConfigPage() {
   const { isConnected } = useRtsConnectionStatus();
-  const { sites: siteList } = useSites();
+  // withLogger=true supaya `nama_lokasi` ikut terbawa untuk judul pos RTS.
+  const { sites: siteList, namaPos } = useSites(false, true);
 
   // Slot prisma (P1, P2, …) dipakai ulang di tiap site dan menunjuk target
   // fisik yang berbeda, jadi halaman ini harus selalu terikat ke satu site.
@@ -579,7 +583,7 @@ export default function PrismConfigPage() {
             <div className={cn("w-3.5 h-3.5 rounded-full relative z-10", isConnected ? "bg-[#06C022]" : "bg-gray-800")} />
           </div>
           <div className="flex flex-col gap-1 items-start">
-            <h2 className="font-extrabold text-[#1f2937] text-[18px] leading-tight">Pos RTS Site MIP</h2>
+            <h2 className="font-extrabold text-[#1f2937] text-[18px] leading-tight">{namaPos(site)}</h2>
             <RtsConnectionBadge />
           </div>
         </div>

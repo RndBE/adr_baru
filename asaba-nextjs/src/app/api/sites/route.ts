@@ -13,6 +13,15 @@ import { normalizeBody, validate } from "@/lib/site-validation";
  *                    Relasi site↔logger tidak dimodelkan di skema (satu unit
  *                    RTS bisa dipakai di lebih dari satu site), jadi ini murni
  *                    hasil pembacaan log_kontrol, bukan konfigurasi.
+ *
+ *                    Ikut menyertakan `nama_logger` dan `nama_lokasi` — nama pos
+ *                    RTS dari t_lokasi, lewat t_logger.lokasi_logger. Judul
+ *                    halaman dulu menulis "Pos RTS Site MIP" secara hardcode,
+ *                    padahal nama posnya sudah ada di master data.
+ *
+ *                    Karena satu logger bisa melayani beberapa site, dua site
+ *                    yang memakai unit RTS yang sama akan menunjukkan
+ *                    `nama_lokasi` yang sama — itu memang satu pos fisik.
  */
 export async function GET(req: NextRequest) {
   try {
@@ -51,11 +60,29 @@ export async function GET(req: NextRequest) {
       jumlahSesi.set(row.site, (jumlahSesi.get(row.site) ?? 0) + Number(row.sesi));
     }
 
-    const data = sites.map((s) => ({
-      ...s,
-      id_logger: loggerPerSite.get(s.slug) ?? null,
-      jumlah_sesi: jumlahSesi.get(s.slug) ?? 0,
-    }));
+    // Nama pos RTS: t_logger.lokasi_logger → t_lokasi.idlokasi. LEFT JOIN karena
+    // logger tanpa lokasi terdaftar harus tetap muncul, dengan nama_lokasi null.
+    // Tanpa filter IN — t_logger hanya berisi segelintir baris.
+    const loggers = await prisma.$queryRaw<
+      Array<{ id_logger: string; nama_logger: string; nama_lokasi: string | null }>
+    >`
+      SELECT l.id_logger, l.nama_logger, lok.nama_lokasi
+      FROM t_logger l
+      LEFT JOIN t_lokasi lok ON l.lokasi_logger = lok.idlokasi
+    `;
+    const infoLogger = new Map(loggers.map((l) => [String(l.id_logger), l]));
+
+    const data = sites.map((s) => {
+      const idLogger = loggerPerSite.get(s.slug) ?? null;
+      const info = idLogger ? infoLogger.get(idLogger) : undefined;
+      return {
+        ...s,
+        id_logger: idLogger,
+        nama_logger: info?.nama_logger ?? null,
+        nama_lokasi: info?.nama_lokasi ?? null,
+        jumlah_sesi: jumlahSesi.get(s.slug) ?? 0,
+      };
+    });
 
     return NextResponse.json({ success: true, data });
   } catch (error) {

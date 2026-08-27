@@ -164,7 +164,7 @@ export default function PrismaMap({ markers, site }: Props) {
     L.marker(center, { icon: rtsIcon })
       .addTo(map)
       .bindPopup(`
-        <div style="font-family:system-ui;padding:2px;">
+        <div style="font-family:var(--font-sans),system-ui;padding:2px;">
           <div style="font-weight:800;font-size:13px;color:#1f2937;margin-bottom:3px;">📡 ADR / RTS</div>
           <div style="font-size:11px;color:#6b7280">Site ${siteNama}</div>
         </div>`, { className: "prisma-popup" });
@@ -206,7 +206,7 @@ export default function PrismaMap({ markers, site }: Props) {
 
       // Popup
       const popupHtml = hasNew
-        ? `<div style="font-family:system-ui;min-width:190px;">
+        ? `<div style="font-family:var(--font-sans),system-ui;min-width:190px;">
             <div style="display:flex;align-items:center;gap:6px;margin-bottom:10px;">
               <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#3b82f6" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
                 <circle cx="12" cy="12" r="4"/>
@@ -226,7 +226,7 @@ export default function PrismaMap({ markers, site }: Props) {
             <div style="font-size:9px;font-weight:700;color:#9ca3af;letter-spacing:.08em;margin-bottom:5px;">SLOPE DISTANCE</div>
             <div style="font-weight:700;font-size:13px;color:#1f2937;">${pr.SD1}</div>
           </div>`
-        : `<div style="font-family:system-ui;min-width:160px;">
+        : `<div style="font-family:var(--font-sans),system-ui;min-width:160px;">
             <div style="font-weight:800;font-size:13px;color:#1f2937;margin-bottom:6px;">${namaBersih}</div>
             <div style="font-size:11px;color:#ef4444;font-weight:600;">Belum ada data pengukuran</div>
           </div>`;

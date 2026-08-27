@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { publishMqtt } from "@/lib/mqtt";
-import { getLoggerForSite } from "@/lib/sites";
+import { getLoggerForCommand } from "@/lib/sites";
 
 /**
  * POST /api/kontrol/auto-search
@@ -8,25 +8,26 @@ import { getLoggerForSite } from "@/lib/sites";
  * Hanya kirim auto_search ke logger — fire-and-forget.
  * Response dari logger ditangkap oleh frontend via MQTT WebSocket.
  *
- * Body: { slot_id?: number, site: string }
+ * Body: { slot_id?: number, site?: string }
  */
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json().catch(() => ({}));
     const { site } = body as { site?: string };
 
-    // Logger diturunkan dari site — perintah auto_search menggerakkan unit RTS,
-    // jadi memilih "logger ADR pertama" bisa menyapu perangkat milik site lain.
-    if (!site) {
-      return NextResponse.json(
-        { success: false, error: "site wajib diisi" },
-        { status: 400 }
-      );
-    }
-    const id_logger = await getLoggerForSite(site);
+    // `site` OPSIONAL — tanpa itu logger diturunkan seperti sebelum refactor
+    // ("logger ADR pertama"), supaya pemanggil lama tetap bekerja. Kirim `site`
+    // begitu ada lebih dari satu unit RTS: auto_search menggerakkan alat, jadi
+    // menebak tujuan berarti menyapu perangkat milik site lain.
+    const id_logger = await getLoggerForCommand(site);
     if (!id_logger) {
       return NextResponse.json(
-        { success: false, error: `Logger untuk site "${site}" tidak ditemukan` },
+        {
+          success: false,
+          error: site
+            ? `Logger untuk site "${site}" tidak ditemukan`
+            : "ADR logger not found",
+        },
         { status: 404 }
       );
     }

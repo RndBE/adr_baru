@@ -4,6 +4,7 @@ import React, { useState, useEffect, useRef, useCallback } from "react";
 import { History, Target, Sliders, Crosshair, Play, ChevronDown, Loader2, Maximize, Database, MapPinned } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { useSites } from "@/hooks/use-sites";
+import { fontSans } from "@/lib/fonts";
 
 // ─── Plotly loaded via CDN (same as legacy) ──────────────────────────────────
 declare global {
@@ -296,12 +297,17 @@ export default function Visualisasi3DPage() {
       y: [cy, cy + L * 1.12, cy, cy - L * 1.12],
       z: [cz, cz, cz, cz],
       text: ["E", "N", "W", "S"],
-      textfont: { size: 16, color: "#0f172a" }, hoverinfo: "skip",
+      textfont: { size: 16, color: "#0f172a", family: fontSans.style.fontFamily }, hoverinfo: "skip",
     });
 
     const title = meta?.tanggal ? `RTS Deformasi 3D — ${meta.tanggal}` : "RTS Deformasi 3D";
 
     window.Plotly.newPlot(plotRef.current, traces, {
+      // Plotly mengukur teks sendiri, jadi nama family harus berupa string —
+      // bukan var(--font-sans). Judul, sumbu, dan legenda mewarisi dari sini,
+      // makanya masing-masing hanya perlu menyebut ukuran dan warna.
+      // Tanpa ini Plotly memakai default-nya sendiri (Open Sans).
+      font: { family: fontSans.style.fontFamily, color: "#0f172a" },
       title: { text: title, font: { size: 16, color: "#0f172a" } },
       paper_bgcolor: "rgba(255,255,255,1)",
       plot_bgcolor: "rgba(255,255,255,1)",
