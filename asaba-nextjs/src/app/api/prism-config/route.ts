@@ -3,6 +3,18 @@ import { prisma } from "@/lib/prisma";
 import { publishMqtt } from "@/lib/mqtt";
 import { getLoggerForSite } from "@/lib/sites";
 
+/**
+ * Tiga parameter yang selalu dibuat untuk setiap prisma baru.
+ * Sengaja disamakan persis dengan PARAM_STANDAR di
+ * prisma/backfill-prisma-site.ts — prisma hasil "Set" dan hasil backfill harus
+ * tidak bisa dibedakan, kalau tidak halaman Analisa memperlakukannya berbeda.
+ */
+const PARAM_STANDAR = [
+  { nama: "Northing_Y", kolom: "sensor8", icon: "northing" },
+  { nama: "Easting_X", kolom: "sensor9", icon: "easting" },
+  { nama: "Elevation", kolom: "sensor10", icon: "elevation_z" },
+];
+
 
 /**
  * GET /api/prism-config?site=xxx
@@ -139,39 +151,52 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Get max id
-    const maxIdRows = await prisma.$queryRaw<Array<{ max_id: number | null }>>`
-      SELECT MAX(id) as max_id FROM t_prisma
-    `;
-    const new_id = (maxIdRows[0]?.max_id ?? 0) + 1;
+    // Ketiga tabel ditulis dalam SATU transaksi.
+    //
+    // Sebelumnya tiap INSERT berdiri sendiri dan dijalankan berurutan. Ketika
+    // yang terakhir gagal, dua yang pertama sudah terlanjur commit: slot muncul
+    // sebagai "registered" di daftar (karena barisnya ada di t_prisma) padahal
+    // parameter grafiknya tidak pernah terbentuk, dan MQTT tidak pernah dikirim
+    // karena request-nya berakhir 500. Prisma setengah jadi seperti itu hanya
+    // bisa dibereskan lewat SQL manual.
+    await prisma.$transaction(async (tx) => {
+      // 1. INSERT ke t_prisma
+      //
+      // `id` sengaja TIDAK disebut: kolomnya AUTO_INCREMENT, jadi MySQL yang
+      // menentukan nilainya. Kode lama menghitung sendiri lewat
+      // `SELECT MAX(id)+1` — dua request Set yang berbarengan membaca angka yang
+      // sama lalu bertabrakan di primary key, dan hasil hitungannya juga
+      // meleset begitu ada baris yang pernah dihapus.
+      await tx.$executeRaw`
+        INSERT INTO t_prisma (id_logger, id_prisma, nama_prisma, status_controller, target_height, site)
+        VALUES (${id_logger}, ${id_prisma}, ${nama_prisma}, 'sensor9', ${target_height ?? 0}, ${site})
+      `;
 
-    // 1. INSERT ke t_prisma
-    await prisma.$executeRaw`
-      INSERT INTO t_prisma (id, id_logger, id_prisma, nama_prisma, status_controller, target_height, site)
-      VALUES (${new_id}, ${id_logger}, ${id_prisma}, ${nama_prisma}, 'sensor9', ${target_height ?? 0}, ${site})
-    `;
+      // 2. INSERT ke temp_prisma
+      await tx.$executeRaw`
+        INSERT INTO temp_prisma (id_prisma, waktu, N1, E1, Z1, N0, E0, Z0, status_get, site)
+        VALUES (${id_prisma}, '-', '0', '0', '0', '0', '0', '0', '1', ${site})
+      `;
 
-    // 2. INSERT ke temp_prisma
-    await prisma.$executeRaw`
-      INSERT INTO temp_prisma (id_prisma, waktu, N1, E1, Z1, N0, E0, Z0, status_get, site)
-      VALUES (${id_prisma}, '-', '0', '0', '0', '0', '0', '0', '1', ${site})
-    `;
-
-    // 3. INSERT parameter_prisma (Northing, Easting, Elevation)
-    await prisma.$executeRaw`
-      INSERT INTO parameter_prisma (id_prisma, nama_parameter, kolom_sensor, analisa, tipe_graf, icon_sensor, site)
-      VALUES (${id_prisma}, 'Northing_Y', 'sensor8', '1', 'spline', 'northing', ${site})
-    `;
-    await prisma.$executeRaw`
-      INSERT INTO parameter_prisma (id_prisma, nama_parameter, kolom_sensor, analisa, tipe_graf, icon_sensor, site)
-      VALUES (${id_prisma}, 'Easting_X', 'sensor9', '1', 'spline', 'easting', ${site})
-    `;
-    await prisma.$executeRaw`
-      INSERT INTO parameter_prisma (id_prisma, nama_parameter, kolom_sensor, analisa, tipe_graf, icon_sensor, site)
-      VALUES (${id_prisma}, 'Elevation', 'sensor10', '1', 'spline', 'elevation_z', ${site})
-    `;
+      // 3. INSERT parameter_prisma (Northing, Easting, Elevation)
+      //
+      // `satuan` WAJIB disebut: kolomnya `varchar(150) NOT NULL` tanpa default,
+      // jadi dengan sql_mode STRICT_TRANS_TABLES (bawaan MySQL 8.4) INSERT yang
+      // menghilangkannya ditolak `ERROR 1364: Field 'satuan' doesn't have a
+      // default value` — dan itu membuat SELURUH tombol "Set" gagal. Nilai ''
+      // menyamai baris yang sudah ada dan yang ditulis
+      // prisma/backfill-prisma-site.ts.
+      for (const par of PARAM_STANDAR) {
+        await tx.$executeRaw`
+          INSERT INTO parameter_prisma (id_prisma, nama_parameter, kolom_sensor, satuan, analisa, tipe_graf, icon_sensor, site)
+          VALUES (${id_prisma}, ${par.nama}, ${par.kolom}, '', 1, 'spline', ${par.icon}, ${site})
+        `;
+      }
+    });
 
     // 4. Kirim recordTarget ke logger via MQTT
+    //    Sengaja DI LUAR transaksi: perintah ke perangkat tidak bisa di-rollback,
+    //    jadi jangan dikirim sebelum barisnya benar-benar commit.
     const topic = process.env.MQTT_TOPIC || "ADR_Tambang_Kaltara";
     const mqttPayload = {
       [`set_${id_logger}`]: {
