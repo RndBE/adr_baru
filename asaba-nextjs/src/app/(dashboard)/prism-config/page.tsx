@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect, useCallback, useRef } from "react";
 import {
-  Search, Pencil, ChevronLeft, ChevronRight,
+  Search, Pencil, Trash2, ChevronLeft, ChevronRight,
   SlidersHorizontal, Plus, Loader2, X, Check, AlertCircle,
   Lock, Eye, EyeOff
 } from "lucide-react";
@@ -390,6 +390,131 @@ function PrismaModal({
 }
 
 
+// =================== MODAL HAPUS ===================
+/**
+ * Konfirmasi hapus prisma yang sudah dikonfigurasi.
+ *
+ * Penghapusannya menyentuh tiga tabel sekaligus (t_prisma, temp_prisma,
+ * parameter_prisma) dan tidak bisa dibatalkan, jadi slot + nama + site
+ * ditampilkan apa adanya supaya operator bisa mencocokkan sebelum menekan
+ * Hapus — di halaman ini "P1" saja tidak cukup untuk mengenali target.
+ */
+function HapusPrismaModal({
+  slot,
+  site,
+  onClose,
+  onSuccess,
+}: {
+  slot: PrismaSlot;
+  site: string;
+  onClose: () => void;
+  onSuccess: () => void;
+}) {
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
+
+  const handleHapus = async () => {
+    setLoading(true);
+    setError("");
+    try {
+      const res = await fetch("/api/prism-config", {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ slot_id: slot.slot, site }),
+      });
+      const json = await res.json();
+      if (!json.success) throw new Error(json.error || "Gagal menghapus prisma");
+      onSuccess();
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : "Terjadi kesalahan");
+      setLoading(false);
+    }
+  };
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm"
+      onClick={onClose}
+    >
+      <div
+        className="bg-white rounded-xl shadow-2xl w-full max-w-[400px] mx-4 overflow-hidden"
+        onClick={(e) => e.stopPropagation()}
+      >
+        {/* Header */}
+        <div className="flex items-center justify-between px-6 py-4">
+          <h3 className="font-bold text-gray-900 text-[16px]">Hapus Prisma</h3>
+          <button
+            onClick={onClose}
+            disabled={loading}
+            className="w-8 h-8 flex items-center justify-center rounded-lg hover:bg-gray-100 transition-colors text-gray-500 cursor-pointer disabled:cursor-not-allowed"
+          >
+            <X className="w-5 h-5" />
+          </button>
+        </div>
+
+        {/* Body */}
+        <div className="px-6 pb-4 flex flex-col gap-4">
+          {error && (
+            <div className="flex items-center gap-2 text-red-600 bg-red-50 rounded-lg px-3 py-2.5 text-[13px]">
+              <AlertCircle className="w-4 h-4 flex-shrink-0" />
+              {error}
+            </div>
+          )}
+
+          <div className="flex items-center gap-3 rounded-lg bg-gray-50 px-3.5 py-3">
+            <span className="inline-block bg-[#3B82F6] text-white px-2.5 py-[3px] rounded text-[11px] font-bold tracking-wider">
+              {slot.id_prisma}
+            </span>
+            <div className="min-w-0">
+              <p className="truncate text-[13px] font-semibold text-gray-800">
+                {slot.nama_prisma}
+              </p>
+              <p className="text-[11.5px] text-gray-500">site {site}</p>
+            </div>
+          </div>
+
+          <p className="text-[13px] leading-relaxed text-gray-600">
+            Data prisma ini akan dihapus dari daftar slot beserta pembacaan
+            sementara dan parameter grafiknya. Tindakan ini tidak bisa dibatalkan.
+          </p>
+
+          {/* Perangkat tidak ikut dibersihkan: endpoint DELETE hanya menghapus
+              baris di database, tidak mengirim perintah MQTT apa pun. Slot yang
+              sama masih tersimpan di RTS sampai ditimpa lewat Set/Edit. */}
+          <div className="flex gap-2.5 rounded-lg bg-amber-50 px-3.5 py-3 text-[12.5px] leading-relaxed text-amber-900">
+            <AlertCircle className="mt-[1px] h-4 w-4 flex-shrink-0" />
+            <span>
+              Hanya data di aplikasi yang dihapus. Slot {slot.slot} di RTS tidak
+              ikut dikosongkan dan masih menyimpan target lama sampai ditimpa
+              lewat Set.
+            </span>
+          </div>
+        </div>
+
+        {/* Footer */}
+        <div className="flex justify-end gap-2 px-6 py-4">
+          <button
+            onClick={onClose}
+            disabled={loading}
+            className="h-[38px] px-5 rounded-lg border border-gray-300 text-[13px] font-semibold text-gray-600 hover:bg-gray-50 transition-colors cursor-pointer disabled:cursor-not-allowed disabled:opacity-60"
+          >
+            Batal
+          </button>
+          <button
+            onClick={handleHapus}
+            disabled={loading}
+            className="h-[38px] px-7 rounded-lg text-[13px] font-semibold text-white bg-red-600 hover:bg-red-700 transition-colors cursor-pointer disabled:cursor-not-allowed disabled:bg-red-300"
+          >
+            {loading && <Loader2 className="w-4 h-4 animate-spin inline mr-1.5" />}
+            Hapus
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+
 // =================== MODAL AKSES KODE ===================
 function AccessCodeModal({
   onClose,
@@ -520,6 +645,7 @@ export default function PrismConfigPage() {
     mode: "set" | "edit";
     slot: PrismaSlot | null;
   }>({ open: false, mode: "set", slot: null });
+  const [hapusSlot, setHapusSlot] = useState<PrismaSlot | null>(null);
   const [accessModalOpen, setAccessModalOpen] = useState(false);
   const [isConfigUnlocked, setIsConfigUnlocked] = useState(false);
 
@@ -716,20 +842,38 @@ export default function PrismConfigPage() {
                       <td className={`py-3.5 px-4 text-center text-[13px] font-medium ${isNotSet ? "text-gray-400" : "text-gray-700"}`}>
                         {isNotSet ? "Not Set" : (row.target_height ?? "-")}
                       </td>
-                      <td className="py-3.5 px-4 flex justify-center items-center">
+                      <td className="py-3.5 px-4 flex justify-center items-center gap-2">
                         {!isNotSet ? (
-                          <button
-                            onClick={() => setModal({ open: true, mode: "edit", slot: row })}
-                            disabled={!isConfigUnlocked}
-                            className={`group flex items-center gap-1.5 px-4 py-1.5 border rounded-md text-[12px] font-bold active:scale-90 transition-all duration-200 ${
-                              !isConfigUnlocked
-                                ? "border-gray-200 text-gray-400 bg-gray-50 cursor-not-allowed"
-                                : "border-[#303481] text-[#303481] hover:bg-[#303481] hover:text-white hover:shadow-sm cursor-pointer"
-                            }`}
-                          >
-                            <Pencil className="w-[12px] h-[12px] group-hover:-translate-y-[1px] transition-transform duration-200" strokeWidth={2.5} />
-                            Edit
-                          </button>
+                          <>
+                            <button
+                              onClick={() => setModal({ open: true, mode: "edit", slot: row })}
+                              disabled={!isConfigUnlocked}
+                              className={`group flex items-center gap-1.5 px-4 py-1.5 border rounded-md text-[12px] font-bold active:scale-90 transition-all duration-200 ${
+                                !isConfigUnlocked
+                                  ? "border-gray-200 text-gray-400 bg-gray-50 cursor-not-allowed"
+                                  : "border-[#303481] text-[#303481] hover:bg-[#303481] hover:text-white hover:shadow-sm cursor-pointer"
+                              }`}
+                            >
+                              <Pencil className="w-[12px] h-[12px] group-hover:-translate-y-[1px] transition-transform duration-200" strokeWidth={2.5} />
+                              Edit
+                            </button>
+                            {/* Dikunci oleh kode akses yang sama dengan Edit:
+                                menghapus konfigurasi lebih merusak daripada
+                                mengubahnya, jadi tidak boleh lebih longgar. */}
+                            <button
+                              onClick={() => setHapusSlot(row)}
+                              disabled={!isConfigUnlocked}
+                              title={isConfigUnlocked ? `Hapus ${row.id_prisma}` : "Buka kunci konfigurasi dulu"}
+                              aria-label={`Hapus ${row.id_prisma}`}
+                              className={`group flex items-center justify-center px-2.5 py-1.5 border rounded-md active:scale-90 transition-all duration-200 ${
+                                !isConfigUnlocked
+                                  ? "border-gray-200 text-gray-400 bg-gray-50 cursor-not-allowed"
+                                  : "border-red-300 text-red-600 hover:bg-red-600 hover:text-white hover:border-red-600 hover:shadow-sm cursor-pointer"
+                              }`}
+                            >
+                              <Trash2 className="w-[13px] h-[13px] group-hover:-translate-y-[1px] transition-transform duration-200" strokeWidth={2.5} />
+                            </button>
+                          </>
                         ) : (
                           <button
                             onClick={() => setModal({ open: true, mode: "set", slot: row })}
@@ -811,6 +955,19 @@ export default function PrismConfigPage() {
           site={site}
           onClose={() => setModal({ open: false, mode: "set", slot: null })}
           onSuccess={handleModalSuccess}
+        />
+      )}
+
+      {/* Modal Hapus Prisma */}
+      {hapusSlot && (
+        <HapusPrismaModal
+          slot={hapusSlot}
+          site={site}
+          onClose={() => setHapusSlot(null)}
+          onSuccess={() => {
+            setHapusSlot(null);
+            fetchData();
+          }}
         />
       )}
 
