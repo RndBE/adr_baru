@@ -257,6 +257,77 @@ function mapStatus(
 }
 
 // --- RTS Config Types ---
+// ── Progres bertahap dari firmware RTS ────────────────────────────────────────
+//
+// Firmware baru melaporkan kemajuan lewat `stage` dan TIDAK LAGI mengirim pesan
+// penutup `{"PowerOn":{"nilai":"Success"}}` / `{"AutoTrack":{"nilai":"done"}}`.
+// Jadi stage terakhir di tiap rangkaian yang menandakan perintahnya tuntas —
+// tidak ada apa-apa lagi sesudahnya. Handler `nilai` yang lama tetap
+// dipertahankan sebagai fallback untuk perangkat yang belum di-update.
+const LABEL_TAHAP_POWER: Record<"on" | "off", Record<string, string>> = {
+  on: {
+    start: "Mengirim perintah",
+    ping: "Menghubungi RTS",
+    config: "Memuat konfigurasi",
+  },
+  off: {
+    start: "Mengirim perintah",
+    check: "Memeriksa status",
+    home: "Kembali ke posisi home",
+    off: "Mematikan RTS",
+  },
+};
+
+/** Stage penutup tiap rangkaian power. Setelah ini tidak ada pesan lain. */
+const TAHAP_AKHIR_POWER: Record<"on" | "off", string> = { on: "config", off: "off" };
+
+const LABEL_TAHAP_TRACKING: Record<string, string> = {
+  start: "Menyiapkan pengukuran",
+  target: "Mengukur target",
+  homing: "Kembali ke posisi home",
+  finished: "Selesai",
+};
+
+const LABEL_STATUS_TARGET: Record<string, string> = {
+  search: "mencari",
+  measure: "mengukur",
+  done: "selesai",
+  failed: "gagal",
+};
+
+/**
+ * Batas diam antar-stage.
+ *
+ * Firmware tidak mengirim stage kegagalan apa pun, jadi perintah yang gagal
+ * hanya terlihat sebagai rangkaian yang berhenti di tengah. Tanpa batas ini
+ * indikator progres menggantung selamanya dan operator tidak punya cara tahu
+ * bedanya dengan RTS yang sekadar lambat.
+ *
+ * Dihitung ulang setiap kali stage baru masuk, BUKAN sekali untuk seluruh
+ * rangkaian — kalau tidak, AutoTracking 50 target yang sehat akan ikut tervonis
+ * gagal hanya karena rangkaiannya memang panjang.
+ */
+const BATAS_DIAM_MS = 45_000;
+
+type ProgresPower = {
+  action: "on" | "off";
+  stage: string;
+  /** Dipakai untuk membuat identitas objek berubah tiap stage, supaya effect
+   *  timeout ikut ter-reset walau nama stage-nya kebetulan sama. */
+  urutan: number;
+};
+
+type ProgresTracking = {
+  stage: string;
+  current: number;
+  total: number;
+  status: string;
+  retries?: number;
+  urutan: number;
+  /** true = sudah melewati BATAS_DIAM_MS tanpa stage baru. */
+  diam?: boolean;
+};
+
 type RtsConfig = {
   jobName: string;
   prismaConst: string;
@@ -329,6 +400,36 @@ export default function KontrolAdrPage() {
   const [powerLoading, setPowerLoading] = useState(false);
   const [powerAlert, setPowerAlert] = useState<PowerAlert | null>(null);
   const [rtsPowerState, setRtsPowerState] = useState<"on" | "off" | "unknown">("off");
+  const [progresPower, setProgresPower] = useState<ProgresPower | null>(null);
+  const [progresTracking, setProgresTracking] = useState<ProgresTracking | null>(null);
+  /** Penghitung monoton supaya tiap stage menghasilkan objek state yang baru. */
+  const urutanStage = useRef(0);
+
+  // Timeout power: rangkaian yang berhenti di tengah dianggap gagal.
+  // Dependensinya objek `progresPower` yang identitasnya berubah tiap stage,
+  // jadi timer-nya otomatis ter-reset selama stage masih berdatangan.
+  useEffect(() => {
+    if (!progresPower) return;
+    const timer = setTimeout(() => {
+      const label = LABEL_TAHAP_POWER[progresPower.action][progresPower.stage] ?? progresPower.stage;
+      setPowerAlert({
+        type: "error",
+        message: `RTS berhenti merespons di tahap "${label}". Perintah ${progresPower.action.toUpperCase()} kemungkinan tidak tuntas.`,
+      });
+      setProgresPower(null);
+    }, BATAS_DIAM_MS);
+    return () => clearTimeout(timer);
+  }, [progresPower]);
+
+  // Timeout tracking: badge-nya ditandai diam, bukan dihapus — menghilangkannya
+  // begitu saja justru terbaca seperti "sudah selesai".
+  useEffect(() => {
+    if (!progresTracking || progresTracking.diam) return;
+    const timer = setTimeout(() => {
+      setProgresTracking((p) => (p ? { ...p, diam: true } : p));
+    }, BATAS_DIAM_MS);
+    return () => clearTimeout(timer);
+  }, [progresTracking]);
 
   // Sinkronkan local power state dengan actual status dari logger
   useEffect(() => {
@@ -339,6 +440,11 @@ export default function KontrolAdrPage() {
 
   const handlePower = async (action: "on" | "off") => {
     setPowerLoading(true);
+    // Progres dimulai dari sisi klien, bukan menunggu stage pertama: kalau RTS
+    // tidak menjawab sama sekali, tanpa ini tidak ada apa pun yang memicu
+    // timeout dan perintahnya hilang tanpa jejak di layar.
+    urutanStage.current += 1;
+    setProgresPower({ action, stage: "start", urutan: urutanStage.current });
     try {
       const res = await fetch("/api/kontrol/power", {
         method: "POST",
@@ -352,11 +458,13 @@ export default function KontrolAdrPage() {
         const errMsg = json.error || "Gagal mengirim command ke server";
         console.error("[handlePower] API error:", errMsg);
         setPowerAlert({ type: "error", message: errMsg });
+        setProgresPower(null);
       }
       // Jika berhasil dikirim, balasan dari logger akan ditangkap via MQTT listener di bawah
     } catch (err) {
       console.error("Power command error:", err);
       setPowerAlert({ type: "error", message: "Terjadi kesalahan jaringan" });
+      setProgresPower(null);
     } finally {
       setPowerLoading(false);
     }
@@ -418,7 +526,15 @@ export default function KontrolAdrPage() {
         if (topic === "kontrol-asaba") {
           // Status kontrol: {status: "1", datetime: "..."} → Running
           //                  {status: "0"} → Selesai
-          if (data.status === "1" || data.status === 1) {
+          //
+          // Pesan tanpa `status` diabaikan, bukan dianggap "selesai". Kode lama
+          // memakai else polos, sehingga bentuk pesan apa pun yang tidak dikenal
+          // di topic ini menghentikan running dan memicu refetch. Stage firmware
+          // dipastikan TIDAK dikirim ke sini (hanya ke ADR_Tambang_Kaltara),
+          // jadi ini pengaman, bukan penambal masalah yang sedang terjadi.
+          if (data.status === undefined) {
+            console.log("[KontrolADR] kontrol-asaba: pesan tanpa status, diabaikan", data);
+          } else if (data.status === "1" || data.status === 1) {
             console.log("[KontrolADR] kontrol-asaba: Running", data.datetime);
             setIsControlRunning(true);
             if (data.datetime) setRunningDate(data.datetime);
@@ -450,6 +566,71 @@ export default function KontrolAdrPage() {
           }
         } else {
           // ADR_Tambang_Kaltara topic
+          // ── Firmware baru: progres bertahap ──────────────────────────────
+          //
+          // Semua stage datang HANYA lewat topic ADR_Tambang_Kaltara
+          // (dikonfirmasi 28 Agustus 2026) — bukan lewat kontrol-asaba maupun
+          // Logger_*. Cabang else ini memang cabang topic itu, jadi tidak perlu
+          // pemeriksaan topic tambahan.
+          //
+          // {"PowerOn":{"stage":"start"|"ping"|"config"}}
+          // {"PowerOff":{"stage":"start"|"check"|"home"|"off"}}
+          // Stage terakhir = perintah tuntas; tidak ada pesan penutup lagi.
+          for (const action of ["on", "off"] as const) {
+            const paket = action === "on" ? data.PowerOn : data.PowerOff;
+            if (!paket?.stage) continue;
+
+            const stage = String(paket.stage);
+            console.log(`[KontrolADR] Power${action === "on" ? "On" : "Off"} stage:`, stage);
+            urutanStage.current += 1;
+
+            if (stage === TAHAP_AKHIR_POWER[action]) {
+              setRtsPowerState(action);
+              setPowerAlert({
+                type: action,
+                message: action === "on" ? "RTS menyala dan konfigurasi termuat" : "RTS sudah dimatikan",
+              });
+              setProgresPower(null);
+            } else {
+              setProgresPower({ action, stage, urutan: urutanStage.current });
+            }
+          }
+
+          // {"AutoTracking":{"stage":"start","total":50,"retries":1}}
+          // {"AutoTracking":{"stage":"target","current":N,"total":50,"status":…}}
+          // {"AutoTracking":{"stage":"homing"}} → {"AutoTracking":{"stage":"finished"}}
+          //
+          // Status per target TIDAK dipakai untuk mewarnai kartu prisma: nilai
+          // aslinya sudah datang lewat topic Logger_* yang menyebut `id_prisma`
+          // secara eksplisit. `current` di sini nomor urut target, dan
+          // menyamakannya dengan slot berarti menebak — kalau tebakannya meleset,
+          // kartu yang salah yang ditandai gagal.
+          if (data.AutoTracking?.stage) {
+            const stage = String(data.AutoTracking.stage);
+            urutanStage.current += 1;
+            console.log("[KontrolADR] AutoTracking stage:", stage, data.AutoTracking);
+
+            if (stage === "finished") {
+              setProgresTracking(null);
+              setIsControlRunning(false);
+              if (pollingRef.current) { clearInterval(pollingRef.current); pollingRef.current = null; }
+              fetchPrisma();
+            } else {
+              if (stage === "start") setIsControlRunning(true);
+              setProgresTracking((prev) => ({
+                stage,
+                // `total` hanya ikut di stage start/target; jangan sampai stage
+                // homing yang tidak membawanya mengosongkan angka yang sudah ada.
+                total: Number(data.AutoTracking.total ?? prev?.total ?? 0),
+                current: Number(data.AutoTracking.current ?? prev?.current ?? 0),
+                status: String(data.AutoTracking.status ?? ""),
+                retries: data.AutoTracking.retries ?? prev?.retries,
+                urutan: urutanStage.current,
+              }));
+            }
+          }
+
+          // ── Fallback firmware lama ───────────────────────────────────────
           // AutoTrack done: {"AutoTrack":{"nilai":"done"}}
           if (data.AutoTrack && data.AutoTrack.nilai === "done") {
             console.log("[KontrolADR] AutoTrack done");
@@ -879,6 +1060,23 @@ export default function KontrolAdrPage() {
                   OFF
                 </button>
               </div>
+
+              {/* Progres bertahap power. Muncul sejak perintah dikirim dan
+                  hilang begitu stage terakhir masuk atau timeout tercapai. */}
+              {progresPower && (
+                <div
+                  className="flex items-center gap-2 h-[40px] px-3.5 rounded-md border border-[#EAEAEA] bg-white shadow-sm"
+                  role="status"
+                  aria-live="polite"
+                >
+                  <Loader2 className="w-[15px] h-[15px] animate-spin text-[#303481]" />
+                  <span className="text-[12.5px] font-semibold text-gray-600">
+                    {progresPower.action === "on" ? "Menyalakan" : "Mematikan"}:{" "}
+                    {LABEL_TAHAP_POWER[progresPower.action][progresPower.stage] ?? progresPower.stage}
+                  </span>
+                </div>
+              )}
+
               <Button
                 onClick={openRtsConfig}
                 className="bg-[#303481] hover:bg-[#1f2259] text-white flex items-center gap-2 px-5 rounded-md h-[40px] text-[13.5px] font-medium shadow-sm transition-colors border-none cursor-pointer"
@@ -1019,6 +1217,64 @@ export default function KontrolAdrPage() {
                         Proses Log
                         {isControlRunning && <span className="text-[10px] text-gray-400 font-normal italic flex items-center gap-1.5"><span className="w-1.5 h-1.5 rounded-full bg-blue-500 animate-pulse inline-block" />&nbsp;Live</span>}
                       </p>
+
+                      {/* Progres AutoTracking langsung dari firmware. Dibedakan
+                          dari "Proses Log" di bawahnya yang disimpulkan dari
+                          kartu prisma — yang ini angka yang dilaporkan alatnya
+                          sendiri, termasuk target yang belum sempat menjawab. */}
+                      {progresTracking && (
+                        <div
+                          className={cn(
+                            "mb-2 rounded-md border px-3 py-2",
+                            progresTracking.diam
+                              ? "border-amber-300 bg-amber-50"
+                              : "border-[#EAEAEA] bg-[#F8F9FB]"
+                          )}
+                          role="status"
+                          aria-live="polite"
+                        >
+                          <div className="flex items-center justify-between gap-2">
+                            <span className={cn(
+                              "text-[11px] font-bold",
+                              progresTracking.diam ? "text-amber-800" : "text-[#303481]"
+                            )}>
+                              {progresTracking.diam
+                                ? "AutoTracking tidak merespons"
+                                : LABEL_TAHAP_TRACKING[progresTracking.stage] ?? progresTracking.stage}
+                            </span>
+                            {progresTracking.stage === "target" && progresTracking.total > 0 && (
+                              <span className="text-[11px] font-semibold text-gray-500 tabular-nums">
+                                {progresTracking.current} / {progresTracking.total}
+                              </span>
+                            )}
+                          </div>
+
+                          {progresTracking.stage === "target" && progresTracking.status && (
+                            <p className="mt-0.5 text-[10.5px] text-gray-500">
+                              Target {progresTracking.current}:{" "}
+                              {LABEL_STATUS_TARGET[progresTracking.status] ?? progresTracking.status}
+                              {progresTracking.retries ? ` · ${progresTracking.retries}× percobaan` : ""}
+                            </p>
+                          )}
+
+                          {progresTracking.diam && (
+                            <p className="mt-0.5 text-[10.5px] text-amber-700">
+                              Tidak ada kabar baru selama {BATAS_DIAM_MS / 1000} detik terakhir.
+                            </p>
+                          )}
+
+                          {progresTracking.total > 0 && !progresTracking.diam && (
+                            <div className="mt-1.5 h-1 w-full overflow-hidden rounded-full bg-gray-200">
+                              <div
+                                className="h-full rounded-full bg-[#303481] transition-[width] duration-300"
+                                style={{
+                                  width: `${Math.min(100, Math.round((progresTracking.current / progresTracking.total) * 100))}%`,
+                                }}
+                              />
+                            </div>
+                          )}
+                        </div>
+                      )}
                       <div className="text-[11px] font-medium text-gray-700 leading-snug flex flex-col gap-1">
                         {(() => {
                           // Fase:
