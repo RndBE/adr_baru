@@ -10,6 +10,7 @@ import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import Image from "next/image";
 import { cn } from "@/lib/utils";
+import { nilaiBalasanLogger, balasanSelesai } from "@/lib/balasan-logger";
 import { RtsConnectionBadge } from "@/components/RtsConnectionBadge";
 import { useRtsConnectionStatus } from "@/hooks/use-api";
 import { useSites } from "@/hooks/use-sites";
@@ -124,19 +125,26 @@ function PrismaModal({
           });
         }
 
-        // 2. AutoSearch response → nilai 1 = selesai
+        // 2. AutoSearch response → 1 = selesai
+        //    Diterima pipih {"AutoSearch":1} maupun bersarang
+        //    {"AutoSearch":{"value":1}}; lihat nilaiBalasanLogger().
         if (data.AutoSearch !== undefined) {
-          console.log("[PrismaModal] AutoSearch response:", data.AutoSearch);
-          if (String(data.AutoSearch) === "1") {
+          const nilai = nilaiBalasanLogger(data.AutoSearch);
+          console.log("[PrismaModal] AutoSearch response:", data.AutoSearch, "→", nilai);
+          if (balasanSelesai(nilai)) {
             setAutoSearchStatus("done");
             setLoading(false);
           }
         }
 
-        // 3. TurningTarget response → nilai 1 = selesai
+        // 3. TurningTarget response → 1 = selesai
+        //    Bentuk bersarang belum terlihat langsung untuk kunci ini, tapi
+        //    ikut ditangani: balasannya datang dari firmware yang sama lewat
+        //    topic yang sama, jadi tidak ada alasan menganggapnya beda.
         if (data.TurningTarget !== undefined) {
-          console.log("[PrismaModal] TurningTarget response:", data.TurningTarget);
-          if (String(data.TurningTarget) === "1") {
+          const nilai = nilaiBalasanLogger(data.TurningTarget);
+          console.log("[PrismaModal] TurningTarget response:", data.TurningTarget, "→", nilai);
+          if (balasanSelesai(nilai)) {
             setGoTargetStatus("done");
             setLoading(false);
           }
