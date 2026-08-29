@@ -42,7 +42,7 @@ export default function MasterDataPage() {
   const [activeTab, setActiveTab] = useState<TabKey>("site");
 
   return (
-    <div className="flex flex-col gap-6 p-6 min-h-screen bg-[#F5F6FA]">
+    <div className="flex flex-col gap-6 p-4 md:p-6 bg-white">
       {/* Header */}
       <div>
         <h1 className="text-[22px] font-bold text-gray-900">Master Data</h1>

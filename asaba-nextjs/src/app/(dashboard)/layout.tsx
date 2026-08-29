@@ -39,6 +39,13 @@ export default function DashboardLayout({
     Object.entries(pageTitles).find(([key]) => pathname.startsWith(key))?.[1] ??
     "Dashboard";
 
+  /**
+   * Halaman yang mengatur gutter-nya sendiri. Kalau layout ikut memberi padding,
+   * hasilnya dua lapis (24px + 24px) dan konten terlihat mengambang di dalam
+   * bingkai — bukan itu yang diinginkan untuk halaman selebar tabel.
+   */
+  const fullBleed = pathname.startsWith("/master-data");
+
   return (
     <SidebarProvider>
       <AppSidebar />
@@ -57,7 +64,13 @@ export default function DashboardLayout({
         </header>
 
         {/* Page Content */}
-        <main className="flex-1 overflow-auto p-4 md:p-6 bg-white min-w-0">{children}</main>
+        <main
+          className={`flex-1 overflow-auto bg-white min-w-0 ${
+            fullBleed ? "" : "p-4 md:p-6"
+          }`}
+        >
+          {children}
+        </main>
       </SidebarInset>
     </SidebarProvider>
   );
