@@ -7,6 +7,9 @@ import { CheckCircle2, XCircle, AlertTriangle } from "lucide-react";
 type PowerAlert = {
   type: "on" | "off" | "error";
   message: string;
+  /** Menimpa judul bawaan. Tanpa ini setiap toast berjudul "RTS Power",
+   *  yang keliru untuk pesan di luar urusan daya (mis. Set Home). */
+  title?: string;
 };
 
 function PowerAlertToast({ alert, onClose }: { alert: PowerAlert; onClose: () => void }) {
@@ -25,7 +28,7 @@ function PowerAlertToast({ alert, onClose }: { alert: PowerAlert; onClose: () =>
     <div className={`fixed top-4 right-4 z-[9999] flex items-start gap-3 px-4 py-3 rounded-lg border shadow-lg max-w-sm animate-in slide-in-from-top-2 fade-in duration-300 ${config.bg}`}>
       {config.icon}
       <div className="flex-1 min-w-0">
-        <p className={`text-[13px] font-bold ${config.text}`}>{config.title}</p>
+        <p className={`text-[13px] font-bold ${config.text}`}>{alert.title ?? config.title}</p>
         <p className={`text-[12px] mt-0.5 ${config.text} opacity-80`}>{alert.message}</p>
       </div>
       <button onClick={onClose} className={`shrink-0 ${config.text} opacity-50 hover:opacity-100 transition-opacity`}>
@@ -51,6 +54,7 @@ import {
   SlidersHorizontal,
   RefreshCcw,
   Power,
+  Home,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 
@@ -435,6 +439,8 @@ export default function KontrolAdrPage() {
   const [powerLoading, setPowerLoading] = useState(false);
   const [powerAlert, setPowerAlert] = useState<PowerAlert | null>(null);
   const [rtsPowerState, setRtsPowerState] = useState<"on" | "off" | "unknown">("off");
+  const [setHomeLoading, setSetHomeLoading] = useState(false);
+  const [konfirmasiSetHome, setKonfirmasiSetHome] = useState(false);
   const [progresPower, setProgresPower] = useState<ProgresPower | null>(null);
   const [progresTracking, setProgresTracking] = useState<ProgresTracking | null>(null);
   /** Penghitung monoton supaya tiap balasan menghasilkan objek state baru. */
@@ -505,6 +511,41 @@ export default function KontrolAdrPage() {
     }
   };
 
+
+  /**
+   * Simpan orientasi teleskop saat ini sebagai posisi home.
+   *
+   * Firmware TIDAK membalas perintah ini (Bagian C.1 protokol), jadi tidak ada
+   * status "waiting" maupun konfirmasi — begitu terkirim, itu saja yang bisa
+   * dijamin. Pesannya menyebutkan hal itu apa adanya daripada memberi centang
+   * hijau yang tidak dilandasi apa pun.
+   */
+  const handleSetHome = async () => {
+    setKonfirmasiSetHome(false);
+    setSetHomeLoading(true);
+    try {
+      const res = await fetch("/api/kontrol/set-home", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ site: selectedSite }),
+      });
+      const json = await res.json();
+      if (!json.success) {
+        setPowerAlert({ type: "error", title: "Set Home", message: json.error || "Gagal mengirim perintah" });
+      } else {
+        setPowerAlert({
+          type: "on",
+          title: "Set Home terkirim",
+          message: "Perangkat tidak mengirim konfirmasi, jadi keberhasilannya baru terlihat saat teleskop pulang ke home.",
+        });
+      }
+    } catch (err) {
+      console.error("[handleSetHome]", err);
+      setPowerAlert({ type: "error", title: "Set Home", message: "Terjadi kesalahan jaringan" });
+    } finally {
+      setSetHomeLoading(false);
+    }
+  };
 
   // --- Data-driven Proses Log ---
   // Hitung progress berdasarkan status prisma card yang diterima dari logger
@@ -1140,6 +1181,29 @@ export default function KontrolAdrPage() {
                   </span>
                 </div>
               )}
+
+              {/* Set Home — menimpa posisi home tersimpan dengan arah teleskop
+                  saat ini. Sengaja TIDAK ditempel ke grup ON/OFF: bentuknya
+                  mirip perintah daya padahal akibatnya jauh berbeda, dan salah
+                  pencet baru ketahuan saat teleskop pulang ke arah yang keliru. */}
+              <Button
+                variant="outline"
+                onClick={() => setKonfirmasiSetHome(true)}
+                disabled={setHomeLoading || !selectedSite || !isConnected}
+                title={
+                  !selectedSite
+                    ? "Pilih site dulu"
+                    : !isConnected
+                      ? "RTS tidak terhubung"
+                      : "Simpan arah teleskop saat ini sebagai posisi home"
+                }
+                className="flex items-center gap-2 px-5 rounded-md h-[40px] text-[13.5px] font-medium text-[#E86A1F] border-[#E86A1F] hover:bg-[#E86A1F]/5 bg-white transition-colors cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {setHomeLoading
+                  ? <Loader2 className="w-[17px] h-[17px] animate-spin" />
+                  : <Home className="w-[17px] h-[17px]" />}
+                Set Home
+              </Button>
 
               <Button
                 onClick={openRtsConfig}
@@ -1932,6 +1996,71 @@ export default function KontrolAdrPage() {
               <Button onClick={saveScheduling} disabled={jadwalSaving} className="h-[38px] px-6 text-[13px] font-medium bg-[#303481] hover:bg-[#1f2259] text-white border-none cursor-pointer disabled:opacity-60">
                 {jadwalSaving ? <><Loader2 className="w-4 h-4 animate-spin mr-1.5"/>Menyimpan...</> : "Simpan"}
               </Button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Konfirmasi Set Home.
+          Wajib ada: perintah ini menimpa titik acuan yang dipakai PowerOff dan
+          akhir siklus AutoTracking untuk memulangkan teleskop. Menyetelnya saat
+          teleskop sedang membidik target membuat semua homing berikutnya
+          mengarah ke tempat yang salah — dan karena firmware tidak membalas,
+          kekeliruannya baru ketahuan jauh kemudian. */}
+      {konfirmasiSetHome && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm"
+          onClick={() => setKonfirmasiSetHome(false)}
+        >
+          <div
+            className="bg-white rounded-xl shadow-2xl w-full max-w-[420px] mx-4 overflow-hidden"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between px-6 py-4">
+              <h3 className="font-bold text-gray-900 text-[16px]">Set Home</h3>
+              <button
+                onClick={() => setKonfirmasiSetHome(false)}
+                className="w-8 h-8 flex items-center justify-center rounded-lg hover:bg-gray-100 transition-colors text-gray-500 cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="px-6 pb-4 flex flex-col gap-3.5">
+              <p className="text-[13px] leading-relaxed text-gray-600">
+                Arah teleskop <strong>saat ini</strong> akan disimpan sebagai posisi
+                home untuk <strong>{namaPos(selectedSite)}</strong>, menimpa posisi
+                home yang lama.
+              </p>
+
+              <div className="flex gap-2.5 rounded-lg bg-amber-50 px-3.5 py-3 text-[12.5px] leading-relaxed text-amber-900">
+                <AlertTriangle className="mt-[1px] h-4 w-4 flex-shrink-0" />
+                <span>
+                  Pastikan teleskop sedang menghadap posisi home yang benar, bukan
+                  sedang membidik target. Titik ini dipakai saat mematikan RTS dan
+                  di akhir setiap siklus AutoTracking.
+                </span>
+              </div>
+
+              <p className="text-[12px] leading-relaxed text-gray-500">
+                Perangkat tidak mengirim konfirmasi untuk perintah ini, jadi
+                aplikasi hanya bisa memastikan perintahnya terkirim.
+              </p>
+            </div>
+
+            <div className="flex justify-end gap-2 px-6 py-4">
+              <button
+                onClick={() => setKonfirmasiSetHome(false)}
+                className="h-[38px] px-5 rounded-lg border border-gray-300 text-[13px] font-semibold text-gray-600 hover:bg-gray-50 transition-colors cursor-pointer"
+              >
+                Batal
+              </button>
+              <button
+                onClick={handleSetHome}
+                className="h-[38px] px-7 rounded-lg text-[13px] font-semibold text-white bg-[#E86A1F] hover:bg-[#c55a18] transition-colors cursor-pointer"
+              >
+                Simpan sebagai Home
+              </button>
             </div>
           </div>
         </div>
