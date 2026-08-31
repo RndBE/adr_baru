@@ -9,7 +9,7 @@
  *
  * Jalankan: npx tsx scripts/regresi-balasan-logger.ts
  */
-import { nilaiBalasanLogger, balasanSelesai } from "../src/lib/balasan-logger";
+import { nilaiBalasanLogger, balasanSelesai, balasanGagal } from "../src/lib/balasan-logger";
 
 let lulus = 0;
 let gagal = 0;
@@ -77,6 +77,42 @@ periksa(
   String({ value: 1 } as unknown) === "1",
   false
 );
+
+// ── Keadaan gagal harus terbaca sebagai gagal, bukan menggantung ───────────
+// Auto Search membalas 0 = prisma tidak ketemu. Itu jawaban akhir; UI harus
+// berhenti menunggu. Sebelum ada balasanGagal(), statusnya diam di "waiting"
+// selamanya karena hanya sukses yang punya cabang.
+console.log("Balasan gagal:");
+periksa('{"AutoSearch":{"value":0}} → gagal', balasanGagal(nilaiBalasanLogger({ value: 0 })), true);
+periksa('{"AutoSearch":0} → gagal', balasanGagal(nilaiBalasanLogger(0)), true);
+periksa('{"AutoSearch":false} → gagal', balasanGagal(nilaiBalasanLogger(false)), true);
+periksa('{"AutoSearch":{"value":false}} → gagal', balasanGagal(nilaiBalasanLogger({ value: false })), true);
+
+// Sukses tidak boleh ikut terbaca gagal, dan sebaliknya — keduanya eksklusif.
+console.log("Sukses dan gagal saling eksklusif:");
+for (const [nama, v] of [
+  ['{"value":1}', { value: 1 }],
+  ['{"value":0}', { value: 0 }],
+  ["1", 1],
+  ["0", 0],
+] as Array<[string, unknown]>) {
+  const n = nilaiBalasanLogger(v);
+  periksa(`${nama} tidak sukses DAN gagal sekaligus`, balasanSelesai(n) && balasanGagal(n), false);
+}
+
+// Nilai tak dikenal harus tetap "belum ada jawaban": tidak sukses, tidak gagal.
+// Kalau ini longgar, bentuk balasan baru akan divonis gagal diam-diam.
+console.log("Nilai tak dikenal tetap menunggu:");
+for (const [nama, v] of [
+  ["objek kosong", {}],
+  ["null", null],
+  ['"pending"', "pending"],
+  ["2", 2],
+] as Array<[string, unknown]>) {
+  const n = nilaiBalasanLogger(v);
+  periksa(`${nama} → bukan sukses`, balasanSelesai(n), false);
+  periksa(`${nama} → bukan gagal`, balasanGagal(n), false);
+}
 
 console.log(`\n${gagal === 0 ? "✅" : "❌"} ${lulus} lulus, ${gagal} gagal`);
 process.exit(gagal === 0 ? 0 : 1);

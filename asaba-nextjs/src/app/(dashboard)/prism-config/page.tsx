@@ -10,7 +10,7 @@ import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import Image from "next/image";
 import { cn } from "@/lib/utils";
-import { nilaiBalasanLogger, balasanSelesai } from "@/lib/balasan-logger";
+import { nilaiBalasanLogger, balasanSelesai, balasanGagal } from "@/lib/balasan-logger";
 import { RtsConnectionBadge } from "@/components/RtsConnectionBadge";
 import { useRtsConnectionStatus } from "@/hooks/use-api";
 import { useSites } from "@/hooks/use-sites";
@@ -62,17 +62,26 @@ function PrismaModal({
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
 
-  // Status tracking per-button
-  const [goTargetStatus, setGoTargetStatus] = useState<"idle" | "waiting" | "done">("idle");
-  const [autoSearchStatus, setAutoSearchStatus] = useState<"idle" | "waiting" | "done">("idle");
-  const [simpanEnabled, setSimpanEnabled] = useState(false);
+  // Status tracking per-button. "failed" wajib ada sebagai keadaan tersendiri:
+  // Auto Search yang membalas 0 berarti prisma TIDAK KETEMU — itu jawaban
+  // akhir, bukan "belum selesai". Tanpa keadaan ini statusnya diam di
+  // "waiting" selamanya dan operator menunggu sesuatu yang tidak akan datang.
+  type StatusPerintah = "idle" | "waiting" | "done" | "failed";
+  const [goTargetStatus, setGoTargetStatus] = useState<StatusPerintah>("idle");
+  const [autoSearchStatus, setAutoSearchStatus] = useState<StatusPerintah>("idle");
 
-  // Aktifkan Simpan saat keduanya selesai
-  useEffect(() => {
-    if (goTargetStatus === "done" && autoSearchStatus === "done") {
-      setSimpanEnabled(true);
-    }
-  }, [goTargetStatus, autoSearchStatus]);
+  // Diturunkan, bukan disimpan sebagai state.
+  //
+  // Versi lama menyimpannya di useState dan effect-nya HANYA pernah menyetel
+  // true — pengembalian ke false diurus manual di tiap handler, gampang
+  // terlewat. Diturunkan begini, nilainya tidak bisa lagi tertinggal.
+  //
+  // Go To Target hanya dirender di mode "edit" (lihat JSX di bawah), jadi di
+  // mode "set" goTargetStatus selamanya "idle". Syarat lama menuntut keduanya
+  // "done", sehingga Simpan TIDAK PERNAH bisa aktif saat mendaftarkan prisma
+  // baru — modalnya mustahil diselesaikan.
+  const simpanEnabled =
+    autoSearchStatus === "done" && (mode === "set" || goTargetStatus === "done");
 
   // MQTT client ref
   const mqttClientRef = useRef<mqtt.MqttClient | null>(null);
@@ -125,7 +134,7 @@ function PrismaModal({
           });
         }
 
-        // 2. AutoSearch response → 1 = selesai
+        // 2. AutoSearch response → 1 = ketemu, 0 = prisma tidak ketemu
         //    Diterima pipih {"AutoSearch":1} maupun bersarang
         //    {"AutoSearch":{"value":1}}; lihat nilaiBalasanLogger().
         if (data.AutoSearch !== undefined) {
@@ -134,10 +143,16 @@ function PrismaModal({
           if (balasanSelesai(nilai)) {
             setAutoSearchStatus("done");
             setLoading(false);
+          } else if (balasanGagal(nilai)) {
+            setAutoSearchStatus("failed");
+            setError("Auto Search gagal: prisma tidak ditemukan. Periksa arah teleskop dan halangan di lintasan, lalu coba lagi.");
+            setLoading(false);
           }
+          // Nilai lain sengaja dibiarkan "waiting": bentuk balasan yang belum
+          // dikenal tidak boleh divonis gagal maupun sukses.
         }
 
-        // 3. TurningTarget response → 1 = selesai
+        // 3. TurningTarget response → 1 = sampai target, 0 = gagal berputar
         //    Bentuk bersarang belum terlihat langsung untuk kunci ini, tapi
         //    ikut ditangani: balasannya datang dari firmware yang sama lewat
         //    topic yang sama, jadi tidak ada alasan menganggapnya beda.
@@ -146,6 +161,10 @@ function PrismaModal({
           console.log("[PrismaModal] TurningTarget response:", data.TurningTarget, "→", nilai);
           if (balasanSelesai(nilai)) {
             setGoTargetStatus("done");
+            setLoading(false);
+          } else if (balasanGagal(nilai)) {
+            setGoTargetStatus("failed");
+            setError("Go To Target gagal: teleskop tidak sampai ke posisi target. Coba ulangi.");
             setLoading(false);
           }
         }
@@ -193,7 +212,6 @@ function PrismaModal({
     setLoading(true);
     setError("");
     setAutoSearchStatus("waiting");
-    setSimpanEnabled(false);
     try {
       const res = await fetch("/api/kontrol/auto-search", {
         method: "POST",
@@ -214,7 +232,10 @@ function PrismaModal({
     setLoading(true);
     setError("");
     setGoTargetStatus("waiting");
-    setSimpanEnabled(false);
+    // Hasil Auto Search sebelumnya ikut dibatalkan: teleskop akan berpindah,
+    // jadi pencarian yang lama tidak lagi menggambarkan posisi sekarang.
+    // Tanpa ini Simpan tetap aktif memakai hasil pencarian yang basi.
+    setAutoSearchStatus("idle");
     try {
       // `site` wajib dikirim walau endpoint-nya menerima tanpa itu: slot "P1"
       // ada di beberapa site dan menunjuk target fisik berbeda, jadi tanpa site
@@ -345,6 +366,13 @@ function PrismaModal({
                   Target reached
                 </span>
               )}
+              {goTargetStatus === "failed" && (
+                <span className="flex items-center gap-1.5 text-[12.5px] text-red-600 font-semibold">
+                  <span className="text-gray-400 font-semibold">Status:</span>
+                  <AlertCircle className="w-3.5 h-3.5 flex-shrink-0" />
+                  Gagal — coba lagi
+                </span>
+              )}
             </div>
           )}
 
@@ -372,6 +400,13 @@ function PrismaModal({
                 <span className="text-gray-400 font-semibold">Status:</span>
                 <span className="w-2 h-2 rounded-full bg-green-500 flex-shrink-0" />
                 Auto search complete
+              </span>
+            )}
+            {autoSearchStatus === "failed" && (
+              <span className="flex items-center gap-1.5 text-[12.5px] text-red-600 font-semibold">
+                <span className="text-gray-400 font-semibold">Status:</span>
+                <AlertCircle className="w-3.5 h-3.5 flex-shrink-0" />
+                Prisma tidak ditemukan
               </span>
             )}
           </div>

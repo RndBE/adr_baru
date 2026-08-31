@@ -48,3 +48,18 @@ export function nilaiBalasanLogger(v: unknown): string | null {
 export function balasanSelesai(nilai: string | null): boolean {
   return nilai === "1" || nilai === "true";
 }
+
+/**
+ * Apakah balasan itu berarti "perintah gagal".
+ *
+ * Untuk Auto Search, 0 berarti prisma tidak ketemu — teleskop sudah menyapu
+ * dan tidak menemukan target. Itu jawaban akhir, bukan "belum selesai", jadi
+ * UI harus berhenti menunggu dan bilang gagal.
+ *
+ * Sengaja BUKAN sekadar `!balasanSelesai()`: nilai yang tidak dikenali (balasan
+ * kosong, bentuk baru yang belum ditangani) harus tetap terbaca sebagai "belum
+ * ada jawaban", bukan divonis gagal. Sukses dan gagal dua-duanya perlu bukti.
+ */
+export function balasanGagal(nilai: string | null): boolean {
+  return nilai === "0" || nilai === "false";
+}
