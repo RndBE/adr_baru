@@ -83,6 +83,34 @@ function PrismaModal({
   const simpanEnabled =
     autoSearchStatus === "done" && (mode === "set" || goTargetStatus === "done");
 
+  // Batas menunggu balasan, diturunkan dari tabel durasi maksimum di protokol
+  // (Bagian A): auto_search 30 detik, turning_target 20 detik. Diberi margin
+  // karena firmware menjaga koneksi tetap hidup selama menunggu dan balasannya
+  // "bisa datang terlambat beberapa detik" — dokumennya melarang timeout sisi
+  // server yang lebih ketat dari durasi operasinya.
+  //
+  // Tanpa batas ini, satu balasan yang hilang membuat modal menunggu selamanya:
+  // tombolnya terkunci di "waiting" dan Simpan tidak akan pernah aktif.
+  useEffect(() => {
+    if (autoSearchStatus !== "waiting") return;
+    const timer = setTimeout(() => {
+      setAutoSearchStatus("failed");
+      setError("Auto Search tidak menjawab dalam 45 detik. Periksa koneksi logger, lalu coba lagi.");
+      setLoading(false);
+    }, 45_000);
+    return () => clearTimeout(timer);
+  }, [autoSearchStatus]);
+
+  useEffect(() => {
+    if (goTargetStatus !== "waiting") return;
+    const timer = setTimeout(() => {
+      setGoTargetStatus("failed");
+      setError("Go To Target tidak menjawab dalam 35 detik. Periksa koneksi logger, lalu coba lagi.");
+      setLoading(false);
+    }, 35_000);
+    return () => clearTimeout(timer);
+  }, [goTargetStatus]);
+
   // MQTT client ref
   const mqttClientRef = useRef<mqtt.MqttClient | null>(null);
 
@@ -152,13 +180,18 @@ function PrismaModal({
           // dikenal tidak boleh divonis gagal maupun sukses.
         }
 
-        // 3. TurningTarget response → 1 = sampai target, 0 = gagal berputar
-        //    Bentuk bersarang belum terlihat langsung untuk kunci ini, tapi
-        //    ikut ditangani: balasannya datang dari firmware yang sama lewat
-        //    topic yang sama, jadi tidak ada alasan menganggapnya beda.
-        if (data.TurningTarget !== undefined) {
-          const nilai = nilaiBalasanLogger(data.TurningTarget);
-          console.log("[PrismaModal] TurningTarget response:", data.TurningTarget, "→", nilai);
+        // 3. turning_target response → 1 = sampai target, 0 = gagal berputar
+        //
+        //    Nama kuncinya `turning_target` HURUF KECIL, sama dengan nama
+        //    perintahnya — begitu yang tertulis di protokol (Bagian C.1 dan
+        //    E.4). Kode sebelumnya menunggu `TurningTarget` PascalCase, yang
+        //    tidak pernah dikirim firmware, jadi Go To Target tidak akan pernah
+        //    selesai. Bentuk PascalCase tetap ikut dibaca kalau-kalau ada unit
+        //    lama yang mengirimnya.
+        const paketTurning = data.turning_target ?? data.TurningTarget;
+        if (paketTurning !== undefined) {
+          const nilai = nilaiBalasanLogger(paketTurning);
+          console.log("[PrismaModal] turning_target response:", paketTurning, "→", nilai);
           if (balasanSelesai(nilai)) {
             setGoTargetStatus("done");
             setLoading(false);

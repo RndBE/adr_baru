@@ -66,7 +66,11 @@ export async function POST(request: NextRequest) {
     const payload = {
       [`set_${id_logger}`]: {
         command: "set_rts",
-        turning_target: String(prismaId),
+        // Dikirim sebagai ANGKA, bukan string. Protokolnya (Bagian C.1)
+        // mendefinisikan turning_target bertipe int; keringanan "nilai kunci
+        // tidak diperiksa" hanya berlaku untuk perintah aksi yang nilainya
+        // memang diabaikan, sedangkan di sini nilainya adalah targetnya.
+        turning_target: Number(prismaId),
       },
     };
     const mqttSent = await publishMqtt(topicTarget, payload);
