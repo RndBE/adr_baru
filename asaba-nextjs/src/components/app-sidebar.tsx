@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import Image from "next/image";
-import { LogOut, Database, Settings2, MapPinned } from "lucide-react";
+import { LogOut, Database, Settings2 } from "lucide-react";
 import {
   Sidebar,
   SidebarContent,
@@ -138,7 +138,16 @@ const navGroups: { label: string; items: NavItem[] }[] = [
         href: "/visualisasi-3d",
         icon: (active) => <MaskIcon basePath="/3d" className={ICON_CLASS} isActive={active} />,
       },
-      { title: "Peta Tambang", href: "/peta-jaringan-tambang", icon: () => <MapPinned className={ICON_CLASS} strokeWidth={1.6} /> },
+      // Dinonaktifkan dari sidebar 29 Agustus 2026 atas permintaan. Rutenya
+      // TIDAK dihapus — /peta-jaringan-tambang dan sub-rute /3d masih ada dan
+      // tetap terbuka lewat URL langsung. Judulnya juga masih terdaftar di
+      // pageTitles pada (dashboard)/layout.tsx, jadi header halamannya tetap
+      // benar kalau dibuka.
+      //
+      // Mengembalikannya: buka komentar baris di bawah DAN tambahkan lagi
+      // `MapPinned` ke import lucide-react di atas — ikonnya ikut dilepas dari
+      // import supaya tidak tertinggal sebagai import tak terpakai.
+      // { title: "Peta Tambang", href: "/peta-jaringan-tambang", icon: () => <MapPinned className={ICON_CLASS} strokeWidth={1.6} /> },
       { title: "Rekap Data", href: "/rekap-data", icon: () => <Database className={ICON_CLASS} strokeWidth={1.6} /> },
     ],
   },
