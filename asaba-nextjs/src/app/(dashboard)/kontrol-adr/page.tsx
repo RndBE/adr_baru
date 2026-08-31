@@ -126,6 +126,7 @@ import { cn } from "@/lib/utils";
 import { RtsConnectionBadge } from "@/components/RtsConnectionBadge";
 import { useRtsConnectionStatus, useLogKontrol } from "@/hooks/use-api";
 import { useSites } from "@/hooks/use-sites";
+import { nilaiRts, nilaiRtsLama, klasifikasiPower, klasifikasiTracking } from "@/lib/protokol-rts";
 
 // --- Helper Date Formatter ---
 function fmtDate(d: string | Date | null) {
@@ -257,31 +258,59 @@ function mapStatus(
 }
 
 // --- RTS Config Types ---
-// ── Progres bertahap dari firmware RTS ────────────────────────────────────────
+// ── Protokol balasan RTS (PROTOKOL_MQTT_ADR, revisi memutus kompatibilitas) ───
 //
-// Firmware baru melaporkan kemajuan lewat `stage` dan TIDAK LAGI mengirim pesan
-// penutup `{"PowerOn":{"nilai":"Success"}}` / `{"AutoTrack":{"nilai":"done"}}`.
-// Jadi stage terakhir di tiap rangkaian yang menandakan perintahnya tuntas —
-// tidak ada apa-apa lagi sesudahnya. Handler `nilai` yang lama tetap
-// dipertahankan sebagai fallback untuk perangkat yang belum di-update.
-const LABEL_TAHAP_POWER: Record<"on" | "off", Record<string, string>> = {
+// Kunci `stage` DIHAPUS seluruhnya; semua balasan RTS kini memakai `value`.
+// Pemilahan kemajuan vs hasil akhir tidak lagi lewat nama kunci, melainkan
+// lewat ISI `value`-nya. Kunci `stage` tetap ikut dibaca sebagai fallback
+// selama masih ada unit yang belum di-flash — dokumennya sendiri menyebut
+// backend harus siap sebelum unit produksi diperbarui, jadi dua versi firmware
+// akan hidup berdampingan untuk sementara.
+//
+// Perangkap yang sudah menelan korban di kode sebelumnya:
+//
+// 1. PowerOn "Success" BUKAN penanda siap. Instrumen menjawab, tapi konstanta
+//    prisma dan koreksi atmosfer belum dikirim. Penanda siap adalah "done".
+//    Kode lama memakai "config" sebagai penutup — itu justru tahap kemajuan.
+// 2. Kata "done" muncul di dua tingkat berbeda: {"PowerOn":{"value":"done"}}
+//    berarti instrumen siap, sedangkan {"AutoTracking":{"value":"target",
+//    "status":"done"}} cuma berarti satu target selesai. Jangan mencari string
+//    tanpa melihat tingkatnya.
+// 3. Perintah `AutoTrackingStart` dijawab dengan nama `AutoTracking`.
+// 4. {"AutoTrack":{"value":"done"}} dihapus, bukan diganti nama.
+
+const LABEL_NILAI_POWER: Record<"on" | "off", Record<string, string>> = {
   on: {
     start: "Mengirim perintah",
     ping: "Menghubungi RTS",
+    // Disebut apa adanya: instrumen sudah menjawab tapi BELUM terkonfigurasi.
+    Success: "RTS menjawab, memuat konfigurasi",
     config: "Memuat konfigurasi",
   },
   off: {
     start: "Mengirim perintah",
     check: "Memeriksa status",
     home: "Kembali ke posisi home",
-    off: "Mematikan RTS",
+    off: "Mengirim perintah mati",
+    Success: "Perintah mati terkirim",
   },
 };
 
-/** Stage penutup tiap rangkaian power. Setelah ini tidak ada pesan lain. */
-const TAHAP_AKHIR_POWER: Record<"on" | "off", string> = { on: "config", off: "off" };
+/** Balasan yang menutup rangkaian power dengan sukses. */
+const NILAI_SELESAI_POWER = "done";
 
-const LABEL_TAHAP_TRACKING: Record<string, string> = {
+/**
+ * Balasan yang menutup rangkaian power dengan GAGAL.
+ *
+ * `Failed` = instrumen tidak menjawab setelah 8 percobaan (PowerOn).
+ * `RTS Off` = urutan dibatalkan karena instrumen tidak menjawab (PowerOff).
+ */
+const NILAI_GAGAL_POWER: Record<"on" | "off", string[]> = {
+  on: ["Failed"],
+  off: ["RTS Off"],
+};
+
+const LABEL_NILAI_TRACKING: Record<string, string> = {
   start: "Menyiapkan pengukuran",
   target: "Mengukur target",
   homing: "Kembali ke posisi home",
@@ -296,35 +325,41 @@ const LABEL_STATUS_TARGET: Record<string, string> = {
 };
 
 /**
- * Batas diam antar-stage.
+ * Batas diam antar-balasan untuk rangkaian POWER.
  *
- * Firmware tidak mengirim stage kegagalan apa pun, jadi perintah yang gagal
- * hanya terlihat sebagai rangkaian yang berhenti di tengah. Tanpa batas ini
- * indikator progres menggantung selamanya dan operator tidak punya cara tahu
- * bedanya dengan RTS yang sekadar lambat.
- *
- * Dihitung ulang setiap kali stage baru masuk, BUKAN sekali untuk seluruh
- * rangkaian — kalau tidak, AutoTracking 50 target yang sehat akan ikut tervonis
- * gagal hanya karena rangkaiannya memang panjang.
+ * Operasi terlama di jalur ini PowerOn ~20 detik (Bagian A dokumen protokol),
+ * jadi 45 detik memberi margin lebih dari dua kali lipat. Dokumennya melarang
+ * timeout sisi server yang lebih ketat dari durasi operasinya.
  */
-const BATAS_DIAM_MS = 45_000;
+const BATAS_DIAM_POWER_MS = 45_000;
+
+/**
+ * Batas diam antar-balasan untuk AUTOTRACKING — jauh lebih longgar.
+ *
+ * Satu target bisa memakan 45 detik tanpa pesan apa pun bila instrumen lambat
+ * menjawab, dan dokumen protokolnya secara eksplisit melarang indikator
+ * "koneksi putus" yang lebih sensitif dari 60 detik. Nilai 45 detik yang
+ * dipakai sebelumnya melanggar batas itu dan akan memvonis siklus sehat
+ * sebagai tidak merespons.
+ */
+const BATAS_DIAM_TRACKING_MS = 90_000;
 
 type ProgresPower = {
   action: "on" | "off";
-  stage: string;
-  /** Dipakai untuk membuat identitas objek berubah tiap stage, supaya effect
-   *  timeout ikut ter-reset walau nama stage-nya kebetulan sama. */
+  nilai: string;
+  /** Dipakai untuk membuat identitas objek berubah tiap balasan, supaya effect
+   *  timeout ikut ter-reset walau isi `value`-nya kebetulan sama. */
   urutan: number;
 };
 
 type ProgresTracking = {
-  stage: string;
+  nilai: string;
   current: number;
   total: number;
   status: string;
   retries?: number;
   urutan: number;
-  /** true = sudah melewati BATAS_DIAM_MS tanpa stage baru. */
+  /** true = sudah melewati BATAS_DIAM_TRACKING_MS tanpa balasan baru. */
   diam?: boolean;
 };
 
@@ -402,22 +437,22 @@ export default function KontrolAdrPage() {
   const [rtsPowerState, setRtsPowerState] = useState<"on" | "off" | "unknown">("off");
   const [progresPower, setProgresPower] = useState<ProgresPower | null>(null);
   const [progresTracking, setProgresTracking] = useState<ProgresTracking | null>(null);
-  /** Penghitung monoton supaya tiap stage menghasilkan objek state yang baru. */
+  /** Penghitung monoton supaya tiap balasan menghasilkan objek state baru. */
   const urutanStage = useRef(0);
 
   // Timeout power: rangkaian yang berhenti di tengah dianggap gagal.
-  // Dependensinya objek `progresPower` yang identitasnya berubah tiap stage,
-  // jadi timer-nya otomatis ter-reset selama stage masih berdatangan.
+  // Dependensinya objek `progresPower` yang identitasnya berubah tiap balasan,
+  // jadi timer-nya otomatis ter-reset selama balasan masih berdatangan.
   useEffect(() => {
     if (!progresPower) return;
     const timer = setTimeout(() => {
-      const label = LABEL_TAHAP_POWER[progresPower.action][progresPower.stage] ?? progresPower.stage;
+      const label = LABEL_NILAI_POWER[progresPower.action][progresPower.nilai] ?? progresPower.nilai;
       setPowerAlert({
         type: "error",
         message: `RTS berhenti merespons di tahap "${label}". Perintah ${progresPower.action.toUpperCase()} kemungkinan tidak tuntas.`,
       });
       setProgresPower(null);
-    }, BATAS_DIAM_MS);
+    }, BATAS_DIAM_POWER_MS);
     return () => clearTimeout(timer);
   }, [progresPower]);
 
@@ -427,7 +462,7 @@ export default function KontrolAdrPage() {
     if (!progresTracking || progresTracking.diam) return;
     const timer = setTimeout(() => {
       setProgresTracking((p) => (p ? { ...p, diam: true } : p));
-    }, BATAS_DIAM_MS);
+    }, BATAS_DIAM_TRACKING_MS);
     return () => clearTimeout(timer);
   }, [progresTracking]);
 
@@ -444,7 +479,7 @@ export default function KontrolAdrPage() {
     // tidak menjawab sama sekali, tanpa ini tidak ada apa pun yang memicu
     // timeout dan perintahnya hilang tanpa jejak di layar.
     urutanStage.current += 1;
-    setProgresPower({ action, stage: "start", urutan: urutanStage.current });
+    setProgresPower({ action, nilai: "start", urutan: urutanStage.current });
     try {
       const res = await fetch("/api/kontrol/power", {
         method: "POST",
@@ -566,61 +601,113 @@ export default function KontrolAdrPage() {
           }
         } else {
           // ADR_Tambang_Kaltara topic
-          // ── Firmware baru: progres bertahap ──────────────────────────────
+          // ── Balasan RTS ──────────────────────────────────────────────────
           //
-          // Semua stage datang HANYA lewat topic ADR_Tambang_Kaltara
-          // (dikonfirmasi 28 Agustus 2026) — bukan lewat kontrol-asaba maupun
-          // Logger_*. Cabang else ini memang cabang topic itu, jadi tidak perlu
-          // pemeriksaan topic tambahan.
+          // Semuanya datang HANYA lewat topic ADR_Tambang_Kaltara — bukan lewat
+          // kontrol-asaba maupun Logger_*. Cabang else ini memang cabang topic
+          // itu, jadi tidak perlu pemeriksaan topic tambahan.
           //
-          // {"PowerOn":{"stage":"start"|"ping"|"config"}}
-          // {"PowerOff":{"stage":"start"|"check"|"home"|"off"}}
-          // Stage terakhir = perintah tuntas; tidak ada pesan penutup lagi.
+          // {"PowerOn":{"value":"start"|"ping"|"Success"|"config"|"done"|"Failed"}}
+          // {"PowerOff":{"value":"start"|"check"|"home"|"off"|"Success"|"done"|"RTS Off"}}
           for (const action of ["on", "off"] as const) {
             const paket = action === "on" ? data.PowerOn : data.PowerOff;
-            if (!paket?.stage) continue;
+            if (!paket) continue;
 
-            const stage = String(paket.stage);
-            console.log(`[KontrolADR] Power${action === "on" ? "On" : "Off"} stage:`, stage);
+            const nilai = nilaiRts(paket);
+            const lama = nilaiRtsLama(paket);
+            if (nilai === null && lama === null) continue;
+
+            const nama = action === "on" ? "PowerOn" : "PowerOff";
             urutanStage.current += 1;
 
-            if (stage === TAHAP_AKHIR_POWER[action]) {
-              setRtsPowerState(action);
-              setPowerAlert({
-                type: action,
-                message: action === "on" ? "RTS menyala dan konfigurasi termuat" : "RTS sudah dimatikan",
-              });
+            // Jalur protokol LAMA (`nilai`). Dipisah karena string yang sama
+            // berarti hal berbeda: di sana "Success" penutup sukses, di sini
+            // cuma kemajuan.
+            if (nilai === null && lama !== null) {
+              const gagal = lama.toLowerCase().includes("failed") || lama.toLowerCase().includes("tidak terhubung");
+              console.log(`[KontrolADR] ${nama} (protokol lama):`, lama, "gagal:", gagal);
               setProgresPower(null);
-            } else {
-              setProgresPower({ action, stage, urutan: urutanStage.current });
+              if (gagal) {
+                setPowerAlert({ type: "error", message: lama });
+              } else {
+                setRtsPowerState(action);
+                setPowerAlert({ type: action, message: lama });
+              }
+              continue;
+            }
+
+            console.log(`[KontrolADR] ${nama} value:`, nilai);
+            switch (klasifikasiPower(action, nilai as string)) {
+              case "selesai":
+                // "done", BUKAN "Success" dan bukan "config" — dua-duanya masih
+                // tahap kemajuan di protokol sekarang.
+                setRtsPowerState(action);
+                setPowerAlert({
+                  type: action,
+                  message: action === "on" ? "RTS menyala dan siap dipakai" : "RTS sudah benar-benar mati",
+                });
+                setProgresPower(null);
+                break;
+              case "gagal":
+                setPowerAlert({
+                  type: "error",
+                  message:
+                    nilai === "RTS Off"
+                      ? "Perintah OFF ditolak: RTS tidak menjawab, urutan dibatalkan."
+                      : "RTS tidak menjawab setelah 8 percobaan. Periksa daya dan kabel instrumen.",
+                });
+                setProgresPower(null);
+                break;
+              default:
+                setProgresPower({ action, nilai: nilai as string, urutan: urutanStage.current });
             }
           }
 
-          // {"AutoTracking":{"stage":"start","total":50,"retries":1}}
-          // {"AutoTracking":{"stage":"target","current":N,"total":50,"status":…}}
-          // {"AutoTracking":{"stage":"homing"}} → {"AutoTracking":{"stage":"finished"}}
+          // {"AutoTracking":{"value":"start","total":50,"retries":1}}
+          // {"AutoTracking":{"value":"target","current":N,"total":50,"status":…}}
+          // {"AutoTracking":{"value":"homing"}} → {"AutoTracking":{"value":"finished"}}
+          // {"AutoTracking":{"value":"RTS Off"}} → DITOLAK, instrumen mati
+          //
+          // Perintahnya bernama AutoTrackingStart tapi SEMUA balasannya bernama
+          // AutoTracking — satu-satunya perintah yang nama balasannya berbeda.
           //
           // Status per target TIDAK dipakai untuk mewarnai kartu prisma: nilai
           // aslinya sudah datang lewat topic Logger_* yang menyebut `id_prisma`
           // secara eksplisit. `current` di sini nomor urut target, dan
           // menyamakannya dengan slot berarti menebak — kalau tebakannya meleset,
           // kartu yang salah yang ditandai gagal.
-          if (data.AutoTracking?.stage) {
-            const stage = String(data.AutoTracking.stage);
+          const nilaiTracking = nilaiRts(data.AutoTracking);
+          if (nilaiTracking !== null) {
+            const nilai = nilaiTracking;
+            const kelas = klasifikasiTracking(nilai);
             urutanStage.current += 1;
-            console.log("[KontrolADR] AutoTracking stage:", stage, data.AutoTracking);
+            console.log("[KontrolADR] AutoTracking value:", nilai, kelas, data.AutoTracking);
 
-            if (stage === "finished") {
+            if (kelas === "selesai") {
+              // Perhatikan tingkatnya: "finished" = SELURUH siklus selesai.
+              // Jangan tertukar dengan {"value":"target","status":"done"} yang
+              // cuma berarti satu target selesai.
               setProgresTracking(null);
               setIsControlRunning(false);
               if (pollingRef.current) { clearInterval(pollingRef.current); pollingRef.current = null; }
               fetchPrisma();
+            } else if (kelas === "gagal") {
+              // Gerbang firmware menolak dalam ~5 detik dan TIDAK membangunkan
+              // instrumen yang mati. Operator harus PowerOn dulu, lalu menunggu
+              // "done" — bukan "Success" — sebelum menjalankan tracking lagi.
+              setProgresTracking(null);
+              setIsControlRunning(false);
+              if (pollingRef.current) { clearInterval(pollingRef.current); pollingRef.current = null; }
+              setPowerAlert({
+                type: "error",
+                message: "AutoTracking ditolak: RTS masih mati. Nyalakan lewat tombol ON dan tunggu sampai siap, baru jalankan lagi.",
+              });
             } else {
-              if (stage === "start") setIsControlRunning(true);
+              if (nilai === "start") setIsControlRunning(true);
               setProgresTracking((prev) => ({
-                stage,
-                // `total` hanya ikut di stage start/target; jangan sampai stage
-                // homing yang tidak membawanya mengosongkan angka yang sudah ada.
+                nilai,
+                // `total` hanya ikut di start/target; jangan sampai "homing"
+                // yang tidak membawanya mengosongkan angka yang sudah ada.
                 total: Number(data.AutoTracking.total ?? prev?.total ?? 0),
                 current: Number(data.AutoTracking.current ?? prev?.current ?? 0),
                 status: String(data.AutoTracking.status ?? ""),
@@ -631,38 +718,15 @@ export default function KontrolAdrPage() {
           }
 
           // ── Fallback firmware lama ───────────────────────────────────────
-          // AutoTrack done: {"AutoTrack":{"nilai":"done"}}
+          // {"AutoTrack":{"nilai":"done"}} sudah DIHAPUS dari protokol dan
+          // digantikan {"AutoTracking":{"value":"finished"}}. Tetap dibaca
+          // selama masih ada unit yang belum di-flash.
           if (data.AutoTrack && data.AutoTrack.nilai === "done") {
-            console.log("[KontrolADR] AutoTrack done");
+            console.log("[KontrolADR] AutoTrack done (protokol lama)");
+            setProgresTracking(null);
             setIsControlRunning(false);
             if (pollingRef.current) { clearInterval(pollingRef.current); pollingRef.current = null; }
             fetchPrisma();
-          }
-
-          // PowerOn response: {"PowerOn":{"nilai":"Success"}} atau {"PowerOn":{"nilai":"Failed"}}
-          if (data.PowerOn && data.PowerOn.nilai) {
-            const nilai = data.PowerOn.nilai;
-            const isFailed = nilai.toLowerCase().includes("failed") || nilai.toLowerCase().includes("tidak terhubung");
-            console.log("[KontrolADR] PowerOn response:", nilai, "isFailed:", isFailed);
-            if (!isFailed) {
-              setRtsPowerState("on");
-              setPowerAlert({ type: "on", message: nilai });
-            } else {
-              setPowerAlert({ type: "error", message: nilai });
-            }
-          }
-
-          // PowerOff response: {"PowerOff":{"nilai":"Success"}} atau {"PowerOff":{"nilai":"Failed"}}
-          if (data.PowerOff && data.PowerOff.nilai) {
-            const nilai = data.PowerOff.nilai;
-            const isFailed = nilai.toLowerCase().includes("failed") || nilai.toLowerCase().includes("tidak terhubung");
-            console.log("[KontrolADR] PowerOff response:", nilai, "isFailed:", isFailed);
-            if (!isFailed) {
-              setRtsPowerState("off");
-              setPowerAlert({ type: "off", message: nilai });
-            } else {
-              setPowerAlert({ type: "error", message: nilai });
-            }
           }
         }
       } catch {
@@ -1072,7 +1136,7 @@ export default function KontrolAdrPage() {
                   <Loader2 className="w-[15px] h-[15px] animate-spin text-[#303481]" />
                   <span className="text-[12.5px] font-semibold text-gray-600">
                     {progresPower.action === "on" ? "Menyalakan" : "Mematikan"}:{" "}
-                    {LABEL_TAHAP_POWER[progresPower.action][progresPower.stage] ?? progresPower.stage}
+                    {LABEL_NILAI_POWER[progresPower.action][progresPower.nilai] ?? progresPower.nilai}
                   </span>
                 </div>
               )}
@@ -1240,16 +1304,16 @@ export default function KontrolAdrPage() {
                             )}>
                               {progresTracking.diam
                                 ? "AutoTracking tidak merespons"
-                                : LABEL_TAHAP_TRACKING[progresTracking.stage] ?? progresTracking.stage}
+                                : LABEL_NILAI_TRACKING[progresTracking.nilai] ?? progresTracking.nilai}
                             </span>
-                            {progresTracking.stage === "target" && progresTracking.total > 0 && (
+                            {progresTracking.nilai === "target" && progresTracking.total > 0 && (
                               <span className="text-[11px] font-semibold text-gray-500 tabular-nums">
                                 {progresTracking.current} / {progresTracking.total}
                               </span>
                             )}
                           </div>
 
-                          {progresTracking.stage === "target" && progresTracking.status && (
+                          {progresTracking.nilai === "target" && progresTracking.status && (
                             <p className="mt-0.5 text-[10.5px] text-gray-500">
                               Target {progresTracking.current}:{" "}
                               {LABEL_STATUS_TARGET[progresTracking.status] ?? progresTracking.status}
@@ -1259,7 +1323,7 @@ export default function KontrolAdrPage() {
 
                           {progresTracking.diam && (
                             <p className="mt-0.5 text-[10.5px] text-amber-700">
-                              Tidak ada kabar baru selama {BATAS_DIAM_MS / 1000} detik terakhir.
+                              Tidak ada kabar baru selama {BATAS_DIAM_TRACKING_MS / 1000} detik terakhir.
                             </p>
                           )}
 
