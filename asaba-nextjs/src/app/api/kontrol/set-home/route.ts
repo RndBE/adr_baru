@@ -14,9 +14,15 @@ import { getLoggerForSite } from "@/lib/sites";
  * milik site lain, yang baru ketahuan saat PowerOff atau AutoTracking memutar
  * teleskop ke arah yang keliru.
  *
- * Firmware TIDAK MEMBALAS perintah ini (kolom Balasan di tabel C.1 kosong),
- * jadi `success` di sini hanya berarti perintahnya terkirim ke broker — bukan
- * bahwa instrumen sudah menyimpannya.
+ * Tabel C.1 protokol menulis perintah ini TIDAK punya balasan. Kenyataannya
+ * firmware membalas (terlihat 31 Agustus 2026):
+ *
+ *   {"setHome":{"setHome":",0,061,41,90,199,18,72;"}}
+ *
+ * Kunci dalamnya mengulang nama perintahnya, bukan `value` seperti aturan dasar
+ * #2. Balasan itu ditangkap browser lewat MQTT WebSocket, bukan di sini — route
+ * ini tetap fire-and-forget seperti auto-search dan go-to-target, jadi `success`
+ * hanya berarti perintahnya terkirim ke broker.
  *
  * Body: { site: string }
  */
@@ -57,7 +63,7 @@ export async function POST(request: NextRequest) {
       // Dinamai apa adanya: yang dijamin hanya pengiriman, bukan penyimpanan.
       // Tanpa balasan dari firmware, tidak ada cara memastikan lebih dari ini.
       data: { site, id_logger, mqtt_sent: mqttSent },
-      message: "Perintah Set Home terkirim. Perangkat tidak mengirim konfirmasi.",
+      message: "Perintah Set Home terkirim. Konfirmasinya datang lewat MQTT.",
     });
   } catch (error) {
     console.error("[POST /api/kontrol/set-home]", error);

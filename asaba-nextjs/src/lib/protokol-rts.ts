@@ -38,10 +38,19 @@ export type KelasBalasan =
  * Mengembalikan null kalau paketnya memakai protokol lama (`nilai`) atau tidak
  * memuat nilai sama sekali; pemanggil menanganinya lewat jalur terpisah.
  */
-export function nilaiRts(paket: unknown): string | null {
+export function nilaiRts(paket: unknown, namaKunci?: string): string | null {
   if (paket === null || typeof paket !== "object") return null;
   const o = paket as Record<string, unknown>;
-  const v = o.value ?? o.stage;
+  // `namaKunci` untuk balasan yang MENGULANG nama perintahnya sebagai kunci
+  // dalam, bukan memakai `value`. Terlihat di lapangan 31 Agustus 2026:
+  //
+  //   {"setHome":{"setHome":",0,061,41,90,199,18,72;"}}
+  //
+  // Bentuk ini menyalahi aturan dasar #2 di dokumen protokol ("semua balasan
+  // RTS memakai kunci value") dan tidak terdaftar di Bagian E, jadi tidak ada
+  // gunanya menunggu dokumennya diperbaiki lebih dulu. Diperiksa TERAKHIR
+  // supaya `value` tetap menang bila suatu saat firmware diseragamkan.
+  const v = o.value ?? o.stage ?? (namaKunci ? o[namaKunci] : undefined);
   return v === null || v === undefined ? null : String(v);
 }
 

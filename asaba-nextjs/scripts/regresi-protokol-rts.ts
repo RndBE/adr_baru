@@ -93,6 +93,33 @@ periksa('{"value":"Success"} → jalur lama diam', nilaiRtsLama({ value: "Succes
 periksa('{"stage":"start"} → jalur lama diam', nilaiRtsLama({ stage: "start" }), null);
 periksa("paket kosong → null", nilaiRtsLama({}), null);
 
+// ── Balasan yang mengulang nama perintah sebagai kunci dalam ───────────────
+// Terlihat di lapangan 31 Agustus 2026:
+//   {"setHome":{"setHome":",0,061,41,90,199,18,72;"}}
+// Menyalahi aturan dasar #2 ("semua balasan RTS memakai kunci value") dan tidak
+// terdaftar di Bagian E. Tabel C.1 bahkan menulis setHome tidak punya balasan.
+console.log("Balasan berkunci nama perintah:");
+const MENTAH_SETHOME = ",0,061,41,90,199,18,72;";
+periksa(
+  "setHome dibaca dari kunci senama",
+  nilaiRts({ setHome: MENTAH_SETHOME }, "setHome"),
+  MENTAH_SETHOME
+);
+// Tanpa namaKunci harus null — jangan sampai kunci sembarangan ikut terbaca
+// sebagai nilai balasan di jalur lain.
+periksa("tanpa namaKunci → null", nilaiRts({ setHome: MENTAH_SETHOME }), null);
+// `value` tetap menang bila firmware suatu saat diseragamkan.
+periksa(
+  "value menang atas kunci senama",
+  nilaiRts({ value: "done", setHome: MENTAH_SETHOME }, "setHome"),
+  "done"
+);
+// String mentahnya TIDAK ditafsirkan: dikembalikan utuh, termasuk koma di awal
+// dan titik koma di akhir. Formatnya tidak terdokumentasi, dan ini titik acuan
+// pulang teleskop — salah tafsir tidak akan terkoreksi sendiri.
+periksa("string mentah utuh, tidak dipangkas", nilaiRts({ setHome: MENTAH_SETHOME }, "setHome"), MENTAH_SETHOME);
+periksa("kunci senama kosong → null", nilaiRts({ setHome: undefined }, "setHome"), null);
+
 // ── Nilai tak dikenal aman ─────────────────────────────────────────────────
 // Lebih baik indikator berputar lalu kena timeout daripada memvonis instrumen
 // menyala atau mati atas dasar nilai yang tidak ada di dokumen.

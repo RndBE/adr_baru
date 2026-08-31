@@ -439,8 +439,34 @@ export default function KontrolAdrPage() {
   const [powerLoading, setPowerLoading] = useState(false);
   const [powerAlert, setPowerAlert] = useState<PowerAlert | null>(null);
   const [rtsPowerState, setRtsPowerState] = useState<"on" | "off" | "unknown">("off");
-  const [setHomeLoading, setSetHomeLoading] = useState(false);
+  // Set Home ternyata DIBALAS firmware, walau tabel C.1 protokol menulis kolom
+  // Balasannya kosong. Karena itu statusnya bisa ditunggu, bukan sekadar
+  // "terkirim". `jawaban` menyimpan string mentah dari instrumen apa adanya —
+  // formatnya tidak terdokumentasi, jadi ditampilkan tanpa ditafsirkan.
+  const [setHomeStatus, setSetHomeStatus] = useState<"idle" | "waiting" | "done">("idle");
+  const [setHomeJawaban, setSetHomeJawaban] = useState<string | null>(null);
   const [konfirmasiSetHome, setKonfirmasiSetHome] = useState(false);
+
+  /**
+   * Batas menunggu balasan setHome.
+   *
+   * Durasinya tidak ada di tabel Bagian A protokol karena perintah ini memang
+   * tidak tercatat punya balasan. Dipakai 30 detik — selonggar operasi yang
+   * menyentuh instrumen (rotate/turning_target 20 detik) plus margin, sesuai
+   * larangan dokumen soal timeout yang lebih ketat dari durasi operasinya.
+   */
+  useEffect(() => {
+    if (setHomeStatus !== "waiting") return;
+    const timer = setTimeout(() => {
+      setSetHomeStatus("idle");
+      setPowerAlert({
+        type: "error",
+        title: "Set Home",
+        message: "Tidak ada balasan dalam 30 detik. Perintah mungkin terkirim tapi belum tentu tersimpan — periksa arah pulang teleskop sebelum mengandalkannya.",
+      });
+    }, 30_000);
+    return () => clearTimeout(timer);
+  }, [setHomeStatus]);
   const [progresPower, setProgresPower] = useState<ProgresPower | null>(null);
   const [progresTracking, setProgresTracking] = useState<ProgresTracking | null>(null);
   /** Penghitung monoton supaya tiap balasan menghasilkan objek state baru. */
@@ -522,7 +548,8 @@ export default function KontrolAdrPage() {
    */
   const handleSetHome = async () => {
     setKonfirmasiSetHome(false);
-    setSetHomeLoading(true);
+    setSetHomeJawaban(null);
+    setSetHomeStatus("waiting");
     try {
       const res = await fetch("/api/kontrol/set-home", {
         method: "POST",
@@ -531,19 +558,15 @@ export default function KontrolAdrPage() {
       });
       const json = await res.json();
       if (!json.success) {
+        setSetHomeStatus("idle");
         setPowerAlert({ type: "error", title: "Set Home", message: json.error || "Gagal mengirim perintah" });
-      } else {
-        setPowerAlert({
-          type: "on",
-          title: "Set Home terkirim",
-          message: "Perangkat tidak mengirim konfirmasi, jadi keberhasilannya baru terlihat saat teleskop pulang ke home.",
-        });
       }
+      // Sukses TIDAK diumumkan di sini: yang selesai baru pengiriman ke broker.
+      // Konfirmasinya datang lewat MQTT sebagai {"setHome":{"setHome":"…"}}.
     } catch (err) {
       console.error("[handleSetHome]", err);
+      setSetHomeStatus("idle");
       setPowerAlert({ type: "error", title: "Set Home", message: "Terjadi kesalahan jaringan" });
-    } finally {
-      setSetHomeLoading(false);
     }
   };
 
@@ -756,6 +779,30 @@ export default function KontrolAdrPage() {
                 urutan: urutanStage.current,
               }));
             }
+          }
+
+          // {"setHome":{"setHome":",0,061,41,90,199,18,72;"}}
+          //
+          // Kunci dalamnya MENGULANG nama perintahnya, bukan `value` — bentuk
+          // yang menyalahi aturan dasar #2 protokol dan tidak terdaftar di
+          // Bagian E. Tabel C.1 bahkan menulis perintah ini tidak punya
+          // balasan; kenyataannya ada.
+          //
+          // Isinya string mentah dari instrumen dan formatnya tidak
+          // terdokumentasi, jadi ditampilkan apa adanya — sama seperti anjuran
+          // dokumen untuk medan `raw` di Bagian E.5. Menebak artinya lebih
+          // berbahaya daripada tidak menerjemahkannya: ini titik acuan pulang
+          // teleskop, dan tafsir yang salah tidak akan terkoreksi sendiri.
+          const jawabanSetHome = nilaiRts(data.setHome, "setHome");
+          if (jawabanSetHome !== null) {
+            console.log("[KontrolADR] setHome:", jawabanSetHome);
+            setSetHomeStatus("done");
+            setSetHomeJawaban(jawabanSetHome);
+            setPowerAlert({
+              type: "on",
+              title: "Set Home tersimpan",
+              message: `RTS membalas: ${jawabanSetHome}`,
+            });
           }
 
           // ── Fallback firmware lama ───────────────────────────────────────
@@ -1189,20 +1236,22 @@ export default function KontrolAdrPage() {
               <Button
                 variant="outline"
                 onClick={() => setKonfirmasiSetHome(true)}
-                disabled={setHomeLoading || !selectedSite || !isConnected}
+                disabled={setHomeStatus === "waiting" || !selectedSite || !isConnected}
                 title={
                   !selectedSite
                     ? "Pilih site dulu"
                     : !isConnected
                       ? "RTS tidak terhubung"
-                      : "Simpan arah teleskop saat ini sebagai posisi home"
+                      : setHomeJawaban
+                        ? `Balasan terakhir: ${setHomeJawaban}`
+                        : "Simpan arah teleskop saat ini sebagai posisi home"
                 }
                 className="flex items-center gap-2 px-5 rounded-md h-[40px] text-[13.5px] font-medium text-[#E86A1F] border-[#E86A1F] hover:bg-[#E86A1F]/5 bg-white transition-colors cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
               >
-                {setHomeLoading
+                {setHomeStatus === "waiting"
                   ? <Loader2 className="w-[17px] h-[17px] animate-spin" />
                   : <Home className="w-[17px] h-[17px]" />}
-                Set Home
+                {setHomeStatus === "waiting" ? "Menunggu RTS…" : "Set Home"}
               </Button>
 
               <Button
@@ -2043,9 +2092,20 @@ export default function KontrolAdrPage() {
               </div>
 
               <p className="text-[12px] leading-relaxed text-gray-500">
-                Perangkat tidak mengirim konfirmasi untuk perintah ini, jadi
-                aplikasi hanya bisa memastikan perintahnya terkirim.
+                RTS akan membalas dengan sederet angka mentah. Angka itu
+                ditampilkan apa adanya karena formatnya tidak terdokumentasi —
+                kehadirannya menandakan perintah diterima, bukan bahwa arahnya
+                sudah benar.
               </p>
+
+              {setHomeJawaban && (
+                <div className="rounded-lg bg-gray-50 px-3.5 py-2.5">
+                  <p className="text-[11px] font-semibold text-gray-500">Balasan terakhir</p>
+                  <p className="mt-0.5 break-all font-mono text-[12px] text-gray-800">
+                    {setHomeJawaban}
+                  </p>
+                </div>
+              )}
             </div>
 
             <div className="flex justify-end gap-2 px-6 py-4">
