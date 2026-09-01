@@ -446,6 +446,21 @@ export default function KontrolAdrPage() {
   const [setHomeStatus, setSetHomeStatus] = useState<"idle" | "waiting" | "done">("idle");
   const [setHomeJawaban, setSetHomeJawaban] = useState<string | null>(null);
   const [konfirmasiSetHome, setKonfirmasiSetHome] = useState(false);
+  /**
+   * Nama posisi home yang diisi operator, mis. `HOME-01`.
+   *
+   * Nilai kunci `setHome` adalah nama ini, bukan penanda aksi — jadi tanpa isian
+   * ini tidak ada perintah yang layak dikirim. Batas 20 karakter dan larangan
+   * `,`/`;` disamakan dengan yang divalidasi ulang di route; kembar begini
+   * disengaja supaya kesalahan ketik tertangkap sebelum menyentuh instrumen,
+   * sementara route tetap aman dipanggil dari luar UI ini.
+   */
+  const [namaHome, setNamaHome] = useState("");
+  const namaHomeBersih = namaHome.trim();
+  const namaHomeSah =
+    namaHomeBersih.length > 0 &&
+    namaHomeBersih.length <= 20 &&
+    !/[,;]/.test(namaHomeBersih);
 
   /**
    * Batas menunggu balasan setHome.
@@ -539,14 +554,17 @@ export default function KontrolAdrPage() {
 
 
   /**
-   * Simpan orientasi teleskop saat ini sebagai posisi home.
+   * Simpan orientasi teleskop saat ini sebagai posisi home, di bawah nama yang
+   * diisi operator.
    *
-   * Firmware TIDAK membalas perintah ini (Bagian C.1 protokol), jadi tidak ada
-   * status "waiting" maupun konfirmasi — begitu terkirim, itu saja yang bisa
-   * dijamin. Pesannya menyebutkan hal itu apa adanya daripada memberi centang
-   * hijau yang tidak dilandasi apa pun.
+   * Balasan datang lewat MQTT sebagai {"setHome":{"setHome":"NAMA,…;"}}, jadi
+   * statusnya benar-benar bisa ditunggu — bukan sekadar "terkirim". Yang dikirim
+   * ke server adalah nama yang sudah di-trim, sama dengan yang dipakai untuk
+   * menilai `namaHomeSah`, supaya tombol dan permintaan tidak menilai dua hal
+   * yang berbeda.
    */
   const handleSetHome = async () => {
+    if (!namaHomeSah) return;
     setKonfirmasiSetHome(false);
     setSetHomeJawaban(null);
     setSetHomeStatus("waiting");
@@ -554,7 +572,7 @@ export default function KontrolAdrPage() {
       const res = await fetch("/api/kontrol/set-home", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ site: selectedSite }),
+        body: JSON.stringify({ site: selectedSite, namaHome: namaHomeBersih }),
       });
       const json = await res.json();
       if (!json.success) {
@@ -1235,7 +1253,14 @@ export default function KontrolAdrPage() {
                   pencet baru ketahuan saat teleskop pulang ke arah yang keliru. */}
               <Button
                 variant="outline"
-                onClick={() => setKonfirmasiSetHome(true)}
+                onClick={() => {
+                  // Kotak nama dikosongkan tiap modal dibuka. Nama home menimpa
+                  // titik acuan pulang teleskop, jadi membiarkan isian lama
+                  // tertinggal di sana mengundang penyimpanan atas nama yang
+                  // sebetulnya sisa percobaan sebelumnya.
+                  setNamaHome("");
+                  setKonfirmasiSetHome(true);
+                }}
                 disabled={setHomeStatus === "waiting" || !selectedSite || !isConnected}
                 title={
                   !selectedSite
@@ -2078,9 +2103,41 @@ export default function KontrolAdrPage() {
             <div className="px-6 pb-4 flex flex-col gap-3.5">
               <p className="text-[13px] leading-relaxed text-gray-600">
                 Arah teleskop <strong>saat ini</strong> akan disimpan sebagai posisi
-                home untuk <strong>{namaPos(selectedSite)}</strong>, menimpa posisi
-                home yang lama.
+                home untuk <strong>{namaPos(selectedSite)}</strong> dengan nama di
+                bawah, menimpa posisi home yang lama.
               </p>
+
+              {/* Nama home. Kunci `setHome` mengirim NAMA ini, bukan penanda
+                  aksi, jadi kotak ini bukan pelengkap — tanpa isian tidak ada
+                  perintah yang layak dikirim. Enter ikut mengirim supaya alur
+                  ketik-lalu-simpan tidak memaksa pindah ke mouse. */}
+              <div className="flex flex-col gap-1.5">
+                <label htmlFor="nama-home" className="text-[12px] font-semibold text-gray-700">
+                  Nama posisi home
+                </label>
+                <input
+                  id="nama-home"
+                  type="text"
+                  value={namaHome}
+                  onChange={(e) => setNamaHome(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" && namaHomeSah) handleSetHome();
+                  }}
+                  maxLength={20}
+                  autoFocus
+                  placeholder="mis. HOME-01"
+                  className="h-[38px] rounded-lg border border-gray-300 px-3 font-mono text-[13px] text-gray-900 placeholder:font-sans placeholder:text-gray-400 focus:border-[#E86A1F] focus:outline-none"
+                />
+                {/* Peringatan hanya muncul setelah ada yang diketik: kotak yang
+                    masih kosong saat modal baru terbuka bukan kesalahan operator. */}
+                {namaHomeBersih.length > 0 && /[,;]/.test(namaHomeBersih) && (
+                  <p className="text-[11.5px] leading-relaxed text-red-600">
+                    Koma dan titik koma tidak boleh dipakai — keduanya pemisah medan
+                    di balasan RTS, jadi nama yang memuatnya membuat balasannya tidak
+                    bisa dibaca.
+                  </p>
+                )}
+              </div>
 
               <div className="flex gap-2.5 rounded-lg bg-amber-50 px-3.5 py-3 text-[12.5px] leading-relaxed text-amber-900">
                 <AlertTriangle className="mt-[1px] h-4 w-4 flex-shrink-0" />
@@ -2092,10 +2149,11 @@ export default function KontrolAdrPage() {
               </div>
 
               <p className="text-[12px] leading-relaxed text-gray-500">
-                RTS akan membalas dengan sederet angka mentah. Angka itu
-                ditampilkan apa adanya karena formatnya tidak terdokumentasi —
-                kehadirannya menandakan perintah diterima, bukan bahwa arahnya
-                sudah benar.
+                RTS akan membalas dengan nama itu diikuti sederet angka mentah,
+                mis. <span className="font-mono">HOME,0,151,42,06,206,04,54;</span>
+                {" "}— ditampilkan apa adanya karena formatnya tidak
+                terdokumentasi. Kehadirannya menandakan perintah diterima, bukan
+                bahwa arahnya sudah benar.
               </p>
 
               {setHomeJawaban && (
@@ -2117,7 +2175,8 @@ export default function KontrolAdrPage() {
               </button>
               <button
                 onClick={handleSetHome}
-                className="h-[38px] px-7 rounded-lg text-[13px] font-semibold text-white bg-[#E86A1F] hover:bg-[#c55a18] transition-colors cursor-pointer"
+                disabled={!namaHomeSah}
+                className="h-[38px] px-7 rounded-lg text-[13px] font-semibold text-white bg-[#E86A1F] hover:bg-[#c55a18] transition-colors cursor-pointer disabled:cursor-not-allowed disabled:bg-gray-300"
               >
                 Simpan sebagai Home
               </button>
