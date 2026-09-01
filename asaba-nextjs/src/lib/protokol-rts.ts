@@ -99,3 +99,81 @@ export function klasifikasiTracking(nilai: string): KelasBalasan {
 
 /** Nilai `status` yang sah pada balasan {"value":"target"}. */
 export const STATUS_TARGET_SAH = ["search", "measure", "done", "failed"] as const;
+
+// ── Konfirmasi setelan (RTS Config) ──────────────────────────────────────────
+//
+// Balasan setelan berbeda bentuk dari semua balasan lain: DATAR di tingkat atas,
+// tidak dibungkus nama perintah.
+//
+//   {"updated":["jobName","prismConst","tsHigh","locCoor","stepRecord",
+//               "retries","cycleTime"],
+//    "set_rts":"OK",
+//    "jobName":"Demo Tambang MIP","prismConst":"30","tsHigh":"10",
+//    "locCoor":["401320.988","525952","62.559"]}
+//
+// `updated` menyebut TUJUH medan tapi hanya EMPAT yang di-echo. Untuk
+// stepRecord, retries, dan cycleTime satu-satunya bukti adalah namanya muncul di
+// `updated` — nilainya tidak bisa dicocokkan. Itu penting karena protokol
+// menyebut retries dan cycleTime di luar rentang TERSIMPAN tanpa penolakan lalu
+// diam-diam diganti bawaan saat alat menyala berikutnya.
+
+/** Medan yang nilainya ikut dikembalikan logger, jadi bisa dicocokkan. */
+export const MEDAN_CONFIG_TER_ECHO = ["jobName", "prismConst", "tsHigh", "locCoor"];
+
+export type KonfirmasiConfigRts = {
+  /** true = balasan setelan; false = pesan lain yang harus diabaikan. */
+  cocok: boolean;
+  ok: boolean;
+  updated: string[];
+  setRts: string;
+  /** Medan yang nilai echo-nya BERBEDA dari yang dikirim. */
+  beda: Array<{ medan: string; dikirim: string; diterima: string }>;
+};
+
+/** Normalkan nilai echo: array (locCoor) digabung koma, sisanya jadi string. */
+function normalkan(v: unknown): string {
+  if (Array.isArray(v)) return v.map(String).join(",");
+  return v === null || v === undefined ? "" : String(v);
+}
+
+/**
+ * Baca balasan konfirmasi setelan dan cocokkan dengan nilai yang dikirim.
+ *
+ * Pengenalannya lewat `updated` berupa ARRAY di tingkat atas — sengaja BUKAN
+ * lewat `set_rts`, karena string itu juga muncul sebagai nilai `command` di
+ * payload PERINTAH yang dikirim aplikasi sendiri. Memakainya sebagai penanda
+ * berisiko menganggap perintah sendiri sebagai balasan.
+ *
+ * `dikirim` memakai kunci protokol (jobName, prismConst, tsHigh, locCoor) dengan
+ * locCoor sudah berbentuk string dipisah koma.
+ */
+export function bacaKonfirmasiConfig(
+  data: unknown,
+  dikirim?: Record<string, string> | null
+): KonfirmasiConfigRts {
+  const kosong: KonfirmasiConfigRts = { cocok: false, ok: false, updated: [], setRts: "", beda: [] };
+  if (data === null || typeof data !== "object") return kosong;
+
+  const o = data as Record<string, unknown>;
+  if (!Array.isArray(o.updated)) return kosong;
+
+  const setRts = o.set_rts === undefined ? "" : String(o.set_rts);
+  const beda: KonfirmasiConfigRts["beda"] = [];
+
+  if (dikirim) {
+    for (const medan of MEDAN_CONFIG_TER_ECHO) {
+      if (o[medan] === undefined) continue;
+      const diterima = normalkan(o[medan]);
+      const asli = (dikirim[medan] ?? "").trim();
+      if (diterima.trim() !== asli) beda.push({ medan, dikirim: asli, diterima });
+    }
+  }
+
+  return {
+    cocok: true,
+    ok: setRts.toUpperCase() === "OK",
+    updated: (o.updated as unknown[]).map(String),
+    setRts,
+    beda,
+  };
+}

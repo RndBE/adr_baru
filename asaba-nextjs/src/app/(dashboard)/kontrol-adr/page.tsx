@@ -130,7 +130,7 @@ import { cn } from "@/lib/utils";
 import { RtsConnectionBadge } from "@/components/RtsConnectionBadge";
 import { useRtsConnectionStatus, useLogKontrol } from "@/hooks/use-api";
 import { useSites } from "@/hooks/use-sites";
-import { nilaiRts, nilaiRtsLama, klasifikasiPower, klasifikasiTracking } from "@/lib/protokol-rts";
+import { nilaiRts, nilaiRtsLama, klasifikasiPower, klasifikasiTracking, bacaKonfirmasiConfig } from "@/lib/protokol-rts";
 
 // --- Helper Date Formatter ---
 function fmtDate(d: string | Date | null) {
@@ -347,6 +347,42 @@ const BATAS_DIAM_POWER_MS = 45_000;
  * sebagai tidak merespons.
  */
 const BATAS_DIAM_TRACKING_MS = 90_000;
+
+// ── Konfirmasi RTS Config dari logger ────────────────────────────────────────
+//
+// Balasan setelan berbeda bentuk dari semua balasan lain: DATAR di tingkat atas,
+// tidak dibungkus nama perintah seperti {"PowerOn":{…}}.
+//
+//   {"updated":["jobName","prismConst","tsHigh","locCoor","stepRecord",
+//               "retries","cycleTime"],
+//    "set_rts":"OK",
+//    "jobName":"Demo Tambang MIP","prismConst":"30","tsHigh":"10",
+//    "locCoor":["401320.988","525952","62.559"]}
+//
+// Perhatikan: `updated` menyebut TUJUH medan, tapi yang di-echo balik hanya
+// EMPAT. Jadi untuk stepRecord, retries, dan cycleTime satu-satunya bukti hanya
+// namanya muncul di `updated` — nilainya tidak bisa dicocokkan. Itu penting
+// karena protokol menyebut retries dan cycleTime di luar rentang TERSIMPAN
+// tanpa penolakan lalu diam-diam diganti bawaan saat alat menyala berikutnya.
+const LABEL_MEDAN_CONFIG: Record<string, string> = {
+  jobName: "Job Name",
+  prismConst: "Prism Constant",
+  tsHigh: "TS High",
+  locCoor: "Koordinat RTS",
+  stepRecord: "Step Record",
+  retries: "Retries",
+  cycleTime: "Cycle Time",
+};
+
+type KonfirmasiConfig = {
+  status: "menunggu" | "ok" | "gagal";
+  /** Nama medan yang dinyatakan logger sudah diterapkan. */
+  updated?: string[];
+  /** Isi kunci `set_rts` pada balasan; "OK" berarti berhasil. */
+  setRts?: string;
+  /** Medan yang nilai echo-nya BERBEDA dari yang dikirim. */
+  beda?: Array<{ medan: string; dikirim: string; diterima: string }>;
+};
 
 type ProgresPower = {
   action: "on" | "off";
@@ -799,6 +835,24 @@ export default function KontrolAdrPage() {
             }
           }
 
+          // Konfirmasi RTS Config:
+          //   {"updated":[…],"set_rts":"OK","jobName":…,"locCoor":[…]}
+          //
+          // Dikenali dari `updated` berupa ARRAY di tingkat atas. Sengaja bukan
+          // dari `set_rts`, karena string itu juga muncul sebagai nilai
+          // `command` di payload PERINTAH yang kita kirim sendiri — memakai itu
+          // sebagai penanda berisiko menganggap perintah sendiri sebagai balasan.
+          const konfCfg = bacaKonfirmasiConfig(data, configTerkirimRef.current);
+          if (konfCfg.cocok) {
+            console.log("[KontrolADR] konfirmasi config:", konfCfg.setRts, konfCfg.updated, konfCfg.beda);
+            setKonfirmasiConfig({
+              status: konfCfg.ok ? "ok" : "gagal",
+              updated: konfCfg.updated,
+              setRts: konfCfg.setRts,
+              beda: konfCfg.beda.length ? konfCfg.beda : undefined,
+            });
+          }
+
           // {"setHome":{"setHome":",0,061,41,90,199,18,72;"}}
           //
           // Kunci dalamnya MENGULANG nama perintahnya, bukan `value` — bentuk
@@ -855,6 +909,31 @@ export default function KontrolAdrPage() {
   //  `site`, bukan id baris, jadi id-nya tidak perlu disimpan di klien.)
   const [configLoading, setConfigLoading] = useState(false);
   const [configSaving, setConfigSaving] = useState(false);
+  const [konfirmasiConfig, setKonfirmasiConfig] = useState<KonfirmasiConfig | null>(null);
+  /**
+   * Nilai yang BARU SAJA dikirim, disimpan di ref supaya bisa dibaca handler
+   * MQTT. Handler itu dipasang sekali dengan dependency [] sehingga ia menutup
+   * (closure) nilai render pertama — membaca `rtsConfig` dari sana akan selalu
+   * mendapat isi form yang basi, bukan yang barusan disimpan.
+   */
+  const configTerkirimRef = useRef<Record<string, string> | null>(null);
+
+  // Timeout konfirmasi RTS Config.
+  //
+  // 20 detik: menulis setelan tidak menggerakkan instrumen, jadi jauh lebih
+  // cepat dari operasi di tabel durasi protokol (terlama auto_search 30 detik).
+  // Pesannya membedakan dua hal yang sangat berbeda dan gampang tertukar —
+  // tersimpan di database vs sampai ke perangkat.
+  useEffect(() => {
+    if (konfirmasiConfig?.status !== "menunggu") return;
+    const timer = setTimeout(() => {
+      setKonfirmasiConfig({
+        status: "gagal",
+        setRts: "Tidak ada balasan dari logger dalam 20 detik. Setelan sudah tersimpan di aplikasi, tapi belum tentu sampai ke perangkat.",
+      });
+    }, 20_000);
+    return () => clearTimeout(timer);
+  }, [konfirmasiConfig]);
   const [rtsConfig, setRtsConfig] = useState<RtsConfig>({
     jobName: "",
     prismaConst: "",
@@ -978,6 +1057,9 @@ export default function KontrolAdrPage() {
   // Fetch config saat modal dibuka
   const openRtsConfig = async () => {
     setShowRtsConfig(true);
+    // Konfirmasi dari sesi simpan sebelumnya dibersihkan. Kalau dibiarkan,
+    // modal terbuka dengan centang hijau untuk setelan yang belum dikirim.
+    setKonfirmasiConfig(null);
     setConfigLoading(true);
     try {
       const res = await fetch(`/api/config-adr?site=${encodeURIComponent(selectedSite)}`);
@@ -1003,9 +1085,20 @@ export default function KontrolAdrPage() {
     }
   };
 
-  // Simpan config ke database
+  // Simpan config ke database + kirim ke logger
   const saveConfig = async () => {
     setConfigSaving(true);
+    setKonfirmasiConfig(null);
+    // Disimpan SEBELUM dikirim: ini yang nanti dicocokkan dengan echo dari
+    // logger. locCoor disusun [coor_x, coor_y, coor_z] mengikuti urutan yang
+    // dipakai server saat menyusun payload MQTT — perhatikan coor_x itu
+    // Northing dan coor_y Easting, penamaannya terbalik dari dugaan.
+    configTerkirimRef.current = {
+      jobName: String(rtsConfig.jobName ?? ""),
+      prismConst: String(rtsConfig.prismaConst ?? ""),
+      tsHigh: String(rtsConfig.tsHigh ?? ""),
+      locCoor: [rtsConfig.coordX, rtsConfig.coordY, rtsConfig.coordZ].map((v) => String(v ?? "")).join(","),
+    };
     try {
       const res = await fetch("/api/config-adr", {
         method: "PUT",
@@ -1025,10 +1118,16 @@ export default function KontrolAdrPage() {
       });
       const json = await res.json();
       if (json.success) {
-        setShowRtsConfig(false);
+        // Modal SENGAJA tidak ditutup di sini. Tersimpan di database bukan
+        // berarti sampai ke logger — dan itu justru yang ingin dilihat operator.
+        // Konfirmasinya datang lewat MQTT sebagai {"updated":[…],"set_rts":"OK"}.
+        setKonfirmasiConfig({ status: "menunggu" });
+      } else {
+        setKonfirmasiConfig({ status: "gagal", setRts: json.error || "Gagal menyimpan" });
       }
     } catch (err) {
       console.error("Failed to save config:", err);
+      setKonfirmasiConfig({ status: "gagal", setRts: "Terjadi kesalahan jaringan" });
     } finally {
       setConfigSaving(false);
     }
@@ -1921,6 +2020,64 @@ export default function KontrolAdrPage() {
               )}
             </div>
 
+            {/* Konfirmasi dari logger.
+                Dipisah dari status simpan-ke-database dengan sengaja: tersimpan
+                di aplikasi dan sampai ke perangkat adalah dua hal berbeda, dan
+                yang kedua itulah yang menentukan RTS benar-benar memakai setelan
+                baru. */}
+            {konfirmasiConfig && (
+              <div className="px-6 pb-1">
+                {konfirmasiConfig.status === "menunggu" && (
+                  <div className="flex items-center gap-2.5 rounded-lg bg-gray-50 px-3.5 py-3 text-[12.5px] text-gray-600">
+                    <Loader2 className="h-4 w-4 flex-shrink-0 animate-spin text-[#303481]" />
+                    Tersimpan di aplikasi. Menunggu logger mengonfirmasi…
+                  </div>
+                )}
+
+                {konfirmasiConfig.status === "ok" && (
+                  <div className="rounded-lg bg-emerald-50 px-3.5 py-3">
+                    <p className="flex items-center gap-2 text-[12.5px] font-bold text-emerald-800">
+                      <CheckCircle2 className="h-4 w-4 flex-shrink-0" />
+                      Logger menerima setelan ({konfirmasiConfig.setRts})
+                    </p>
+                    {konfirmasiConfig.updated?.length ? (
+                      <p className="mt-1 text-[11.5px] leading-relaxed text-emerald-900">
+                        Diterapkan:{" "}
+                        {konfirmasiConfig.updated
+                          .map((m) => LABEL_MEDAN_CONFIG[m] ?? m)
+                          .join(", ")}
+                      </p>
+                    ) : null}
+                  </div>
+                )}
+
+                {konfirmasiConfig.status === "gagal" && (
+                  <div className="flex gap-2.5 rounded-lg bg-amber-50 px-3.5 py-3 text-[12.5px] leading-relaxed text-amber-900">
+                    <AlertTriangle className="mt-[1px] h-4 w-4 flex-shrink-0" />
+                    <span>{konfirmasiConfig.setRts || "Logger tidak mengonfirmasi setelan."}</span>
+                  </div>
+                )}
+
+                {/* Nilai yang kembali BERBEDA dari yang dikirim. Ditampilkan
+                    terpisah dari status: logger bisa menjawab OK sambil
+                    menyimpan angka lain. */}
+                {konfirmasiConfig.beda?.length ? (
+                  <div className="mt-2 rounded-lg bg-red-50 px-3.5 py-3 text-[12px] leading-relaxed text-red-900">
+                    <p className="font-bold">Nilai yang dikembalikan logger berbeda:</p>
+                    <ul className="mt-1 space-y-0.5">
+                      {konfirmasiConfig.beda.map((b) => (
+                        <li key={b.medan} className="font-mono text-[11.5px]">
+                          {LABEL_MEDAN_CONFIG[b.medan] ?? b.medan}: dikirim{" "}
+                          <strong>{b.dikirim || "(kosong)"}</strong> → tersimpan{" "}
+                          <strong>{b.diterima || "(kosong)"}</strong>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                ) : null}
+              </div>
+            )}
+
             {/* Modal Footer */}
             <div className="px-6 py-4 border-t border-gray-100 flex justify-end gap-3">
               <Button
@@ -1928,14 +2085,16 @@ export default function KontrolAdrPage() {
                 onClick={() => setShowRtsConfig(false)}
                 className="h-[38px] px-5 text-[13px] font-medium border-gray-300 text-gray-700 hover:bg-gray-50 cursor-pointer"
               >
-                Batal
+                {konfirmasiConfig?.status === "ok" ? "Tutup" : "Batal"}
               </Button>
               <Button
                 onClick={saveConfig}
-                disabled={configSaving}
+                disabled={configSaving || konfirmasiConfig?.status === "menunggu"}
                 className="h-[38px] px-6 text-[13px] font-medium bg-[#303481] hover:bg-[#1f2259] text-white border-none cursor-pointer disabled:opacity-60"
               >
-                {configSaving ? <><Loader2 className="w-4 h-4 animate-spin mr-1.5" />Menyimpan...</> : "Simpan"}
+                {configSaving || konfirmasiConfig?.status === "menunggu"
+                  ? <><Loader2 className="w-4 h-4 animate-spin mr-1.5" />Menyimpan...</>
+                  : "Simpan"}
               </Button>
             </div>
           </div>

@@ -13,6 +13,7 @@ import {
   klasifikasiPower,
   klasifikasiTracking,
   STATUS_TARGET_SAH,
+  bacaKonfirmasiConfig,
 } from "../src/lib/protokol-rts";
 
 let lulus = 0;
@@ -128,6 +129,79 @@ for (const n of ["", "DONE", "selesai", "unknown"]) {
   periksa(`PowerOn "${n}" → kemajuan`, klasifikasiPower("on", n), "kemajuan");
   periksa(`Tracking "${n}" → kemajuan`, klasifikasiTracking(n), "kemajuan");
 }
+
+// ── Konfirmasi setelan (RTS Config) ────────────────────────────────────────
+// Payload persis dari broker, 1 September 2026.
+console.log("Konfirmasi RTS Config:");
+
+const BALASAN_CONFIG = {
+  updated: ["jobName", "prismConst", "tsHigh", "locCoor", "stepRecord", "retries", "cycleTime"],
+  set_rts: "OK",
+  jobName: "Demo Tambang MIP",
+  prismConst: "30",
+  tsHigh: "10",
+  locCoor: ["401320.988", "525952", "62.559"],
+};
+const DIKIRIM = {
+  jobName: "Demo Tambang MIP",
+  prismConst: "30",
+  tsHigh: "10",
+  locCoor: "401320.988,525952,62.559",
+};
+
+const k = bacaKonfirmasiConfig(BALASAN_CONFIG, DIKIRIM);
+periksa("dikenali sebagai balasan setelan", k.cocok, true);
+periksa("set_rts OK → ok", k.ok, true);
+periksa("tujuh medan terbaca di `updated`", k.updated.length, 7);
+periksa("locCoor (array) cocok, tidak dilaporkan beda", k.beda.length, 0);
+
+// Pesan lain di topic yang sama TIDAK boleh dikira balasan setelan.
+console.log("Pesan lain tidak salah tangkap:");
+periksa("balasan PowerOn", bacaKonfirmasiConfig({ PowerOn: { value: "done" } }, DIKIRIM).cocok, false);
+periksa("balasan AutoTracking", bacaKonfirmasiConfig({ AutoTracking: { value: "finished" } }, DIKIRIM).cocok, false);
+// Yang paling berbahaya: payload PERINTAH yang dikirim aplikasi sendiri juga
+// memuat string "set_rts" (sebagai nilai `command`). Kalau itu dipakai sebagai
+// penanda, perintah sendiri akan terbaca sebagai konfirmasi.
+periksa(
+  "payload perintah kita sendiri",
+  bacaKonfirmasiConfig({ set_30002: { command: "set_rts", jobName: "X" } }, DIKIRIM).cocok,
+  false
+);
+periksa("updated bukan array", bacaKonfirmasiConfig({ updated: "semua", set_rts: "OK" }, DIKIRIM).cocok, false);
+
+// ── Ketidakcocokan nilai harus tertangkap ──────────────────────────────────
+// Logger bisa menjawab OK sambil menyimpan angka yang berbeda.
+console.log("Nilai berbeda tertangkap:");
+const bedaPrism = bacaKonfirmasiConfig({ ...BALASAN_CONFIG, prismConst: "0" }, DIKIRIM);
+periksa("prismConst berbeda terdeteksi", bedaPrism.beda.length, 1);
+periksa("status tetap ok walau ada beda", bedaPrism.ok, true);
+periksa("beda memuat nilai kirim & terima", bedaPrism.beda[0], {
+  medan: "prismConst",
+  dikirim: "30",
+  diterima: "0",
+});
+const bedaCoor = bacaKonfirmasiConfig(
+  { ...BALASAN_CONFIG, locCoor: ["401320.988", "525952", "99.999"] },
+  DIKIRIM
+);
+periksa("locCoor berbeda terdeteksi", bedaCoor.beda.length, 1);
+
+// Medan yang TIDAK di-echo tidak boleh dilaporkan beda hanya karena absen.
+periksa(
+  "stepRecord/retries/cycleTime tidak dilaporkan beda",
+  bacaKonfirmasiConfig(BALASAN_CONFIG, { ...DIKIRIM, retries: "1", cycleTime: "10" }).beda.length,
+  0
+);
+
+// Tanpa data kiriman, pencocokan dilewati — bukan dianggap semua berbeda.
+periksa("tanpa data kiriman → beda kosong", bacaKonfirmasiConfig(BALASAN_CONFIG, null).beda.length, 0);
+periksa("tanpa data kiriman tetap dikenali", bacaKonfirmasiConfig(BALASAN_CONFIG, null).cocok, true);
+
+// set_rts selain OK berarti gagal, walau `updated` terisi.
+console.log("Status selain OK:");
+periksa("set_rts FAIL → tidak ok", bacaKonfirmasiConfig({ ...BALASAN_CONFIG, set_rts: "FAIL" }, DIKIRIM).ok, false);
+periksa("set_rts hilang → tidak ok", bacaKonfirmasiConfig({ updated: ["jobName"] }, DIKIRIM).ok, false);
+periksa("set_rts huruf kecil 'ok' → ok", bacaKonfirmasiConfig({ ...BALASAN_CONFIG, set_rts: "ok" }, DIKIRIM).ok, true);
 
 console.log(`\n${gagal === 0 ? "✅" : "❌"} ${lulus} lulus, ${gagal} gagal`);
 process.exit(gagal === 0 ? 0 : 1);
