@@ -74,7 +74,11 @@ export async function POST(request: NextRequest) {
         mqttPayload = {
           [`set_${id_logger}`]: {
             command: "set_rts",
-            turning_target: slot_id,
+            // NOMOR SLOT (1–50), bukan id database — sudah benar di sini, tapi
+            // /api/kontrol/go-to-target sempat mengirim primary key t_prisma
+            // untuk perintah yang sama. Protokolnya (Bagian C.1) menetapkan
+            // tipenya int, jadi dikoersi supaya tidak lolos sebagai string.
+            turning_target: Number(slot_id),
           },
         };
         break;

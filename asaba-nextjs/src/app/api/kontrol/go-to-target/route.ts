@@ -10,7 +10,16 @@ import { getLoggerForCommand } from "@/lib/sites";
  * Body: { slot_id: number, site?: string }
  *
  * Payload MQTT:
- * {"set_XXXXX": {"command":"set_rts","turning_target":"<id dari t_prisma>"}}
+ * {"set_XXXXX": {"command":"set_rts","turning_target":<nomor slot 1-50>}}
+ *
+ * `turning_target` adalah NOMOR SLOT, bukan primary key t_prisma. Instrumen
+ * hanya mengenal slot 1–50 yang diisi lewat recordTarget:
+ *
+ *   {"recordTarget":{"slot":1,"name":"P1", …}}   ← disimpan di slot 1
+ *   {"turning_target":1}                          ← putar ke slot 1
+ *
+ * Id database tidak pernah dikirim ke perangkat dan tidak berarti apa-apa
+ * baginya.
  */
 export async function POST(request: NextRequest) {
   try {
@@ -20,6 +29,18 @@ export async function POST(request: NextRequest) {
     if (!slot_id) {
       return NextResponse.json(
         { success: false, error: "slot_id wajib diisi" },
+        { status: 400 }
+      );
+    }
+
+    // Nomor slot divalidasi SEBELUM menyentuh database: instrumen hanya punya
+    // slot 1–50, jadi nilai di luar itu tidak akan pernah sah berapa pun isi
+    // tabelnya. Kalau diperiksa belakangan, slot 51 keburu kena 404 "tidak
+    // ditemukan" yang menyesatkan — seolah tinggal didaftarkan.
+    const nomorSlot = Number(slot_id);
+    if (!Number.isInteger(nomorSlot) || nomorSlot < 1 || nomorSlot > 50) {
+      return NextResponse.json(
+        { success: false, error: "slot_id harus bilangan bulat 1–50" },
         { status: 400 }
       );
     }
@@ -46,6 +67,9 @@ export async function POST(request: NextRequest) {
     // menunjuk target fisik berbeda (di data ini ccp/"A" dan viewpoint/"TS_1",
     // berjarak ~1,5 km), lalu LIMIT 1 memilih salah satu tanpa urutan pasti.
     // Kirim `site` untuk memastikan teleskop diputar ke target yang benar.
+    // Query ini SEMATA-MATA penjaga keberadaan: memastikan slotnya memang
+    // terdaftar untuk site itu sebelum menyuruh teleskop berputar. Nilai `id`
+    // yang dikembalikannya TIDAK dipakai sebagai target.
     const prismaRows = site
       ? await prisma.$queryRaw<Array<{ id: number }>>`
           SELECT id FROM t_prisma WHERE id_prisma = ${id_prisma} AND site = ${site} LIMIT 1
@@ -53,14 +77,21 @@ export async function POST(request: NextRequest) {
       : await prisma.$queryRaw<Array<{ id: number }>>`
           SELECT id FROM t_prisma WHERE id_prisma = ${id_prisma} AND id_logger = ${id_logger} LIMIT 1
         `;
-    const prismaId = prismaRows?.[0]?.id;
-    if (prismaId === undefined || prismaId === null) {
+    if (!prismaRows?.length) {
       return NextResponse.json(
         { success: false, error: `Prisma ${id_prisma} tidak ditemukan` },
         { status: 404 }
       );
     }
 
+    // Nomor slot, bukan id database.
+    //
+    // Kode lama mengirim `t_prisma.id` — primary key yang tidak pernah diketahui
+    // instrumen. Kebetulan lolos di site ccp karena di sana P1 dan P2 memang
+    // ber-id 1 dan 2, tapi P3 sudah ber-id 35, dan di viewpoint P1 ber-id 42.
+    // Jadi teleskop diputar ke slot yang salah — atau ke slot kosong — untuk
+    // hampir semua target di luar dua slot pertama site ccp.
+    //
     // Kirim MQTT
     const topicTarget = process.env.MQTT_TOPIC || "ADR_Tambang_Kaltara";
     const payload = {
@@ -70,14 +101,14 @@ export async function POST(request: NextRequest) {
         // mendefinisikan turning_target bertipe int; keringanan "nilai kunci
         // tidak diperiksa" hanya berlaku untuk perintah aksi yang nilainya
         // memang diabaikan, sedangkan di sini nilainya adalah targetnya.
-        turning_target: Number(prismaId),
+        turning_target: nomorSlot,
       },
     };
     const mqttSent = await publishMqtt(topicTarget, payload);
 
     return NextResponse.json({
       success: true,
-      data: { turning_target: prismaId, mqtt_sent: mqttSent },
+      data: { turning_target: nomorSlot, mqtt_sent: mqttSent },
     });
   } catch (error) {
     console.error("[POST /api/kontrol/go-to-target]", error);
