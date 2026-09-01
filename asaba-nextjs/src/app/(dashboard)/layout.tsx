@@ -43,8 +43,15 @@ export default function DashboardLayout({
    * Halaman yang mengatur gutter-nya sendiri. Kalau layout ikut memberi padding,
    * hasilnya dua lapis (24px + 24px) dan konten terlihat mengambang di dalam
    * bingkai — bukan itu yang diinginkan untuk halaman selebar tabel.
+   *
+   * Tiga halaman terakhir sebelumnya membatalkan gutter layout dengan margin
+   * negatif `-m-4 md:-m-6` di wrapper-nya sendiri. Cara itu BOCOR: anaknya jadi
+   * 48px lebih lebar dari <main> (24px menjorok ke kiri, 24px meluber ke kanan),
+   * sehingga seluruh isi halaman meleset dari kolom kontennya dan <main>
+   * memunculkan overflow horizontal. Paling kentara di layar 1366.
    */
-  const fullBleed = pathname.startsWith("/master-data");
+  const RUTE_FULL_BLEED = ["/master-data", "/kontrol-adr", "/beranda", "/power-rts"];
+  const fullBleed = RUTE_FULL_BLEED.some((r) => pathname.startsWith(r));
 
   return (
     <SidebarProvider>

@@ -189,7 +189,8 @@ export default function PowerRtsPage() {
   const yDomain = [-3, 1];
 
   return (
-    <div className="-m-4 md:-m-6 bg-[#F4F6F9] min-h-[calc(100vh-3.5rem)] flex flex-col">
+    // Gutter layout dilepas lewat RUTE_FULL_BLEED di (dashboard)/layout.tsx.
+    <div className="bg-[#F4F6F9] min-h-[calc(100vh-3.5rem)] flex flex-col">
       {/* Breadcrumb */}
       <div className="px-6 pt-4 pb-2">
         <p className="text-sm text-gray-500">

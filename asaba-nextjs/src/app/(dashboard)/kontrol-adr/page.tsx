@@ -1184,7 +1184,10 @@ export default function KontrolAdrPage() {
       {powerAlert && (
         <PowerAlertToast alert={powerAlert} onClose={() => setPowerAlert(null)} />
       )}
-      <div className="-m-4 md:-m-6 bg-[#F4F6F9] min-h-[calc(100vh-3.5rem)] flex flex-col p-4 md:p-6 gap-7">
+      {/* Gutter layout dilepas lewat daftar RUTE_FULL_BLEED di (dashboard)/layout.tsx,
+          bukan dibatalkan dengan margin negatif seperti sebelumnya — margin negatif
+          membuat wrapper ini 48px lebih lebar dari <main> dan memicu overflow. */}
+      <div className="bg-[#F4F6F9] min-h-[calc(100vh-3.5rem)] flex flex-col p-4 md:p-6 gap-7">
 
         {/* Header Section */}
         <div>
@@ -1591,7 +1594,21 @@ export default function KontrolAdrPage() {
           <div className="flex flex-col gap-4 w-full">
             
             {/* 5 Status Cards */}
-            <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-5 gap-5">
+            {/* Jumlah kolom dihitung grid, bukan ditentukan breakpoint layar.
+                165px adalah lebar alami kartu terlebar ("Status RTS:
+                Disconnected"); auto-fit memasang sebanyak yang muat.
+
+                Sebelumnya `xl:grid-cols-5`, dan itu justru menyala tepat saat
+                ruang menyempit: di `xl` layout induknya berubah jadi dua kolom
+                (xl:grid-cols-[360px_1fr]), sehingga kolom kanan turun ke ~672px
+                di layar 1366. Lima kartu di sana tinggal ~116px — nilainya
+                terpotong di tengah kata.
+
+                Breakpoint viewport memang alat yang salah di sini: lebar yang
+                tersedia bukan fungsi dari lebar layar saja. Sidebar yang
+                diciutkan menambah ~200px tanpa mengubah lebar layar sedikit pun,
+                dan aturan berbasis viewport buta terhadap itu. */}
+            <div className="grid grid-cols-2 md:grid-cols-[repeat(auto-fit,minmax(165px,1fr))] gap-5">
               {TOP_METRICS.map((metric, i) => {
                 let finalValue = metric.value;
                 let valueColor = "#0f172a";
@@ -1654,9 +1671,15 @@ export default function KontrolAdrPage() {
                         />
                       )}
                     </div>
-                    <div className="flex flex-col justify-center">
+                    {/* `min-w-0` wajib: tanpa itu blok teks ini menolak menyusut
+                        di bawah lebar isinya — aturan flex memberi item lebar
+                        minimum sebesar kontennya — sehingga kartu yang sempit
+                        MELUBER dan nilainya terpotong, bukan membungkus.
+                        `break-words` jadi jaring terakhir untuk nilai panjang
+                        tanpa spasi, yang tidak punya tempat untuk patah. */}
+                    <div className="flex flex-col justify-center min-w-0">
                       <p className="text-[12px] text-gray-500 font-medium leading-none mb-1.5">{metric.title}:</p>
-                      <p className="text-[13.5px] font-bold leading-tight" style={{ color: valueColor }}>{finalValue}</p>
+                      <p className="text-[13.5px] font-bold leading-tight break-words" style={{ color: valueColor }}>{finalValue}</p>
                     </div>
                   </div>
                 );

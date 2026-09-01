@@ -804,7 +804,8 @@ function BerandaContent() {
     rtsLoggers.find((l) => l.id_logger === activeSite?.id_logger) ?? rtsLoggers[0];
 
   return (
-    <div className="-m-4 md:-m-6 bg-[#F4F6F9] min-h-[calc(100vh-3.5rem)] p-3 sm:p-4 md:p-6 space-y-3 md:space-y-6">
+    // Gutter layout dilepas lewat RUTE_FULL_BLEED di (dashboard)/layout.tsx.
+    <div className="bg-[#F4F6F9] min-h-[calc(100vh-3.5rem)] p-3 sm:p-4 md:p-6 space-y-3 md:space-y-6">
 
       {isLoading ? (
         <div className="space-y-6">
