@@ -23,7 +23,8 @@ import {
   validasiJog,
   SEBAB_TOLAK_JOG,
   LANGKAH_JOG,
-  MAKS_JOG_DETIK,
+  MAKS_JOG_DERAJAT,
+  RESOLUSI_JOG_DERAJAT,
   PENANDA_HAVA_GAGAL,
   bacaBalasanUkur,
   JENIS_UKUR,
@@ -291,14 +292,26 @@ for (const t of ["start", "check", "read", "rotate"]) {
 }
 periksa('"done" → selesai', bacaBalasanJog({ value: "done" }).jenis, "selesai");
 
+// Contoh utuh dari dokumen revisi 3. Perhatikan DUA SATUAN dalam satu balasan:
+// `dari_*` desimal derajat (angka mentah instrumen), `ke_*` DMS (mengikuti
+// bentuk perintah rotasi). Keduanya dibiarkan sebagai string — kalau suatu
+// saat ada yang mem-parse "151.3871" dan "151,53,14" dengan cara yang sama,
+// asersi ini yang menangkapnya.
 const JOG_TARGET = {
   value: "target",
-  dari_HA: "151,38,11", dari_VA: "206,04,02",
-  ke_HA: "151,38,41", ke_VA: "206,03,47",
+  dari_HA: "151.3871", dari_VA: "206.0462",
+  ke_HA: "151,53,14", ke_VA: "206,02,10",
 };
 periksa('"target" → target', bacaBalasanJog(JOG_TARGET).jenis, "target");
-periksa("titik awal terbaca", bacaBalasanJog(JOG_TARGET).dariHA, "151,38,11");
-periksa("titik tujuan terbaca", bacaBalasanJog(JOG_TARGET).keVA, "206,03,47");
+periksa("titik awal desimal, apa adanya", bacaBalasanJog(JOG_TARGET).dariHA, "151.3871");
+periksa("titik tujuan DMS, apa adanya", bacaBalasanJog(JOG_TARGET).keVA, "206,02,10");
+// `start` kini membawa selisih yang diminta. Tidak dibaca, tapi tidak boleh
+// membuatnya berhenti terbaca sebagai tahap.
+periksa(
+  '"start" bermedan ha/va tetap tahap',
+  bacaBalasanJog({ value: "start", ha: 0.5, va: -0.01 }).jenis,
+  "tahap"
+);
 
 for (const t of ["RTS Off", "read failed", "bad base", "failed"]) {
   periksa(`"${t}" → ditolak`, bacaBalasanJog({ value: t }).jenis, "ditolak");
@@ -318,6 +331,12 @@ console.log("ManualHAVA:");
 const HAVA_OK = bacaManualHaVa({ HA: "151,38,71", VA: "206,04,62" });
 periksa("bacaan normal terbaca", HAVA_OK.ada, true);
 periksa("bacaan normal bukan gagal", HAVA_OK.gagal, false);
+// Detik "71" bukan salah ketik dokumen. Instrumen mengirim desimal derajat
+// ("151.3871"), lalu `parseAndFormat()` di firmware memotongnya seolah menit
+// dan detik. Jadi bentuknya MIRIP DMS tapi nilainya 151,3871 derajat.
+// Dibiarkan apa adanya: begitu firmware diperbaiki, string yang sama berubah
+// makna menjadi DMS sungguhan, dan konversi yang dipasang sekarang akan
+// diam-diam menjadi salah tepat saat firmware membaik.
 periksa("nilai apa adanya, tidak ditafsirkan", HAVA_OK.HA, "151,38,71");
 const HAVA_GAGAL = bacaManualHaVa({ HA: PENANDA_HAVA_GAGAL, VA: PENANDA_HAVA_GAGAL });
 periksa("000,00,00 pada keduanya → gagal", HAVA_GAGAL.gagal, true);
@@ -340,25 +359,55 @@ const deltaJog = (arah: string, n: number) =>
   : arah === "kanan" ? { ha: n, va: 0 }
   : arah === "atas" ? { ha: 0, va: -n }
   : { ha: 0, va: n };
-periksa("atas → va negatif (mendongak)", deltaJog("atas", 60).va < 0, true);
-periksa("bawah → va positif (menunduk)", deltaJog("bawah", 60).va > 0, true);
-periksa("kiri → ha negatif", deltaJog("kiri", 60).ha < 0, true);
-periksa("kanan → ha positif", deltaJog("kanan", 60).ha > 0, true);
-periksa("atas/bawah tidak menyentuh ha", deltaJog("atas", 60).ha, 0);
-periksa("kiri/kanan tidak menyentuh va", deltaJog("kiri", 60).va, 0);
+periksa("atas → va negatif (mendongak)", deltaJog("atas", 1).va < 0, true);
+periksa("bawah → va positif (menunduk)", deltaJog("bawah", 1).va > 0, true);
+periksa("kiri → ha negatif", deltaJog("kiri", 1).ha < 0, true);
+periksa("kanan → ha positif", deltaJog("kanan", 1).ha > 0, true);
+periksa("atas/bawah tidak menyentuh ha", deltaJog("atas", 1).ha, 0);
+periksa("kiri/kanan tidak menyentuh va", deltaJog("kiri", 1).va, 0);
 
 // ── Validasi jog ───────────────────────────────────────────────────────────
+//
+// SATUANNYA DERAJAT DESIMAL sejak revisi 3, sebelumnya detik busur. Selisihnya
+// 3600× dan tidak memunculkan galat apa pun kalau tertukar — instrumen tetap
+// bergerak, hanya ke tempat yang sama sekali lain. Asersi di bawah menahan
+// dua arah kesalahan: pecahan HARUS diterima, dan angka sebesar bekas nilai
+// detik busur HARUS ditolak.
 console.log("Validasi jog:");
-periksa("geser normal sah", validasiJog(30, -15), null);
+periksa("geser normal sah", validasiJog(0.5, -0.01), null);
 periksa("nol-nol ditolak", validasiJog(0, 0) !== null, true);
-periksa("pecahan ditolak", validasiJog(1.5, 0) !== null, true);
-periksa("melebihi batas ditolak", validasiJog(MAKS_JOG_DETIK + 1, 0) !== null, true);
-periksa("tepat di batas sah", validasiJog(MAKS_JOG_DETIK, 0), null);
-periksa("batas berlaku juga untuk negatif", validasiJog(-MAKS_JOG_DETIK - 1, 0) !== null, true);
+periksa("pecahan DITERIMA", validasiJog(1.5, 0), null);
+periksa("satu detik busur diterima", validasiJog(RESOLUSI_JOG_DERAJAT, 0), null);
+periksa("bukan angka ditolak", validasiJog("kiri", 0) !== null, true);
+
+// Di bawah satu detik busur instrumen tidak bergerak sama sekali, tanpa galat
+// dan tanpa balasan yang berbeda. Ditolak supaya diamnya punya sebab.
+periksa("di bawah resolusi ditolak", validasiJog(0.0001, 0) !== null, true);
+periksa(
+  "pesannya menyebut pembulatan, bukan 'tidak ada geseran'",
+  (validasiJog(0.0001, 0) ?? "").includes("dibulatkan"),
+  true
+);
+// Satu sumbu di bawah resolusi itu WAJAR — tombol arah selalu mengirim 0 di
+// sumbu yang tidak digeser. Yang ditolak hanya kalau KEDUANYA di bawah.
+periksa("satu sumbu nol tetap sah", validasiJog(1, 0), null);
+
+periksa("melebihi batas ditolak", validasiJog(MAKS_JOG_DERAJAT + 1, 0) !== null, true);
+periksa("tepat di batas sah", validasiJog(MAKS_JOG_DERAJAT, 0), null);
+periksa("batas berlaku juga untuk negatif", validasiJog(-MAKS_JOG_DERAJAT - 1, 0) !== null, true);
+// Nilai gaya revisi 2 harus ditolak, bukan diteruskan diam-diam: 3600 yang
+// dimaksudkan satu derajat kini berarti sepuluh putaran penuh.
+periksa("3600 gaya lama ditolak", validasiJog(3600, 0) !== null, true);
+
 // Preset harus semuanya lolos validasi — kalau tidak, tombolnya mengirim
 // sesuatu yang pasti ditolak route.
 for (const l of LANGKAH_JOG) {
-  periksa(`preset ${l.label} lolos validasi`, validasiJog(l.detik, 0), null);
+  periksa(`preset ${l.label} lolos validasi`, validasiJog(l.derajat, 0), null);
+}
+// Preset terhalus tidak boleh jatuh di bawah resolusi instrumen — kalau ada
+// yang mengecilkannya lagi, tombolnya akan terlihat mati tanpa sebab.
+for (const l of LANGKAH_JOG) {
+  periksa(`preset ${l.label} di atas resolusi`, l.derajat >= RESOLUSI_JOG_DERAJAT, true);
 }
 
 // ── measure_bs / measure_fs (Bagian C.2) ───────────────────────────────────

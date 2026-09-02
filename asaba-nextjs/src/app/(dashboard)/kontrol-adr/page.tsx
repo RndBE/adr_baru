@@ -514,7 +514,7 @@ export default function KontrolAdrPage() {
   // formatnya tidak terdokumentasi, jadi ditampilkan tanpa ditafsirkan.
   // ── Remote kontrol arah (jog) ──
   const [showJog, setShowJog] = useState(false);
-  const [langkahJog, setLangkahJog] = useState(LANGKAH_JOG[1].detik); // 1' sebagai awal
+  const [langkahJog, setLangkahJog] = useState(LANGKAH_JOG[1].derajat); // 1' sebagai awal
   const [jogStatus, setJogStatus] = useState<"idle" | "waiting" | "done" | "gagal">("idle");
   const [jogPesan, setJogPesan] = useState("");
   const [jogTarget, setJogTarget] = useState<BalasanJog | null>(null);
@@ -2658,12 +2658,12 @@ export default function KontrolAdrPage() {
                 <div className="grid grid-cols-4 gap-2">
                   {LANGKAH_JOG.map((l) => (
                     <button
-                      key={l.detik}
-                      onClick={() => setLangkahJog(l.detik)}
-                      title={`${l.detik} detik busur — ${l.keterangan}`}
+                      key={l.label}
+                      onClick={() => setLangkahJog(l.derajat)}
+                      title={`${l.keterangan} — dikirim sebagai ${String(l.derajat).replace(".", ",")}°`}
                       className={cn(
                         "h-[36px] rounded-md border text-[12.5px] font-bold transition-colors cursor-pointer",
-                        langkahJog === l.detik
+                        langkahJog === l.derajat
                           ? "border-[#303481] bg-[#303481] text-white"
                           : "border-gray-300 text-gray-600 hover:bg-gray-50"
                       )}
@@ -2695,7 +2695,7 @@ export default function KontrolAdrPage() {
                       <div className="flex items-center gap-2">
                         <Tombol arah="kiri"><ChevronLeft className="h-5 w-5" /></Tombol>
                         <div className="flex h-[46px] w-[46px] items-center justify-center rounded-lg bg-gray-100 text-[11px] font-bold text-gray-500">
-                          {sibuk ? <Loader2 className="h-4 w-4 animate-spin" /> : LANGKAH_JOG.find((l) => l.detik === langkahJog)?.label}
+                          {sibuk ? <Loader2 className="h-4 w-4 animate-spin" /> : LANGKAH_JOG.find((l) => l.derajat === langkahJog)?.label}
                         </div>
                         <Tombol arah="kanan"><ChevronRight className="h-5 w-5" /></Tombol>
                       </div>
@@ -2706,10 +2706,16 @@ export default function KontrolAdrPage() {
               </div>
 
               {/* VA adalah sudut zenit, bukan elevasi. Disebut supaya operator
-                  tahu kenapa angkanya mengecil saat mendongak. */}
+                  tahu kenapa angkanya mengecil saat mendongak.
+
+                  Batas ZA 30°–150° tidak dijaga aplikasi maupun firmware —
+                  di luar itu instrumen menolak DIAM-DIAM, dan satu-satunya
+                  jejaknya adalah `Rotate` gagal dengan alasan `no_response`
+                  setelah menunggu. Disebutkan supaya kegagalan itu tidak
+                  terbaca sebagai alat rusak. */}
               <p className="text-center text-[11px] leading-relaxed text-gray-400">
                 Atas/bawah mengubah VA (sudut zenit — mendongak membuat angkanya mengecil),
-                kiri/kanan mengubah HA.
+                kiri/kanan mengubah HA. Teropong hanya bisa dipakai sekitar VA 30°–150°.
               </p>
 
               {/* Titik awal → tujuan dari balasan `target` */}
@@ -2725,9 +2731,18 @@ export default function KontrolAdrPage() {
                     </>
                   ) : (
                     <>
+                      {/* Dua satuan berbeda dalam satu balasan: `dari_*`
+                          desimal derajat, `ke_*` DMS. Diberi label karena
+                          tanpa itu bentuknya terlihat seperti data rusak. */}
                       <p className="font-bold">Perpindahan</p>
-                      <p className="mt-0.5 font-mono">dari HA {jogTarget.dariHA} · VA {jogTarget.dariVA}</p>
-                      <p className="font-mono">ke&nbsp;&nbsp; HA {jogTarget.keHA} · VA {jogTarget.keVA}</p>
+                      <p className="mt-0.5 font-mono">
+                        dari HA {jogTarget.dariHA} · VA {jogTarget.dariVA}
+                        <span className="ml-1.5 font-sans text-[10.5px] text-gray-400">desimal</span>
+                      </p>
+                      <p className="font-mono">
+                        ke&nbsp;&nbsp; HA {jogTarget.keHA} · VA {jogTarget.keVA}
+                        <span className="ml-1.5 font-sans text-[10.5px] text-gray-400">d,m,d</span>
+                      </p>
                     </>
                   )}
                 </div>

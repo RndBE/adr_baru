@@ -179,21 +179,37 @@ export function klasifikasiTurningTarget(paket: unknown): KelasBalasan | "bukan"
 
 // ── jog: geser relatif (Bagian C.5) ──────────────────────────────────────────
 //
-//   {"set_30002":{"command":"set_rts","jog":{"ha":30,"va":-15}}}
+//   {"set_30002":{"command":"set_rts","jog":{"ha":0.5,"va":-0.01}}}
 //
-// Satuan selisih DETIK BUSUR. 60 = satu menit busur, 3600 = satu derajat.
+// Satuan selisih DERAJAT DESIMAL, dan pecahan diterima. Menit ÷ 60, detik
+// ÷ 3600.
+//
+//   SATUANNYA BERUBAH DI REVISI 3. Revisi 2 memakai DETIK BUSUR — satu derajat
+//   dikirim sebagai 3600. Selisihnya 3600×, dan salah pilih TIDAK memunculkan
+//   galat: instrumen tetap bergerak, hanya ke tempat yang sama sekali lain.
+//   Nilai 3600 yang dimaksudkan satu derajat menjadi sepuluh putaran penuh.
+//
+//   Jangan "memperbaiki" ini kembali ke detik busur tanpa mengecek revisi
+//   dokumen lebih dulu.
 //
 // Instrumen tidak punya perintah gerak relatif; logger mengerjakannya dalam
 // tiga langkah — baca sudut sekarang, tambahkan selisih, putar ke hasilnya:
 //
-//   {"Jog":{"value":"start","ha":30,"va":-15}}
+//   {"Jog":{"value":"start","ha":0.5,"va":-0.01}}
 //   {"Jog":{"value":"check"}}
 //   {"Jog":{"value":"read"}}
-//   {"Jog":{"value":"target","dari_HA":…,"dari_VA":…,"ke_HA":…,"ke_VA":…}}
+//   {"Jog":{"value":"target","dari_HA":"151.3871","dari_VA":"206.0462",
+//                            "ke_HA":"151,53,14","ke_VA":"206,02,10"}}
 //   {"Jog":{"value":"rotate"}}
 //   {"Jog":{"value":"done"}}
 //
 // Penolakan: "RTS Off", "read failed", "bad base" (+ HA/VA), "failed".
+//
+// PERHATIKAN dua satuan berbeda di dalam SATU balasan `target`:
+// `dari_*` DERAJAT DESIMAL — angka mentah instrumen, apa adanya;
+// `ke_*`   DMS `derajat,menit,detik` — mengikuti bentuk perintah rotasi.
+// Keduanya sengaja dikirim supaya bisa dicocokkan dengan layar instrumen.
+// Dibiarkan sebagai string dan tidak ditafsirkan di sini.
 
 export type JenisBalasanJog = "tahap" | "target" | "selesai" | "ditolak" | "bukan";
 
@@ -255,9 +271,20 @@ export const SEBAB_TOLAK_JOG: Record<string, string> = {
 //
 // Membaca langsung dari instrumen, timeout 5 detik. Kalau instrumen tidak
 // menjawab, KEDUANYA menjadi "000,00,00" — itu penanda gagal, bukan sudut
-// sungguhan. Nilainya TIDAK ditafsirkan ke desimal: dokumen memakai bentuk
-// `derajat,menit,detik` tapi contohnya sendiri memuat detik ≥ 60, jadi
-// pembagiannya tidak bisa dipastikan. Ditampilkan apa adanya.
+// sungguhan.
+//
+// Nilainya TIDAK ditafsirkan, dan detik ≥ 60 di contoh itu bukan salah ketik.
+// Revisi 3 menjelaskan sebabnya: instrumen mengirim desimal derajat
+// ("151.3871"), lalu `parseAndFormat()` di firmware memotong string itu seolah
+// menit dan detik — menghasilkan "151,38,71". Jadi bentuknya MIRIP DMS tapi
+// bukan DMS; angka itu sebenarnya 151,3871 derajat.
+//
+// Tetap ditampilkan apa adanya, tidak dikonversi. Dokumen menyebut ini bug
+// yang akan diperbaiki, dan begitu `parseAndFormat()` benar, string yang sama
+// akan berubah makna menjadi DMS sungguhan — konversi yang dipasang sekarang
+// akan diam-diam menjadi salah tepat saat firmware membaik. Jog tidak kena
+// karena membaca angka mentahnya sendiri, sehingga jog dan `turning_target` ke
+// titik yang sama bisa berbeda sekitar setengah derajat.
 
 export const PENANDA_HAVA_GAGAL = "000,00,00";
 
@@ -276,15 +303,30 @@ export function bacaManualHaVa(paket: unknown): BacaanHaVa {
 
 // ── Langkah jog ──────────────────────────────────────────────────────────────
 //
-// Satuan detik busur. Disediakan sebagai preset supaya operator tidak perlu
-// menghitung sendiri — 3600 detik busur itu satu derajat, angka yang tidak
-// intuitif kalau diketik manual.
+// Satuan DERAJAT DESIMAL. Disediakan sebagai preset supaya operator tidak
+// perlu menghitung sendiri — geseran halus jatuh di angka seperti 0,00278 yang
+// mustahil diketik benar berulang kali.
+//
+// Nilainya memakai pembulatan yang sama dengan tabel dokumen, bukan pecahan
+// penuh: dikirim sebagai JSON, dan `10/3600` menjadi 0.002777777777777778 yang
+// panjangnya tidak berguna. Firmware membulatkan ke DMS bulat, jadi 0,00278
+// dan 10/3600 sama-sama mendarat di 10 detik busur.
 export const LANGKAH_JOG = [
-  { label: '10"', detik: 10, keterangan: "sangat halus" },
-  { label: "1'", detik: 60, keterangan: "halus" },
-  { label: "10'", detik: 600, keterangan: "sedang" },
-  { label: "1°", detik: 3600, keterangan: "kasar" },
+  { label: '10"', derajat: 0.00278, keterangan: "sangat halus" },
+  { label: "1'", derajat: 0.01667, keterangan: "halus" },
+  { label: "10'", derajat: 0.16667, keterangan: "sedang" },
+  { label: "1°", derajat: 1, keterangan: "kasar" },
 ];
+
+/**
+ * Kehalusan terkecil yang masih menggerakkan instrumen: satu detik busur.
+ *
+ * Perintah rotasi disusun dalam DMS bulat, jadi selisih di bawah ini
+ * dibulatkan hilang dan instrumen TIDAK BERGERAK SAMA SEKALI — tanpa galat,
+ * tanpa balasan yang berbeda. Ditolak di sini supaya diam itu punya sebab yang
+ * bisa dibaca operator.
+ */
+export const RESOLUSI_JOG_DERAJAT = 1 / 3600;
 
 /**
  * Batas satu kali geser.
@@ -292,18 +334,31 @@ export const LANGKAH_JOG = [
  * TIDAK ada di protokol — dipilih sendiri sebagai pagar salah ketik. Jog
  * dimaksudkan untuk koreksi kecil; 10° sudah jauh lebih besar dari preset
  * terkasar, dan geseran raksasa akibat typo hanya membuang waktu memutar balik.
+ *
+ * Bukan pengganti batas sumbu vertikal. Teropong hanya bisa dipakai kira-kira
+ * di ZA 30°–150°, firmware TIDAK memeriksanya, dan di luar itu instrumen
+ * menolak diam-diam lalu berakhir sebagai `{"Rotate":{"value":"failed",
+ * "reason":"no_response"}}`. Batas itu bergantung pada sudut instrumen saat
+ * ini, yang tidak diketahui route — jadi tidak dijaga di sini.
  */
-export const MAKS_JOG_DETIK = 36000;
+export const MAKS_JOG_DERAJAT = 10;
 
 export function validasiJog(ha: unknown, va: unknown): string | null {
   const a = Number(ha);
   const b = Number(va);
-  if (!Number.isInteger(a) || !Number.isInteger(b)) {
-    return "Nilai geser harus bilangan bulat (detik busur)";
+  // Pecahan justru bentuk yang lazim sekarang — yang ditolak hanya yang bukan
+  // angka. `Number("")` menghasilkan 0, jadi string kosong lolos ke pengecekan
+  // "tidak ada geseran" di bawah, bukan lolos diam-diam sebagai perintah.
+  if (!Number.isFinite(a) || !Number.isFinite(b)) {
+    return "Nilai geser harus berupa angka (derajat desimal)";
   }
-  if (a === 0 && b === 0) return "Tidak ada geseran yang diminta";
-  if (Math.abs(a) > MAKS_JOG_DETIK || Math.abs(b) > MAKS_JOG_DETIK) {
-    return `Sekali geser dibatasi ±${MAKS_JOG_DETIK} detik busur (${MAKS_JOG_DETIK / 3600}°)`;
+  if (Math.abs(a) < RESOLUSI_JOG_DERAJAT && Math.abs(b) < RESOLUSI_JOG_DERAJAT) {
+    return a === 0 && b === 0
+      ? "Tidak ada geseran yang diminta"
+      : "Geseran di bawah 0,000278° (satu detik busur) dibulatkan hilang — instrumen tidak akan bergerak";
+  }
+  if (Math.abs(a) > MAKS_JOG_DERAJAT || Math.abs(b) > MAKS_JOG_DERAJAT) {
+    return `Sekali geser dibatasi ±${MAKS_JOG_DERAJAT}°`;
   }
   return null;
 }

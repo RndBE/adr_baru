@@ -9,9 +9,11 @@ import { validasiJog } from "@/lib/protokol-rts";
  * Menggeser arah teleskop secara RELATIF dari posisi sekarang
  * (PROTOKOL_MQTT_ADR, Bagian C.5 — kunci `jog`).
  *
- *   {"set_30002":{"command":"set_rts","jog":{"ha":30,"va":-15}}}
+ *   {"set_30002":{"command":"set_rts","jog":{"ha":0.5,"va":-0.01}}}
  *
- * Satuan DETIK BUSUR: 60 = satu menit busur, 3600 = satu derajat.
+ * Satuan DERAJAT DESIMAL, pecahan diterima. Menit ÷ 60, detik ÷ 3600.
+ * Berubah dari detik busur di revisi 2 — selisihnya 3600× dan tidak
+ * memunculkan galat apa pun kalau tertukar.
  *
  * `va` adalah sudut ZENIT — 90° berarti mendatar, jadi nilai POSITIF membuat
  * teleskop MENUNDUK. Pemetaan tombol arah ada di sisi UI; route ini meneruskan
