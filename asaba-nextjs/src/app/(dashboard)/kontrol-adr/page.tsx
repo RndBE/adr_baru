@@ -55,6 +55,11 @@ import {
   RefreshCcw,
   Power,
   Home,
+  Move,
+  ChevronUp,
+  ChevronDown,
+  ChevronLeft,
+  ChevronRight,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 
@@ -130,7 +135,24 @@ import { cn } from "@/lib/utils";
 import { RtsConnectionBadge } from "@/components/RtsConnectionBadge";
 import { useRtsConnectionStatus, useLogKontrol } from "@/hooks/use-api";
 import { useSites } from "@/hooks/use-sites";
-import { nilaiRts, nilaiRtsLama, klasifikasiPower, klasifikasiTracking, bacaKonfirmasiConfig } from "@/lib/protokol-rts";
+import {
+  nilaiRts,
+  nilaiRtsLama,
+  klasifikasiPower,
+  klasifikasiTracking,
+  bacaKonfirmasiConfig,
+  bacaBalasanSetHome,
+  RENTANG_CYCLE_TIME_MS,
+  RENTANG_RETRIES,
+  validasiCycleTime,
+  validasiRetries,
+  bacaBalasanJog,
+  bacaManualHaVa,
+  SEBAB_TOLAK_JOG,
+  LANGKAH_JOG,
+  type BalasanJog,
+  type BacaanHaVa,
+} from "@/lib/protokol-rts";
 
 // --- Helper Date Formatter ---
 function fmtDate(d: string | Date | null) {
@@ -479,6 +501,15 @@ export default function KontrolAdrPage() {
   // Balasannya kosong. Karena itu statusnya bisa ditunggu, bukan sekadar
   // "terkirim". `jawaban` menyimpan string mentah dari instrumen apa adanya —
   // formatnya tidak terdokumentasi, jadi ditampilkan tanpa ditafsirkan.
+  // ── Remote kontrol arah (jog) ──
+  const [showJog, setShowJog] = useState(false);
+  const [langkahJog, setLangkahJog] = useState(LANGKAH_JOG[1].detik); // 1' sebagai awal
+  const [jogStatus, setJogStatus] = useState<"idle" | "waiting" | "done" | "gagal">("idle");
+  const [jogPesan, setJogPesan] = useState("");
+  const [jogTarget, setJogTarget] = useState<BalasanJog | null>(null);
+  const [haVa, setHaVa] = useState<BacaanHaVa | null>(null);
+  const [haVaLoading, setHaVaLoading] = useState(false);
+
   const [setHomeStatus, setSetHomeStatus] = useState<"idle" | "waiting" | "done">("idle");
   const [setHomeJawaban, setSetHomeJawaban] = useState<string | null>(null);
   const [konfirmasiSetHome, setKonfirmasiSetHome] = useState(false);
@@ -599,6 +630,67 @@ export default function KontrolAdrPage() {
    * menilai `namaHomeSah`, supaya tombol dan permintaan tidak menilai dua hal
    * yang berbeda.
    */
+  /**
+   * Geser arah teleskop.
+   *
+   * `va` adalah sudut ZENIT: 0° menghadap lurus ke atas, 90° mendatar, 180°
+   * lurus ke bawah. Jadi MENAMBAH va berarti MENUNDUK — tombol "atas" harus
+   * mengirim nilai negatif. Pemetaan itu dikunci di sini, di satu tempat, biar
+   * tidak ada yang menebaknya lagi di tempat lain.
+   */
+  const handleJog = async (arah: "atas" | "bawah" | "kiri" | "kanan") => {
+    const n = langkahJog;
+    const delta =
+      arah === "kiri" ? { ha: -n, va: 0 }
+      : arah === "kanan" ? { ha: n, va: 0 }
+      : arah === "atas" ? { ha: 0, va: -n }   // zenit mengecil = mendongak
+      : { ha: 0, va: n };                      // zenit membesar = menunduk
+
+    setJogStatus("waiting");
+    setJogPesan("");
+    setJogTarget(null);
+    try {
+      const res = await fetch("/api/kontrol/jog", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ site: selectedSite, ...delta }),
+      });
+      const json = await res.json();
+      if (!json.success) {
+        setJogStatus("gagal");
+        setJogPesan(json.error || "Gagal mengirim perintah");
+      }
+      // Sukses tidak diumumkan di sini: yang selesai baru pengiriman ke broker.
+      // Tahapan dan hasilnya datang lewat MQTT sebagai balasan bernama `Jog`.
+    } catch (err) {
+      console.error("[handleJog]", err);
+      setJogStatus("gagal");
+      setJogPesan("Terjadi kesalahan jaringan");
+    }
+  };
+
+  /** Baca sudut instrumen sekarang. Tidak menggerakkan apa pun. */
+  const handleBacaHaVa = async () => {
+    setHaVaLoading(true);
+    try {
+      const res = await fetch("/api/kontrol/manual-hava", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ site: selectedSite }),
+      });
+      const json = await res.json();
+      if (!json.success) {
+        setHaVaLoading(false);
+        setPowerAlert({ type: "error", title: "Baca sudut", message: json.error || "Gagal" });
+      }
+      // Hasilnya ditangkap handler MQTT (ManualHAVA); loading dimatikan di sana.
+    } catch (err) {
+      console.error("[handleBacaHaVa]", err);
+      setHaVaLoading(false);
+      setPowerAlert({ type: "error", title: "Baca sudut", message: "Terjadi kesalahan jaringan" });
+    }
+  };
+
   const handleSetHome = async () => {
     if (!namaHomeSah) return;
     setKonfirmasiSetHome(false);
@@ -865,16 +957,73 @@ export default function KontrolAdrPage() {
           // dokumen untuk medan `raw` di Bagian E.5. Menebak artinya lebih
           // berbahaya daripada tidak menerjemahkannya: ini titik acuan pulang
           // teleskop, dan tafsir yang salah tidak akan terkoreksi sendiri.
-          const jawabanSetHome = nilaiRts(data.setHome, "setHome");
-          if (jawabanSetHome !== null) {
-            console.log("[KontrolADR] setHome:", jawabanSetHome);
-            setSetHomeStatus("done");
-            setSetHomeJawaban(jawabanSetHome);
-            setPowerAlert({
-              type: "on",
-              title: "Set Home tersimpan",
-              message: `RTS membalas: ${jawabanSetHome}`,
-            });
+          // {"Jog":{"value":"start"|"check"|"read"|"rotate"|"done"}}
+          // {"Jog":{"value":"target","dari_HA":…,"ke_HA":…}}
+          // {"Jog":{"value":"RTS Off"|"read failed"|"bad base"|"failed"}}
+          const bJog = bacaBalasanJog(data.Jog);
+          if (bJog.jenis !== "bukan") {
+            console.log("[KontrolADR] Jog:", bJog.jenis, bJog.nilai);
+            if (bJog.jenis === "ditolak") {
+              setJogStatus("gagal");
+              setJogPesan(
+                SEBAB_TOLAK_JOG[bJog.nilai] ??
+                  `Geseran ditolak (${bJog.nilai}).`
+              );
+              // Pada "bad base", sudut awal yang dianggap tidak sah ikut
+              // dikirim — ditampilkan supaya kelihatan APA yang ngawur.
+              if (bJog.HA || bJog.VA) {
+                setJogTarget(bJog);
+              }
+            } else if (bJog.jenis === "target") {
+              // Titik awal dan tujuan sekaligus: kalau hasilnya meleset,
+              // langsung kelihatan salahnya di pembacaan atau di perhitungan.
+              setJogTarget(bJog);
+            } else if (bJog.jenis === "selesai") {
+              setJogStatus("done");
+              setJogPesan("");
+            }
+            // "tahap" (start/check/read/rotate) dibiarkan menunggu.
+          }
+
+          // {"ManualHAVA":{"HA":"151,38,71","VA":"206,04,62"}}
+          const bHaVa = bacaManualHaVa(data.ManualHAVA);
+          if (bHaVa.ada) {
+            console.log("[KontrolADR] ManualHAVA:", bHaVa.HA, bHaVa.VA, "gagal:", bHaVa.gagal);
+            setHaVa(bHaVa);
+            setHaVaLoading(false);
+          }
+
+          const bSetHome = bacaBalasanSetHome(data.setHome);
+          if (bSetHome.jenis !== "bukan") {
+            console.log("[KontrolADR] setHome:", bSetHome.jenis, bSetHome.nilai || bSetHome.rekaman);
+            if (bSetHome.jenis === "ditolak") {
+              // EEPROM TIDAK disentuh — posisi home lama tetap utuh. Kode
+              // sebelumnya membaca `value` tanpa memilah, sehingga penolakan
+              // ini tampil sebagai "Set Home tersimpan".
+              setSetHomeStatus("idle");
+              setPowerAlert({
+                type: "error",
+                title: "Set Home gagal",
+                message:
+                  bSetHome.nilai === "RTS Off"
+                    ? "RTS tidak menjawab. Posisi home lama tidak berubah."
+                    : "Sudut instrumen tidak terbaca. Posisi home lama tidak berubah.",
+              });
+            } else if (bSetHome.jenis === "tersimpan") {
+              setSetHomeStatus("done");
+              setSetHomeJawaban(bSetHome.rekaman);
+              setPowerAlert({
+                type: "on",
+                title: "Set Home tersimpan",
+                message: `RTS membalas: ${bSetHome.rekaman}`,
+              });
+            } else if (bSetHome.jenis === "selesai") {
+              // Penutup rangkaian. Kalau rekamannya sudah masuk lebih dulu,
+              // status "done" tinggal dipertahankan.
+              setSetHomeStatus("done");
+            }
+            // jenis "tahap" (start/check/read) dibiarkan: tombolnya tetap
+            // menampilkan "Menunggu RTS…" sampai rekaman atau penolakan masuk.
           }
 
           // ── Fallback firmware lama ───────────────────────────────────────
@@ -1348,6 +1497,22 @@ export default function KontrolAdrPage() {
                   </span>
                 </div>
               )}
+
+              {/* Arahkan RTS — remote kontrol arah lewat perintah jog. */}
+              <Button
+                variant="outline"
+                onClick={() => setShowJog(true)}
+                disabled={!selectedSite || !isConnected}
+                title={
+                  !selectedSite ? "Pilih site dulu"
+                  : !isConnected ? "RTS tidak terhubung"
+                  : "Geser arah teleskop sedikit demi sedikit"
+                }
+                className="flex items-center gap-2 px-5 rounded-md h-[40px] text-[13.5px] font-medium text-[#303481] border-[#303481] hover:bg-[#303481]/5 bg-white transition-colors cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                <Move className="w-[17px] h-[17px]" />
+                Arahkan
+              </Button>
 
               {/* Set Home — menimpa posisi home tersimpan dengan arah teleskop
                   saat ini. Sengaja TIDAK ditempel ke grup ON/OFF: bentuknya
@@ -1998,7 +2163,12 @@ export default function KontrolAdrPage() {
                     />
                   </div>
                   <div>
-                    <label className="block text-[12px] font-medium text-gray-600 mb-1.5">Retries</label>
+                    <label className="block text-[12px] font-medium text-gray-600 mb-1.5">
+                      Retries{" "}
+                      <span className="font-normal text-gray-400">
+                        ({RENTANG_RETRIES.min}–{RENTANG_RETRIES.maks})
+                      </span>
+                    </label>
                     <Input
                       value={rtsConfig.retries}
                       onChange={(e) => setRtsConfig({ ...rtsConfig, retries: e.target.value })}
@@ -2006,14 +2176,49 @@ export default function KontrolAdrPage() {
                     />
                   </div>
                   <div>
-                    <label className="block text-[12px] font-medium text-gray-600 mb-1.5">Cycle Time</label>
+                    {/* Satuannya WAJIB tertulis. Menu serial dan Bluetooth memakai
+                        DETIK untuk setelan yang sama, jadi angka yang identik
+                        memberi hasil 1000× berbeda tergantung jalurnya — dan
+                        firmware tidak menolak nilai di luar rentang, ia hanya
+                        diam-diam menggantinya dengan bawaan. */}
+                    <label className="block text-[12px] font-medium text-gray-600 mb-1.5">
+                      Cycle Time{" "}
+                      <span className="font-normal text-gray-400">
+                        (milidetik, {RENTANG_CYCLE_TIME_MS.min.toLocaleString("id-ID")}–
+                        {RENTANG_CYCLE_TIME_MS.maks.toLocaleString("id-ID")})
+                      </span>
+                    </label>
                     <Input
                       value={rtsConfig.cycleTime}
                       onChange={(e) => setRtsConfig({ ...rtsConfig, cycleTime: e.target.value })}
                       className="h-[38px] text-[13px] border-gray-300 focus-visible:ring-[#303481] rounded-md"
                     />
+                    {Number(rtsConfig.cycleTime) >= RENTANG_CYCLE_TIME_MS.min &&
+                      Number(rtsConfig.cycleTime) <= RENTANG_CYCLE_TIME_MS.maks && (
+                        <p className="mt-1 text-[11px] text-gray-400">
+                          = {(Number(rtsConfig.cycleTime) / 1000).toLocaleString("id-ID")} detik
+                        </p>
+                      )}
                   </div>
                 </div>
+
+                {/* Peringatan untuk nilai tersimpan yang di luar rentang.
+                    Nilai seperti ini sudah terlanjur ada di database: firmware
+                    menerimanya tanpa protes lalu menggantinya dengan bawaan,
+                    jadi setelannya tidak pernah berlaku dan tidak ada yang
+                    memberi tahu. */}
+                {(validasiCycleTime(rtsConfig.cycleTime) || validasiRetries(rtsConfig.retries)) && (
+                  <div className="mx-4 mb-4 flex gap-2.5 rounded-lg bg-amber-50 px-3.5 py-3 text-[12px] leading-relaxed text-amber-900">
+                    <AlertTriangle className="mt-[1px] h-4 w-4 flex-shrink-0" />
+                    <span>
+                      {[validasiCycleTime(rtsConfig.cycleTime), validasiRetries(rtsConfig.retries)]
+                        .filter(Boolean)
+                        .join(". ")}
+                      . Nilai di luar rentang diterima perangkat tanpa penolakan lalu diganti
+                      bawaan saat menyala berikutnya — setelannya tidak akan pernah berlaku.
+                    </span>
+                  </div>
+                )}
               </div>
 
                 </>
@@ -2252,6 +2457,155 @@ export default function KontrolAdrPage() {
               <Button onClick={saveScheduling} disabled={jadwalSaving} className="h-[38px] px-6 text-[13px] font-medium bg-[#303481] hover:bg-[#1f2259] text-white border-none cursor-pointer disabled:opacity-60">
                 {jadwalSaving ? <><Loader2 className="w-4 h-4 animate-spin mr-1.5"/>Menyimpan...</> : "Simpan"}
               </Button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Remote kontrol arah RTS.
+          Menggeser teleskop secara relatif lewat perintah `jog`. Sengaja modal
+          terpisah, bukan tombol lepas di header: setiap penekanan menggerakkan
+          instrumen sungguhan, jadi harus jelas sedang berada di mode ini. */}
+      {showJog && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm"
+          onClick={() => setShowJog(false)}
+        >
+          <div
+            className="bg-white rounded-xl shadow-2xl w-full max-w-[440px] mx-4 overflow-hidden"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100">
+              <div className="flex items-center gap-2">
+                <Move className="h-[17px] w-[17px] text-[#303481]" />
+                <h3 className="font-bold text-gray-900 text-[16px]">Arahkan RTS</h3>
+              </div>
+              <button
+                onClick={() => setShowJog(false)}
+                className="w-8 h-8 flex items-center justify-center rounded-lg hover:bg-gray-100 transition-colors text-gray-500 cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="px-6 py-4 flex flex-col gap-4">
+              {/* Sudut sekarang */}
+              <div className="rounded-lg bg-gray-50 px-3.5 py-3">
+                <div className="flex items-center justify-between">
+                  <p className="text-[11px] font-semibold text-gray-500">Sudut instrumen sekarang</p>
+                  <button
+                    onClick={handleBacaHaVa}
+                    disabled={haVaLoading || !isConnected}
+                    className="flex items-center gap-1.5 text-[11.5px] font-semibold text-[#303481] hover:underline cursor-pointer disabled:cursor-not-allowed disabled:text-gray-400 disabled:no-underline"
+                  >
+                    {haVaLoading ? <Loader2 className="h-3 w-3 animate-spin" /> : <RefreshCcw className="h-3 w-3" />}
+                    Baca
+                  </button>
+                </div>
+                {haVa?.gagal ? (
+                  // Kedua nilai "000,00,00" adalah penanda gagal, bukan sudut
+                  // sungguhan — kalau ditampilkan apa adanya akan terbaca
+                  // sebagai instrumen menghadap titik nol.
+                  <p className="mt-1 text-[12px] font-semibold text-red-600">
+                    Instrumen tidak menjawab (000,00,00)
+                  </p>
+                ) : haVa ? (
+                  <div className="mt-1 grid grid-cols-2 gap-2 font-mono text-[12.5px] text-gray-800">
+                    <span>HA {haVa.HA}</span>
+                    <span>VA {haVa.VA}</span>
+                  </div>
+                ) : (
+                  <p className="mt-1 text-[12px] text-gray-400">Belum dibaca</p>
+                )}
+              </div>
+
+              {/* Pemilih langkah */}
+              <div>
+                <p className="mb-1.5 text-[12px] font-medium text-gray-600">Besar langkah</p>
+                <div className="grid grid-cols-4 gap-2">
+                  {LANGKAH_JOG.map((l) => (
+                    <button
+                      key={l.detik}
+                      onClick={() => setLangkahJog(l.detik)}
+                      title={`${l.detik} detik busur — ${l.keterangan}`}
+                      className={cn(
+                        "h-[36px] rounded-md border text-[12.5px] font-bold transition-colors cursor-pointer",
+                        langkahJog === l.detik
+                          ? "border-[#303481] bg-[#303481] text-white"
+                          : "border-gray-300 text-gray-600 hover:bg-gray-50"
+                      )}
+                    >
+                      {l.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Tombol arah */}
+              <div className="flex flex-col items-center gap-2">
+                {(() => {
+                  const sibuk = jogStatus === "waiting";
+                  const mati = sibuk || !isConnected || !selectedSite;
+                  const kelas =
+                    "flex h-[46px] w-[46px] items-center justify-center rounded-lg border transition-colors " +
+                    (mati
+                      ? "border-gray-200 bg-gray-50 text-gray-300 cursor-not-allowed"
+                      : "border-[#303481] text-[#303481] hover:bg-[#303481] hover:text-white cursor-pointer");
+                  const Tombol = ({ arah, children }: { arah: "atas" | "bawah" | "kiri" | "kanan"; children: React.ReactNode }) => (
+                    <button onClick={() => handleJog(arah)} disabled={mati} className={kelas} aria-label={`Geser ${arah}`}>
+                      {children}
+                    </button>
+                  );
+                  return (
+                    <>
+                      <Tombol arah="atas"><ChevronUp className="h-5 w-5" /></Tombol>
+                      <div className="flex items-center gap-2">
+                        <Tombol arah="kiri"><ChevronLeft className="h-5 w-5" /></Tombol>
+                        <div className="flex h-[46px] w-[46px] items-center justify-center rounded-lg bg-gray-100 text-[11px] font-bold text-gray-500">
+                          {sibuk ? <Loader2 className="h-4 w-4 animate-spin" /> : LANGKAH_JOG.find((l) => l.detik === langkahJog)?.label}
+                        </div>
+                        <Tombol arah="kanan"><ChevronRight className="h-5 w-5" /></Tombol>
+                      </div>
+                      <Tombol arah="bawah"><ChevronDown className="h-5 w-5" /></Tombol>
+                    </>
+                  );
+                })()}
+              </div>
+
+              {/* VA adalah sudut zenit, bukan elevasi. Disebut supaya operator
+                  tahu kenapa angkanya mengecil saat mendongak. */}
+              <p className="text-center text-[11px] leading-relaxed text-gray-400">
+                Atas/bawah mengubah VA (sudut zenit — mendongak membuat angkanya mengecil),
+                kiri/kanan mengubah HA.
+              </p>
+
+              {/* Titik awal → tujuan dari balasan `target` */}
+              {jogTarget && (jogTarget.keHA || jogTarget.HA) && (
+                <div className={cn(
+                  "rounded-lg px-3.5 py-3 text-[11.5px] leading-relaxed",
+                  jogTarget.jenis === "ditolak" ? "bg-red-50 text-red-900" : "bg-gray-50 text-gray-700"
+                )}>
+                  {jogTarget.jenis === "ditolak" ? (
+                    <>
+                      <p className="font-bold">Sudut awal yang ditolak</p>
+                      <p className="mt-0.5 font-mono">HA {jogTarget.HA} · VA {jogTarget.VA}</p>
+                    </>
+                  ) : (
+                    <>
+                      <p className="font-bold">Perpindahan</p>
+                      <p className="mt-0.5 font-mono">dari HA {jogTarget.dariHA} · VA {jogTarget.dariVA}</p>
+                      <p className="font-mono">ke&nbsp;&nbsp; HA {jogTarget.keHA} · VA {jogTarget.keVA}</p>
+                    </>
+                  )}
+                </div>
+              )}
+
+              {jogStatus === "gagal" && jogPesan && (
+                <div className="flex gap-2.5 rounded-lg bg-amber-50 px-3.5 py-3 text-[12.5px] leading-relaxed text-amber-900">
+                  <AlertTriangle className="mt-[1px] h-4 w-4 flex-shrink-0" />
+                  <span>{jogPesan}</span>
+                </div>
+              )}
             </div>
           </div>
         </div>

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { sendRtsConfig } from "@/lib/mqtt";
+import { validasiRetries, validasiCycleTime } from "@/lib/protokol-rts";
 
 /**
  * GET /api/config-adr?site=xxx
@@ -69,6 +70,23 @@ export async function PUT(request: Request) {
       );
     }
 
+    // Rentang divalidasi DI SINI, sebelum menyentuh database maupun MQTT.
+    //
+    // Firmware tidak akan mengeluh: nilai di luar rentang tersimpan tanpa
+    // penolakan, lalu diam-diam diganti bawaan saat alat menyala berikutnya
+    // (Bagian D protokol). Jadi setelan yang salah terlihat berhasil sampai
+    // berhari-hari kemudian, saat ternyata tidak pernah berlaku.
+    //
+    // cycleTime bersatuan MILIDETIK lewat MQTT — menu serial/Bluetooth memakai
+    // detik untuk setelan yang sama, jadi angka identik memberi hasil 1000×
+    // berbeda tergantung jalurnya.
+    const salah = [validasiRetries(retries), validasiCycleTime(cycle_time)].filter(
+      (p): p is string => p !== null
+    );
+    if (salah.length) {
+      return NextResponse.json({ success: false, error: salah.join(". ") }, { status: 400 });
+    }
+
     const existing = await prisma.$queryRaw<Array<{ id: number; id_logger: number }>>`
       SELECT id, id_logger FROM config_adr WHERE site = ${site} LIMIT 1
     `;
@@ -120,8 +138,12 @@ export async function PUT(request: Request) {
       tsHigh: String(ts_high ?? "0"),
       locCoor: [String(coor_x ?? "0"), String(coor_y ?? "0"), String(coor_z ?? "0")],
       stepRecord: parseInt(step_record) || 5,
-      retries: parseInt(retries) || 2,
-      cycleTime: parseInt(cycle_time) || 15,
+      // Tanpa fallback `|| n`: keduanya sudah lolos validasi rentang di atas,
+      // dan nilai cadangan yang lama (`|| 15` untuk cycleTime) justru DI LUAR
+      // rentang sah 1000–600000 ms — kalau sampai terpakai, ia diam-diam
+      // diganti bawaan oleh firmware persis seperti masalah yang diperbaiki.
+      retries: parseInt(retries),
+      cycleTime: parseInt(cycle_time),
     });
 
     return NextResponse.json({

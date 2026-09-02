@@ -100,6 +100,248 @@ export function klasifikasiTracking(nilai: string): KelasBalasan {
 /** Nilai `status` yang sah pada balasan {"value":"target"}. */
 export const STATUS_TARGET_SAH = ["search", "measure", "done", "failed"] as const;
 
+// ── setHome (Bagian C.6) ─────────────────────────────────────────────────────
+//
+//   {"setHome":{"value":"start"}}      ┐
+//   {"setHome":{"value":"check"}}      ├ tahapan
+//   {"setHome":{"value":"read"}}       ┘
+//   {"setHome":{"setHome":"HOME-01,0,151,38,71,206,04,62;"}}  ← rekaman tersimpan
+//   {"setHome":{"value":"done"}}       ← selesai
+//
+//   {"setHome":{"value":"RTS Off"}}      ┐ DITOLAK — EEPROM tidak disentuh,
+//   {"setHome":{"value":"read failed"}}  ┘ posisi home lama tetap utuh
+//
+// Aturan pemilahannya dari dokumen: ADA `value` → tahapan atau penolakan;
+// TIDAK ada → rekaman tersimpan. Membaca `value` lebih dulu tanpa memilah
+// membuat "RTS Off" terbaca sebagai keberhasilan — dan itu titik acuan pulang
+// teleskop, jadi salah baca di sini tidak terkoreksi sendiri.
+
+export type JenisBalasanSetHome = "tahap" | "selesai" | "tersimpan" | "ditolak" | "bukan";
+
+export type BalasanSetHome = {
+  jenis: JenisBalasanSetHome;
+  /** Isi `value` untuk tahap/penolakan; kosong untuk rekaman. */
+  nilai: string;
+  /** String mentah rekaman home; hanya terisi saat jenis "tersimpan". */
+  rekaman: string;
+};
+
+/** Nilai `value` yang berarti perintah setHome DITOLAK. */
+const NILAI_TOLAK_SETHOME = ["RTS Off", "read failed"];
+
+export function bacaBalasanSetHome(paket: unknown): BalasanSetHome {
+  const kosong: BalasanSetHome = { jenis: "bukan", nilai: "", rekaman: "" };
+  if (paket === null || typeof paket !== "object") return kosong;
+  const o = paket as Record<string, unknown>;
+
+  // `value` diperiksa LEBIH DULU, sesuai aturan pemilahan dokumen.
+  const v = o.value ?? o.stage;
+  if (v !== undefined && v !== null) {
+    const nilai = String(v);
+    if (NILAI_TOLAK_SETHOME.includes(nilai)) return { jenis: "ditolak", nilai, rekaman: "" };
+    if (nilai === "done") return { jenis: "selesai", nilai, rekaman: "" };
+    return { jenis: "tahap", nilai, rekaman: "" };
+  }
+
+  if (o.setHome !== undefined && o.setHome !== null) {
+    return { jenis: "tersimpan", nilai: "", rekaman: String(o.setHome) };
+  }
+  return kosong;
+}
+
+// ── turning_target → balasan bernama TurningTarget (Bagian C.4) ──────────────
+//
+//   {"TurningTarget":{"value":"start","target":3}}   ┐ tahapan
+//   {"TurningTarget":{"value":"rotate","target":3}}  ┘
+//   {"TurningTarget":{"value":1}}                    ← angka, demi kompatibilitas
+//   {"TurningTarget":{"value":"done"}}               ← penutup sekarang
+//   {"TurningTarget":{"value":"bad target","target":99}}  ← DITOLAK, di luar 1-50
+//
+// Nama balasannya PascalCase. Revisi dokumen sebelumnya menulisnya huruf kecil;
+// itu keliru dan sudah diralat. Bentuk huruf kecil tetap ikut dibaca pemanggil
+// karena tidak ada ruginya.
+//
+// Penolakan `bad target` penting: tanpa mengenalinya, nomor di luar rentang
+// tidak mengerjakan apa pun tapi balasannya tetap membawa status rotasi
+// SEBELUMNYA, sehingga terlihat berhasil.
+
+export function klasifikasiTurningTarget(paket: unknown): KelasBalasan | "bukan" {
+  if (paket === null || typeof paket !== "object") return "bukan";
+  const o = paket as Record<string, unknown>;
+  const v = o.value ?? o.stage;
+  if (v === undefined || v === null) return "bukan";
+
+  const nilai = String(v);
+  if (nilai === "done" || nilai === "1" || nilai === "true") return "selesai";
+  if (nilai === "bad target" || nilai === "0" || nilai === "false" || nilai === "failed") return "gagal";
+  return "kemajuan";
+}
+
+// ── jog: geser relatif (Bagian C.5) ──────────────────────────────────────────
+//
+//   {"set_30002":{"command":"set_rts","jog":{"ha":30,"va":-15}}}
+//
+// Satuan selisih DETIK BUSUR. 60 = satu menit busur, 3600 = satu derajat.
+//
+// Instrumen tidak punya perintah gerak relatif; logger mengerjakannya dalam
+// tiga langkah — baca sudut sekarang, tambahkan selisih, putar ke hasilnya:
+//
+//   {"Jog":{"value":"start","ha":30,"va":-15}}
+//   {"Jog":{"value":"check"}}
+//   {"Jog":{"value":"read"}}
+//   {"Jog":{"value":"target","dari_HA":…,"dari_VA":…,"ke_HA":…,"ke_VA":…}}
+//   {"Jog":{"value":"rotate"}}
+//   {"Jog":{"value":"done"}}
+//
+// Penolakan: "RTS Off", "read failed", "bad base" (+ HA/VA), "failed".
+
+export type JenisBalasanJog = "tahap" | "target" | "selesai" | "ditolak" | "bukan";
+
+export type BalasanJog = {
+  jenis: JenisBalasanJog;
+  nilai: string;
+  /** Terisi pada value "target": titik awal dan tujuan, apa adanya. */
+  dariHA?: string;
+  dariVA?: string;
+  keHA?: string;
+  keVA?: string;
+  /** Terisi pada penolakan "bad base": sudut awal yang dianggap tidak sah. */
+  HA?: string;
+  VA?: string;
+};
+
+const NILAI_TOLAK_JOG = ["RTS Off", "read failed", "bad base", "failed"];
+
+export function bacaBalasanJog(paket: unknown): BalasanJog {
+  if (paket === null || typeof paket !== "object") return { jenis: "bukan", nilai: "" };
+  const o = paket as Record<string, unknown>;
+  const v = o.value ?? o.stage;
+  if (v === undefined || v === null) return { jenis: "bukan", nilai: "" };
+
+  const nilai = String(v);
+  const s = (k: string) => (o[k] === undefined || o[k] === null ? undefined : String(o[k]));
+
+  if (NILAI_TOLAK_JOG.includes(nilai)) {
+    return { jenis: "ditolak", nilai, HA: s("HA"), VA: s("VA") };
+  }
+  if (nilai === "target") {
+    return {
+      jenis: "target",
+      nilai,
+      dariHA: s("dari_HA"),
+      dariVA: s("dari_VA"),
+      keHA: s("ke_HA"),
+      keVA: s("ke_VA"),
+    };
+  }
+  if (nilai === "done") return { jenis: "selesai", nilai };
+  return { jenis: "tahap", nilai };
+}
+
+/** Penjelasan singkat tiap penolakan jog, untuk ditampilkan apa adanya. */
+export const SEBAB_TOLAK_JOG: Record<string, string> = {
+  "RTS Off": "RTS tidak menjawab. Nyalakan instrumen lebih dulu.",
+  "read failed": "Instrumen menjawab, tapi sudutnya tidak terbaca.",
+  // Dokumen menegaskan ini SENGAJA menolak, bukan memperbaiki: menambahkan
+  // selisih ke sudut yang sudah ngawur hanya memindahkan kengawurannya, dan
+  // instrumen akan menurutinya dengan yakin ke arah yang salah.
+  "bad base": "Sudut awal instrumen di luar rentang wajar, jadi geseran ditolak daripada memperparah.",
+  failed: "Rotasi gagal dijalankan.",
+};
+
+// ── manual_hava: baca sudut sekarang (Bagian C.1) ────────────────────────────
+//
+//   {"ManualHAVA":{"HA":"151,38,71","VA":"206,04,62"}}
+//
+// Membaca langsung dari instrumen, timeout 5 detik. Kalau instrumen tidak
+// menjawab, KEDUANYA menjadi "000,00,00" — itu penanda gagal, bukan sudut
+// sungguhan. Nilainya TIDAK ditafsirkan ke desimal: dokumen memakai bentuk
+// `derajat,menit,detik` tapi contohnya sendiri memuat detik ≥ 60, jadi
+// pembagiannya tidak bisa dipastikan. Ditampilkan apa adanya.
+
+export const PENANDA_HAVA_GAGAL = "000,00,00";
+
+export type BacaanHaVa = { ada: boolean; gagal: boolean; HA: string; VA: string };
+
+export function bacaManualHaVa(paket: unknown): BacaanHaVa {
+  const kosong: BacaanHaVa = { ada: false, gagal: false, HA: "", VA: "" };
+  if (paket === null || typeof paket !== "object") return kosong;
+  const o = paket as Record<string, unknown>;
+  if (o.HA === undefined && o.VA === undefined) return kosong;
+
+  const HA = o.HA === undefined || o.HA === null ? "" : String(o.HA);
+  const VA = o.VA === undefined || o.VA === null ? "" : String(o.VA);
+  return { ada: true, gagal: HA === PENANDA_HAVA_GAGAL && VA === PENANDA_HAVA_GAGAL, HA, VA };
+}
+
+// ── Langkah jog ──────────────────────────────────────────────────────────────
+//
+// Satuan detik busur. Disediakan sebagai preset supaya operator tidak perlu
+// menghitung sendiri — 3600 detik busur itu satu derajat, angka yang tidak
+// intuitif kalau diketik manual.
+export const LANGKAH_JOG = [
+  { label: '10"', detik: 10, keterangan: "sangat halus" },
+  { label: "1'", detik: 60, keterangan: "halus" },
+  { label: "10'", detik: 600, keterangan: "sedang" },
+  { label: "1°", detik: 3600, keterangan: "kasar" },
+];
+
+/**
+ * Batas satu kali geser.
+ *
+ * TIDAK ada di protokol — dipilih sendiri sebagai pagar salah ketik. Jog
+ * dimaksudkan untuk koreksi kecil; 10° sudah jauh lebih besar dari preset
+ * terkasar, dan geseran raksasa akibat typo hanya membuang waktu memutar balik.
+ */
+export const MAKS_JOG_DETIK = 36000;
+
+export function validasiJog(ha: unknown, va: unknown): string | null {
+  const a = Number(ha);
+  const b = Number(va);
+  if (!Number.isInteger(a) || !Number.isInteger(b)) {
+    return "Nilai geser harus bilangan bulat (detik busur)";
+  }
+  if (a === 0 && b === 0) return "Tidak ada geseran yang diminta";
+  if (Math.abs(a) > MAKS_JOG_DETIK || Math.abs(b) > MAKS_JOG_DETIK) {
+    return `Sekali geser dibatasi ±${MAKS_JOG_DETIK} detik busur (${MAKS_JOG_DETIK / 3600}°)`;
+  }
+  return null;
+}
+
+// ── Rentang setelan (Bagian D) ───────────────────────────────────────────────
+//
+// Dokumen menyebutnya eksplisit: nilai di luar rentang TERSIMPAN TANPA
+// PENOLAKAN, lalu diam-diam diganti bawaan saat alat menyala berikutnya. Jadi
+// backend harus memvalidasi sendiri — firmware tidak akan mengeluh, dan
+// setelannya cuma tidak pernah berlaku.
+
+export const RENTANG_RETRIES = { min: 1, maks: 15 };
+
+/**
+ * cycleTime lewat MQTT bersatuan MILIDETIK, 1000–600000.
+ *
+ * Menu serial dan Bluetooth memakai DETIK untuk setelan yang sama, jadi angka
+ * yang identik memberi hasil 1000× berbeda tergantung dari mana dikirim.
+ */
+export const RENTANG_CYCLE_TIME_MS = { min: 1000, maks: 600000 };
+
+/** null = sah; selain itu pesan kesalahan siap tampil. */
+export function validasiRetries(v: unknown): string | null {
+  const n = Number(v);
+  if (!Number.isInteger(n) || n < RENTANG_RETRIES.min || n > RENTANG_RETRIES.maks) {
+    return `Retries harus bilangan bulat ${RENTANG_RETRIES.min}–${RENTANG_RETRIES.maks}`;
+  }
+  return null;
+}
+
+export function validasiCycleTime(v: unknown): string | null {
+  const n = Number(v);
+  if (!Number.isInteger(n) || n < RENTANG_CYCLE_TIME_MS.min || n > RENTANG_CYCLE_TIME_MS.maks) {
+    return `Cycle Time harus bilangan bulat ${RENTANG_CYCLE_TIME_MS.min}–${RENTANG_CYCLE_TIME_MS.maks} milidetik (${RENTANG_CYCLE_TIME_MS.min / 1000}–${RENTANG_CYCLE_TIME_MS.maks / 1000} detik)`;
+  }
+  return null;
+}
+
 // ── Konfirmasi setelan (RTS Config) ──────────────────────────────────────────
 //
 // Balasan setelan berbeda bentuk dari semua balasan lain: DATAR di tingkat atas,

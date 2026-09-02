@@ -11,6 +11,7 @@ import { Button } from "@/components/ui/button";
 import Image from "next/image";
 import { cn } from "@/lib/utils";
 import { nilaiBalasanLogger, balasanSelesai, balasanGagal } from "@/lib/balasan-logger";
+import { klasifikasiTurningTarget } from "@/lib/protokol-rts";
 import { RtsConnectionBadge } from "@/components/RtsConnectionBadge";
 import { useRtsConnectionStatus } from "@/hooks/use-api";
 import { useSites } from "@/hooks/use-sites";
@@ -180,26 +181,41 @@ function PrismaModal({
           // dikenal tidak boleh divonis gagal maupun sukses.
         }
 
-        // 3. turning_target response → 1 = sampai target, 0 = gagal berputar
+        // 3. Balasan turning_target — bernama `TurningTarget` (PascalCase).
         //
-        //    Nama kuncinya `turning_target` HURUF KECIL, sama dengan nama
-        //    perintahnya — begitu yang tertulis di protokol (Bagian C.1 dan
-        //    E.4). Kode sebelumnya menunggu `TurningTarget` PascalCase, yang
-        //    tidak pernah dikirim firmware, jadi Go To Target tidak akan pernah
-        //    selesai. Bentuk PascalCase tetap ikut dibaca kalau-kalau ada unit
-        //    lama yang mengirimnya.
-        const paketTurning = data.turning_target ?? data.TurningTarget;
-        if (paketTurning !== undefined) {
-          const nilai = nilaiBalasanLogger(paketTurning);
-          console.log("[PrismaModal] turning_target response:", paketTurning, "→", nilai);
-          if (balasanSelesai(nilai)) {
+        //    Revisi protokol sebelumnya menulis nama balasannya huruf kecil;
+        //    itu KELIRU dan sudah diralat. PascalCase didahulukan sekarang,
+        //    huruf kecil tetap dibaca karena tidak ada ruginya.
+        //
+        //    Balasannya bertahap:
+        //      {"value":"start","target":3}   {"value":"rotate","target":3}
+        //      {"value":1}   ← angka, dipertahankan demi kompatibilitas
+        //      {"value":"done"}
+        //      {"value":"bad target","target":99}   ← DITOLAK, di luar 1–50
+        //
+        //    Sebelumnya hanya pesan angka yang dikenali, jadi Go To Target
+        //    bergantung pada bentuk lama yang sewaktu-waktu bisa dilepas. Dan
+        //    `bad target` tidak dikenali sama sekali: nomor di luar rentang
+        //    tidak mengerjakan apa pun, tapi balasannya tetap membawa status
+        //    rotasi SEBELUMNYA sehingga terlihat berhasil.
+        const paketTurning = data.TurningTarget ?? data.turning_target;
+        const kelasTurning = klasifikasiTurningTarget(paketTurning);
+        if (kelasTurning !== "bukan") {
+          console.log("[PrismaModal] TurningTarget:", paketTurning, "→", kelasTurning);
+          if (kelasTurning === "selesai") {
             setGoTargetStatus("done");
             setLoading(false);
-          } else if (balasanGagal(nilai)) {
+          } else if (kelasTurning === "gagal") {
             setGoTargetStatus("failed");
-            setError("Go To Target gagal: teleskop tidak sampai ke posisi target. Coba ulangi.");
+            const nilai = String(paketTurning?.value ?? "");
+            setError(
+              nilai === "bad target"
+                ? "Go To Target ditolak: nomor target di luar rentang 1–50 yang dikenal perangkat."
+                : "Go To Target gagal: teleskop tidak sampai ke posisi target. Coba ulangi."
+            );
             setLoading(false);
           }
+          // "kemajuan" (start/rotate) dibiarkan menunggu.
         }
       } catch {
         // Ignore non-JSON

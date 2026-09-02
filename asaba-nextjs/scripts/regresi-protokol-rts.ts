@@ -14,6 +14,17 @@ import {
   klasifikasiTracking,
   STATUS_TARGET_SAH,
   bacaKonfirmasiConfig,
+  bacaBalasanSetHome,
+  klasifikasiTurningTarget,
+  validasiRetries,
+  validasiCycleTime,
+  bacaBalasanJog,
+  bacaManualHaVa,
+  validasiJog,
+  SEBAB_TOLAK_JOG,
+  LANGKAH_JOG,
+  MAKS_JOG_DETIK,
+  PENANDA_HAVA_GAGAL,
 } from "../src/lib/protokol-rts";
 
 let lulus = 0;
@@ -202,6 +213,144 @@ console.log("Status selain OK:");
 periksa("set_rts FAIL → tidak ok", bacaKonfirmasiConfig({ ...BALASAN_CONFIG, set_rts: "FAIL" }, DIKIRIM).ok, false);
 periksa("set_rts hilang → tidak ok", bacaKonfirmasiConfig({ updated: ["jobName"] }, DIKIRIM).ok, false);
 periksa("set_rts huruf kecil 'ok' → ok", bacaKonfirmasiConfig({ ...BALASAN_CONFIG, set_rts: "ok" }, DIKIRIM).ok, true);
+
+// ── setHome: penolakan TIDAK boleh terbaca sebagai tersimpan ───────────────
+// Kode sebelumnya membaca `value` tanpa memilah, sehingga "RTS Off" tampil
+// sebagai "Set Home tersimpan". Padahal keduanya berarti EEPROM tidak disentuh
+// dan posisi home lama tetap utuh — operator dapat centang hijau untuk sesuatu
+// yang tidak pernah tersimpan, di titik acuan pulang teleskop.
+console.log("setHome — tahapan vs rekaman vs penolakan:");
+for (const t of ["start", "check", "read"]) {
+  periksa(`"${t}" → tahap`, bacaBalasanSetHome({ value: t }).jenis, "tahap");
+}
+periksa('"done" → selesai', bacaBalasanSetHome({ value: "done" }).jenis, "selesai");
+periksa('"RTS Off" → ditolak', bacaBalasanSetHome({ value: "RTS Off" }).jenis, "ditolak");
+periksa('"read failed" → ditolak', bacaBalasanSetHome({ value: "read failed" }).jenis, "ditolak");
+
+const REKAMAN = "HOME-01,0,151,38,71,206,04,62;";
+periksa("rekaman → tersimpan", bacaBalasanSetHome({ setHome: REKAMAN }).jenis, "tersimpan");
+periksa("rekaman utuh, tidak dipangkas", bacaBalasanSetHome({ setHome: REKAMAN }).rekaman, REKAMAN);
+// Aturan pemilahan dokumen: ADA `value` → tahapan/penolakan, TIDAK ada → rekaman.
+periksa(
+  "value menang atas kunci senama",
+  bacaBalasanSetHome({ value: "RTS Off", setHome: REKAMAN }).jenis,
+  "ditolak"
+);
+periksa("paket kosong → bukan", bacaBalasanSetHome({}).jenis, "bukan");
+periksa("undefined → bukan", bacaBalasanSetHome(undefined).jenis, "bukan");
+
+// ── TurningTarget: tahapan + penolakan bad target ──────────────────────────
+console.log("TurningTarget:");
+periksa('"start" → kemajuan', klasifikasiTurningTarget({ value: "start", target: 3 }), "kemajuan");
+periksa('"rotate" → kemajuan', klasifikasiTurningTarget({ value: "rotate", target: 3 }), "kemajuan");
+periksa('"done" → selesai', klasifikasiTurningTarget({ value: "done" }), "selesai");
+// Bentuk angka lama dipertahankan firmware demi kompatibilitas; sebelum ini,
+// HANYA bentuk inilah yang dikenali kode.
+periksa("angka 1 → selesai", klasifikasiTurningTarget({ value: 1 }), "selesai");
+periksa("angka 0 → gagal", klasifikasiTurningTarget({ value: 0 }), "gagal");
+// Tanpa mengenali ini, nomor di luar rentang tidak mengerjakan apa pun tapi
+// balasannya tetap membawa status rotasi SEBELUMNYA — terlihat berhasil.
+periksa('"bad target" → gagal', klasifikasiTurningTarget({ value: "bad target", target: 99 }), "gagal");
+periksa("paket kosong → bukan", klasifikasiTurningTarget({}), "bukan");
+
+// ── Rentang setelan ────────────────────────────────────────────────────────
+// Firmware menerima nilai di luar rentang TANPA penolakan lalu diam-diam
+// menggantinya dengan bawaan, jadi backend yang harus menolak.
+console.log("Rentang retries & cycleTime:");
+periksa("retries 1 sah", validasiRetries(1), null);
+periksa("retries 15 sah", validasiRetries(15), null);
+periksa("retries 0 ditolak", validasiRetries(0) !== null, true);
+periksa("retries 16 ditolak", validasiRetries(16) !== null, true);
+periksa("retries 1.5 ditolak", validasiRetries(1.5) !== null, true);
+
+periksa("cycleTime 1000 sah", validasiCycleTime(1000), null);
+periksa("cycleTime 600000 sah", validasiCycleTime(600000), null);
+periksa("cycleTime 300000 sah (5 menit)", validasiCycleTime(300000), null);
+// Inilah nilai yang benar-benar tersimpan di ketiga site sebelum perbaikan.
+// Terbaca sebagai 10 milidetik, jauh di bawah minimum.
+periksa("cycleTime 10 DITOLAK", validasiCycleTime(10) !== null, true);
+periksa("cycleTime 15 DITOLAK (bekas default route)", validasiCycleTime(15) !== null, true);
+periksa("cycleTime 600001 ditolak", validasiCycleTime(600001) !== null, true);
+// Pesan kesalahannya harus menyebut satuan — di situlah sumber kekeliruannya,
+// karena menu serial/Bluetooth memakai detik untuk setelan yang sama.
+periksa("pesan menyebut milidetik", (validasiCycleTime(10) ?? "").includes("milidetik"), true);
+
+// ── Jog (Bagian C.5) ───────────────────────────────────────────────────────
+console.log("Jog — tahapan, target, penolakan:");
+for (const t of ["start", "check", "read", "rotate"]) {
+  periksa(`"${t}" → tahap`, bacaBalasanJog({ value: t }).jenis, "tahap");
+}
+periksa('"done" → selesai', bacaBalasanJog({ value: "done" }).jenis, "selesai");
+
+const JOG_TARGET = {
+  value: "target",
+  dari_HA: "151,38,11", dari_VA: "206,04,02",
+  ke_HA: "151,38,41", ke_VA: "206,03,47",
+};
+periksa('"target" → target', bacaBalasanJog(JOG_TARGET).jenis, "target");
+periksa("titik awal terbaca", bacaBalasanJog(JOG_TARGET).dariHA, "151,38,11");
+periksa("titik tujuan terbaca", bacaBalasanJog(JOG_TARGET).keVA, "206,03,47");
+
+for (const t of ["RTS Off", "read failed", "bad base", "failed"]) {
+  periksa(`"${t}" → ditolak`, bacaBalasanJog({ value: t }).jenis, "ditolak");
+  periksa(`"${t}" punya penjelasan`, typeof SEBAB_TOLAK_JOG[t] === "string", true);
+}
+// Pada "bad base", sudut awal yang dianggap ngawur ikut dikirim — harus
+// terbaca supaya kelihatan APA yang salah, bukan sekadar "ditolak".
+const JOG_BAD = bacaBalasanJog({ value: "bad base", HA: "395,96,07", VA: "103,31,73" });
+periksa("bad base membawa HA awal", JOG_BAD.HA, "395,96,07");
+periksa("bad base membawa VA awal", JOG_BAD.VA, "103,31,73");
+periksa("paket kosong → bukan", bacaBalasanJog({}).jenis, "bukan");
+
+// ── ManualHAVA ─────────────────────────────────────────────────────────────
+// "000,00,00" pada KEDUANYA adalah penanda gagal, bukan sudut sungguhan.
+// Kalau ditampilkan apa adanya, terbaca sebagai instrumen menghadap titik nol.
+console.log("ManualHAVA:");
+const HAVA_OK = bacaManualHaVa({ HA: "151,38,71", VA: "206,04,62" });
+periksa("bacaan normal terbaca", HAVA_OK.ada, true);
+periksa("bacaan normal bukan gagal", HAVA_OK.gagal, false);
+periksa("nilai apa adanya, tidak ditafsirkan", HAVA_OK.HA, "151,38,71");
+const HAVA_GAGAL = bacaManualHaVa({ HA: PENANDA_HAVA_GAGAL, VA: PENANDA_HAVA_GAGAL });
+periksa("000,00,00 pada keduanya → gagal", HAVA_GAGAL.gagal, true);
+// Hanya salah satu nol bukan penanda gagal — bisa jadi sudut sungguhan.
+periksa(
+  "hanya HA nol → bukan gagal",
+  bacaManualHaVa({ HA: PENANDA_HAVA_GAGAL, VA: "206,04,62" }).gagal,
+  false
+);
+periksa("paket kosong → tidak ada", bacaManualHaVa({}).ada, false);
+
+// ── Arah jog: sudut ZENIT, bukan elevasi ───────────────────────────────────
+// Ini asersi terpenting di blok jog. VA zenit: 0° lurus ke atas, 90° mendatar,
+// 180° lurus ke bawah. Jadi MENDONGAK berarti va NEGATIF. Salah tanda di sini
+// membuat teleskop bergerak berlawanan dari yang ditekan operator — dan itu
+// baru ketahuan setelah alatnya benar-benar bergerak.
+console.log("Arah jog (zenit):");
+const deltaJog = (arah: string, n: number) =>
+  arah === "kiri" ? { ha: -n, va: 0 }
+  : arah === "kanan" ? { ha: n, va: 0 }
+  : arah === "atas" ? { ha: 0, va: -n }
+  : { ha: 0, va: n };
+periksa("atas → va negatif (mendongak)", deltaJog("atas", 60).va < 0, true);
+periksa("bawah → va positif (menunduk)", deltaJog("bawah", 60).va > 0, true);
+periksa("kiri → ha negatif", deltaJog("kiri", 60).ha < 0, true);
+periksa("kanan → ha positif", deltaJog("kanan", 60).ha > 0, true);
+periksa("atas/bawah tidak menyentuh ha", deltaJog("atas", 60).ha, 0);
+periksa("kiri/kanan tidak menyentuh va", deltaJog("kiri", 60).va, 0);
+
+// ── Validasi jog ───────────────────────────────────────────────────────────
+console.log("Validasi jog:");
+periksa("geser normal sah", validasiJog(30, -15), null);
+periksa("nol-nol ditolak", validasiJog(0, 0) !== null, true);
+periksa("pecahan ditolak", validasiJog(1.5, 0) !== null, true);
+periksa("melebihi batas ditolak", validasiJog(MAKS_JOG_DETIK + 1, 0) !== null, true);
+periksa("tepat di batas sah", validasiJog(MAKS_JOG_DETIK, 0), null);
+periksa("batas berlaku juga untuk negatif", validasiJog(-MAKS_JOG_DETIK - 1, 0) !== null, true);
+// Preset harus semuanya lolos validasi — kalau tidak, tombolnya mengirim
+// sesuatu yang pasti ditolak route.
+for (const l of LANGKAH_JOG) {
+  periksa(`preset ${l.label} lolos validasi`, validasiJog(l.detik, 0), null);
+}
 
 console.log(`\n${gagal === 0 ? "✅" : "❌"} ${lulus} lulus, ${gagal} gagal`);
 process.exit(gagal === 0 ? 0 : 1);
