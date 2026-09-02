@@ -380,6 +380,123 @@ export const JENIS_UKUR = {
 
 export type KodeUkur = keyof typeof JENIS_UKUR;
 
+// ── SearchArea (Bagian D) ────────────────────────────────────────────────────
+//
+//   permintaan : {"SearchArea":{"Hor":15,"Ver":15}}      ← Hor / Ver
+//   balasan    : {"SearchArea":{"horizontal":15,"vertical":15}}  ← horizontal / vertical
+//
+// Nama medannya BERBEDA antara permintaan dan balasan. Dokumen menyebutnya
+// eksplisit, dan memakai nama yang sama di kedua arah akan gagal diam-diam:
+// permintaannya diabaikan firmware, balasannya tidak pernah terbaca.
+//
+// ⚠ auto_search SENDIRIAN tidak memakai nilai ini.
+//
+// PowerOn mengirim `*/PA 1,0,7.0000,7.0000` yang ter-hardcode, menimpa
+// SearchArea yang tersimpan. AutoTracking tidak kena karena memasang ulang
+// rentangnya sebelum tiap target, tapi `auto_search` yang dikirim sendirian
+// memakai apa pun yang sedang ada di instrumen — yaitu 7° setelah PowerOn.
+// Kirim SearchArea DULU kalau rentangnya penting.
+export const RENTANG_SETELAH_POWERON_DERAJAT = 7;
+
+/**
+ * Rentang sudut yang sah.
+ *
+ * Angka 0–180 dibawa dari revisi protokol SEBELUMNYA, yang menyebut SearchArea
+ * bertipe number dengan rentang itu. Revisi sekarang mengubah bentuknya jadi
+ * objek dan TIDAK menyebutkan ulang rentangnya. Dipertahankan karena masih
+ * masuk akal secara fisik; kalau dokumen kelak menyebut angka resmi yang
+ * berbeda, angka itu yang menang.
+ */
+export const RENTANG_SEARCH_AREA = { min: 0, maks: 180 };
+
+export function validasiSearchArea(hor: unknown, ver: unknown): string | null {
+  for (const [nama, v] of [["Horizontal", hor], ["Vertikal", ver]] as const) {
+    const n = Number(v);
+    if (!Number.isFinite(n) || n < RENTANG_SEARCH_AREA.min || n > RENTANG_SEARCH_AREA.maks) {
+      return `${nama} harus antara ${RENTANG_SEARCH_AREA.min} dan ${RENTANG_SEARCH_AREA.maks} derajat`;
+    }
+  }
+  return null;
+}
+
+export type BalasanSearchArea = { ada: boolean; horizontal: number | null; vertical: number | null };
+
+/**
+ * Baca balasan SearchArea — memakai `horizontal`/`vertical`, BUKAN `Hor`/`Ver`.
+ *
+ * Bentuk yang sama muncul di dua tempat: sebagai balasan tersendiri, dan sebagai
+ * salah satu medan di snapshot ack konfigurasi.
+ */
+export function bacaBalasanSearchArea(paket: unknown): BalasanSearchArea {
+  const kosong: BalasanSearchArea = { ada: false, horizontal: null, vertical: null };
+  if (paket === null || typeof paket !== "object") return kosong;
+  const o = paket as Record<string, unknown>;
+  if (o.horizontal === undefined && o.vertical === undefined) return kosong;
+
+  const n = (v: unknown) => (v === undefined || v === null || v === "" ? null : Number(v));
+  return { ada: true, horizontal: n(o.horizontal), vertical: n(o.vertical) };
+}
+
+// ── Diagnostik instrumen: Rotate / Idle / Tilt (Bagian F.5 & F.6) ────────────
+//
+//   {"Rotate":{"value":"ok","ms":1840}}
+//   {"Rotate":{"value":"failed","reason":"no_response","ms":3001,"raw":""}}
+//   {"Idle":{"value":"failed","reason":"bad_response","ms":120,"raw":"Ej 0,0,50,7.2"}}
+//   {"Tilt":{"value":"failed","reason":"no_response","ms":5002,"raw":""}}
+//
+// `Rotate` datang dari SETIAP jalur rotasi — rotate, turning_target, jog,
+// HomePosition, dan tiap target di AutoTracking. Jadi ini sinyal lintas
+// perintah, bukan milik satu tombol. Keberhasilannya (`value":"ok"`) baru ada
+// di revisi ini; sebelumnya hanya kegagalan yang dilaporkan.
+//
+// `raw` yang membedakan INSTRUMEN DIAM dari INSTRUMEN MENJAWAB TAPI ISINYA
+// LAIN — dua masalah dengan penanganan yang sangat berbeda. Ditampilkan apa
+// adanya, tidak ditafsirkan.
+
+export const NAMA_DIAGNOSTIK = ["Rotate", "Idle", "Tilt"] as const;
+export type NamaDiagnostik = (typeof NAMA_DIAGNOSTIK)[number];
+
+export const ARTI_ALASAN_DIAGNOSTIK: Record<string, string> = {
+  no_response: "Instrumen diam sama sekali — periksa daya dan kabel.",
+  bad_response: "Instrumen menjawab, tapi isinya bukan yang ditunggu.",
+  timeout: "Instrumen menjawab bertahap tapi tak pernah selesai.",
+};
+
+export const OPERASI_DIAGNOSTIK: Record<NamaDiagnostik, string> = {
+  Rotate: "Perintah putar motor",
+  Idle: "Pemeriksaan status instrumen",
+  // Tanpa pesan ini, sensor24/sensor25 bernilai "0" terlihat sama untuk dua
+  // keadaan berbeda: instrumen memang datar, atau instrumen tidak menjawab.
+  Tilt: "Pembacaan kemiringan",
+};
+
+export type Diagnostik = {
+  ada: boolean;
+  nama: NamaDiagnostik | "";
+  ok: boolean;
+  alasan: string;
+  ms: number | null;
+  raw: string;
+};
+
+export function bacaDiagnostik(nama: NamaDiagnostik, paket: unknown): Diagnostik {
+  const kosong: Diagnostik = { ada: false, nama: "", ok: false, alasan: "", ms: null, raw: "" };
+  if (paket === null || typeof paket !== "object") return kosong;
+  const o = paket as Record<string, unknown>;
+  const v = o.value ?? o.stage;
+  if (v === undefined || v === null) return kosong;
+
+  const nilai = String(v);
+  return {
+    ada: true,
+    nama,
+    ok: nilai === "ok",
+    alasan: o.reason === undefined || o.reason === null ? "" : String(o.reason),
+    ms: o.ms === undefined || o.ms === null ? null : Number(o.ms),
+    raw: o.raw === undefined || o.raw === null ? "" : String(o.raw),
+  };
+}
+
 // ── Rentang setelan (Bagian D) ───────────────────────────────────────────────
 //
 // Dokumen menyebutnya eksplisit: nilai di luar rentang TERSIMPAN TANPA

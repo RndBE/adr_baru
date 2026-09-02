@@ -11,7 +11,12 @@ import { Button } from "@/components/ui/button";
 import Image from "next/image";
 import { cn } from "@/lib/utils";
 import { nilaiBalasanLogger, balasanSelesai, balasanGagal } from "@/lib/balasan-logger";
-import { klasifikasiTurningTarget } from "@/lib/protokol-rts";
+import {
+  klasifikasiTurningTarget,
+  bacaBalasanSearchArea,
+  RENTANG_SETELAH_POWERON_DERAJAT,
+  type BalasanSearchArea,
+} from "@/lib/protokol-rts";
 import { RtsConnectionBadge } from "@/components/RtsConnectionBadge";
 import { useRtsConnectionStatus } from "@/hooks/use-api";
 import { useSites } from "@/hooks/use-sites";
@@ -70,6 +75,14 @@ function PrismaModal({
   type StatusPerintah = "idle" | "waiting" | "done" | "failed";
   const [goTargetStatus, setGoTargetStatus] = useState<StatusPerintah>("idle");
   const [autoSearchStatus, setAutoSearchStatus] = useState<StatusPerintah>("idle");
+
+  // Rentang sapuan. Nilai awal disamakan dengan yang dipasang PowerOn
+  // (7° × 7°) supaya kolomnya menunjukkan keadaan sebenarnya di instrumen,
+  // bukan angka karangan yang belum pernah dikirim.
+  const [saHor, setSaHor] = useState(String(RENTANG_SETELAH_POWERON_DERAJAT));
+  const [saVer, setSaVer] = useState(String(RENTANG_SETELAH_POWERON_DERAJAT));
+  const [saLoading, setSaLoading] = useState(false);
+  const [searchArea, setSearchArea] = useState<BalasanSearchArea | null>(null);
 
   // Diturunkan, bukan disimpan sebagai state.
   //
@@ -181,6 +194,16 @@ function PrismaModal({
           // dikenal tidak boleh divonis gagal maupun sukses.
         }
 
+        // {"SearchArea":{"horizontal":15,"vertical":15}}
+        // Perhatikan namanya: balasan memakai horizontal/vertical, sedangkan
+        // permintaannya Hor/Ver.
+        const bSA = bacaBalasanSearchArea(data.SearchArea);
+        if (bSA.ada) {
+          console.log("[PrismaModal] SearchArea:", bSA.horizontal, bSA.vertical);
+          setSearchArea(bSA);
+          setSaLoading(false);
+        }
+
         // 3. Balasan turning_target — bernama `TurningTarget` (PascalCase).
         //
         //    Revisi protokol sebelumnya menulis nama balasannya huruf kecil;
@@ -254,6 +277,27 @@ function PrismaModal({
       return false;
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleSearchArea = async () => {
+    setSaLoading(true);
+    setError("");
+    try {
+      const res = await fetch("/api/kontrol/search-area", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ site, hor: Number(saHor), ver: Number(saVer) }),
+      });
+      const json = await res.json();
+      if (!json.success) {
+        setError(json.error || "Gagal mengirim rentang sapuan");
+        setSaLoading(false);
+      }
+      // Konfirmasinya datang lewat MQTT: {"SearchArea":{"horizontal":…,"vertical":…}}
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : "Terjadi kesalahan");
+      setSaLoading(false);
     }
   };
 
@@ -424,6 +468,56 @@ function PrismaModal({
               )}
             </div>
           )}
+
+          {/* Rentang sapuan — SENGAJA di sini, tepat sebelum Auto Search.
+              PowerOn menimpa SearchArea tersimpan dengan 7° yang ter-hardcode,
+              dan `auto_search` yang dikirim sendirian memakai apa pun yang
+              sedang ada di instrumen. Jadi rentang ini harus dikirim ULANG
+              menjelang pencarian, bukan sekali saat menyimpan konfigurasi. */}
+          <div className="rounded-lg border border-[#EAEAEA] px-3.5 py-3">
+            <div className="flex items-center justify-between gap-2">
+              <p className="text-[12px] font-semibold text-gray-600">Rentang sapuan</p>
+              {searchArea && (
+                <span className="text-[11.5px] font-semibold text-emerald-700">
+                  Perangkat: {searchArea.horizontal}° × {searchArea.vertical}°
+                </span>
+              )}
+            </div>
+
+            <div className="mt-2 flex items-end gap-2">
+              <div className="flex-1">
+                <label className="mb-1 block text-[11px] text-gray-500">Horizontal (°)</label>
+                <Input
+                  type="number"
+                  value={saHor}
+                  onChange={(e) => setSaHor(e.target.value)}
+                  className="h-[34px] text-[12.5px] border-gray-300 focus-visible:ring-[#303481]"
+                />
+              </div>
+              <div className="flex-1">
+                <label className="mb-1 block text-[11px] text-gray-500">Vertikal (°)</label>
+                <Input
+                  type="number"
+                  value={saVer}
+                  onChange={(e) => setSaVer(e.target.value)}
+                  className="h-[34px] text-[12.5px] border-gray-300 focus-visible:ring-[#303481]"
+                />
+              </div>
+              <button
+                onClick={handleSearchArea}
+                disabled={saLoading}
+                className="h-[34px] flex-shrink-0 rounded-md border border-[#303481] px-3.5 text-[12px] font-bold text-[#303481] transition-colors hover:bg-[#303481] hover:text-white cursor-pointer disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                {saLoading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : "Kirim"}
+              </button>
+            </div>
+
+            <p className="mt-2 text-[11px] leading-relaxed text-gray-500">
+              Setelah PowerOn, instrumen selalu kembali ke{" "}
+              {RENTANG_SETELAH_POWERON_DERAJAT}° × {RENTANG_SETELAH_POWERON_DERAJAT}°.
+              Kirim rentang ini dulu kalau ukurannya penting untuk pencarian berikutnya.
+            </p>
+          </div>
 
           {/* Auto Search */}
           <div className="flex items-center gap-3">

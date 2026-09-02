@@ -27,6 +27,13 @@ import {
   PENANDA_HAVA_GAGAL,
   bacaBalasanUkur,
   JENIS_UKUR,
+  bacaBalasanSearchArea,
+  validasiSearchArea,
+  RENTANG_SETELAH_POWERON_DERAJAT,
+  bacaDiagnostik,
+  NAMA_DIAGNOSTIK,
+  OPERASI_DIAGNOSTIK,
+  ARTI_ALASAN_DIAGNOSTIK,
 } from "../src/lib/protokol-rts";
 
 let lulus = 0;
@@ -404,6 +411,68 @@ periksa("bs → MeasureBS", JENIS_UKUR.bs.balasan, "MeasureBS");
 periksa("fs → MeasureFS", JENIS_UKUR.fs.balasan, "MeasureFS");
 periksa("bs → measure_bs", JENIS_UKUR.bs.perintah, "measure_bs");
 periksa("fs → measure_fs", JENIS_UKUR.fs.perintah, "measure_fs");
+
+// ── SearchArea (Bagian D) ──────────────────────────────────────────────────
+// Nama medan BERBEDA antara permintaan (Hor/Ver) dan balasan
+// (horizontal/vertical). Memakai nama yang sama di kedua arah gagal DIAM-DIAM:
+// permintaannya diabaikan firmware, balasannya tidak pernah terbaca.
+console.log("SearchArea:");
+const SA = bacaBalasanSearchArea({ horizontal: 15, vertical: 15 });
+periksa("balasan terbaca", SA.ada, true);
+periksa("horizontal terbaca", SA.horizontal, 15);
+periksa("vertical terbaca", SA.vertical, 15);
+// Nama bentuk PERMINTAAN tidak boleh terbaca sebagai balasan — kalau terbaca,
+// perintah kita sendiri akan tampil sebagai konfirmasi dari perangkat.
+periksa("Hor/Ver bukan balasan", bacaBalasanSearchArea({ Hor: 15, Ver: 15 }).ada, false);
+periksa("paket kosong → tidak ada", bacaBalasanSearchArea({}).ada, false);
+periksa("undefined → tidak ada", bacaBalasanSearchArea(undefined).ada, false);
+// Bentuk yang sama juga muncul di snapshot ack konfigurasi.
+periksa("nilai 0 terbaca, bukan dianggap kosong", bacaBalasanSearchArea({ horizontal: 0, vertical: 0 }).horizontal, 0);
+
+console.log("Validasi SearchArea:");
+periksa("15/15 sah", validasiSearchArea(15, 15), null);
+periksa("batas 0 sah", validasiSearchArea(0, 0), null);
+periksa("batas 180 sah", validasiSearchArea(180, 180), null);
+periksa("negatif ditolak", validasiSearchArea(-1, 15) !== null, true);
+periksa("lebih dari 180 ditolak", validasiSearchArea(15, 181) !== null, true);
+periksa("bukan angka ditolak", validasiSearchArea("abc", 15) !== null, true);
+// Nilai yang dipasang PowerOn harus lolos validasi — kalau tidak, kolomnya
+// terisi angka yang pasti ditolak route sejak modal dibuka.
+periksa(
+  "rentang bawaan PowerOn lolos",
+  validasiSearchArea(RENTANG_SETELAH_POWERON_DERAJAT, RENTANG_SETELAH_POWERON_DERAJAT),
+  null
+);
+
+// ── Diagnostik Rotate / Idle / Tilt (Bagian F.5 & F.6) ─────────────────────
+console.log("Diagnostik instrumen:");
+const ROT_OK = bacaDiagnostik("Rotate", { value: "ok", ms: 1840 });
+periksa("Rotate ok terbaca", ROT_OK.ok, true);
+periksa("ms terbaca", ROT_OK.ms, 1840);
+// Keberhasilan rotasi BARU ada di revisi ini; sebelumnya hanya kegagalan.
+periksa("ok tidak membawa alasan", ROT_OK.alasan, "");
+
+const ROT_GAGAL = bacaDiagnostik("Rotate", {
+  value: "failed", reason: "no_response", ms: 3001, raw: "",
+});
+periksa("Rotate gagal terbaca", ROT_GAGAL.ok, false);
+periksa("alasan terbaca", ROT_GAGAL.alasan, "no_response");
+periksa("alasan punya penjelasan", typeof ARTI_ALASAN_DIAGNOSTIK["no_response"], "string");
+
+// `raw` inilah yang membedakan instrumen DIAM dari instrumen MENJAWAB TAPI
+// ISINYA LAIN — dua masalah dengan penanganan yang sangat berbeda. Harus utuh.
+const IDLE_BAD = bacaDiagnostik("Idle", {
+  value: "failed", reason: "bad_response", ms: 120, raw: "Ej 0,0,50,7.2",
+});
+periksa("raw utuh, tidak ditafsirkan", IDLE_BAD.raw, "Ej 0,0,50,7.2");
+periksa("nama operasi ikut terbawa", IDLE_BAD.nama, "Idle");
+periksa("Idle punya label operasi", typeof OPERASI_DIAGNOSTIK.Idle, "string");
+// Tilt menyelamatkan tafsir data: tanpa pesan ini, sensor24/25 bernilai "0"
+// terlihat sama untuk instrumen yang memang datar dan yang tidak menjawab.
+periksa("Tilt punya label operasi", typeof OPERASI_DIAGNOSTIK.Tilt, "string");
+periksa("ketiga nama diagnostik terdaftar", NAMA_DIAGNOSTIK.length, 3);
+periksa("paket kosong → tidak ada", bacaDiagnostik("Rotate", {}).ada, false);
+periksa("undefined → tidak ada", bacaDiagnostik("Rotate", undefined).ada, false);
 
 console.log(`\n${gagal === 0 ? "✅" : "❌"} ${lulus} lulus, ${gagal} gagal`);
 process.exit(gagal === 0 ? 0 : 1);

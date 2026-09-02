@@ -153,6 +153,12 @@ import {
   LANGKAH_JOG,
   bacaBalasanUkur,
   JENIS_UKUR,
+  bacaDiagnostik,
+  NAMA_DIAGNOSTIK,
+  OPERASI_DIAGNOSTIK,
+  ARTI_ALASAN_DIAGNOSTIK,
+  type Diagnostik,
+  type NamaDiagnostik,
   type BalasanJog,
   type BacaanHaVa,
   type BalasanUkur,
@@ -519,6 +525,15 @@ export default function KontrolAdrPage() {
   const [ukurJalan, setUkurJalan] = useState<KodeUkur | null>(null);
   const [ukurHasil, setUkurHasil] = useState<Record<KodeUkur, BalasanUkur | null>>({ bs: null, fs: null });
   const [ukurGagal, setUkurGagal] = useState<KodeUkur | null>(null);
+
+  /**
+   * Diagnostik instrumen terakhir (Rotate / Idle / Tilt).
+   *
+   * `Rotate` datang dari SETIAP jalur rotasi — jog, turning_target, pulang ke
+   * home, dan tiap target di AutoTracking. Jadi ini sinyal lintas perintah,
+   * bukan milik satu tombol, dan tempatnya di panel yang selalu terlihat.
+   */
+  const [diagnostik, setDiagnostik] = useState<Diagnostik | null>(null);
 
   const [setHomeStatus, setSetHomeStatus] = useState<"idle" | "waiting" | "done">("idle");
   const [setHomeJawaban, setSetHomeJawaban] = useState<string | null>(null);
@@ -1019,6 +1034,17 @@ export default function KontrolAdrPage() {
               setJogPesan("");
             }
             // "tahap" (start/check/read/rotate) dibiarkan menunggu.
+          }
+
+          // {"Rotate":{"value":"ok","ms":1840}}
+          // {"Rotate":{"value":"failed","reason":"no_response","ms":3001,"raw":""}}
+          // {"Idle":…} / {"Tilt":…} — bentuk sama, operasi berbeda.
+          for (const nd of NAMA_DIAGNOSTIK) {
+            const d = bacaDiagnostik(nd, data[nd]);
+            if (d.ada) {
+              console.log(`[KontrolADR] ${nd}:`, d.ok ? "ok" : d.alasan, d.ms, d.raw);
+              setDiagnostik(d);
+            }
           }
 
           // {"MeasureBS":…} / {"MeasureFS":…}
@@ -1749,6 +1775,50 @@ export default function KontrolAdrPage() {
                         Proses Log
                         {isControlRunning && <span className="text-[10px] text-gray-400 font-normal italic flex items-center gap-1.5"><span className="w-1.5 h-1.5 rounded-full bg-blue-500 animate-pulse inline-block" />&nbsp;Live</span>}
                       </p>
+
+                      {/* Diagnostik instrumen terakhir.
+                          `raw` ditampilkan APA ADANYA — itulah yang membedakan
+                          instrumen yang diam sama sekali dari yang menjawab tapi
+                          isinya lain, dua masalah dengan penanganan yang sangat
+                          berbeda. Menafsirkannya justru menghapus bedanya. */}
+                      {diagnostik && (
+                        <div
+                          className={cn(
+                            "mb-2 rounded-md border px-3 py-2",
+                            diagnostik.ok
+                              ? "border-emerald-200 bg-emerald-50"
+                              : "border-red-200 bg-red-50"
+                          )}
+                        >
+                          <div className="flex items-center justify-between gap-2">
+                            <span className={cn(
+                              "text-[11px] font-bold",
+                              diagnostik.ok ? "text-emerald-800" : "text-red-800"
+                            )}>
+                              {OPERASI_DIAGNOSTIK[diagnostik.nama as NamaDiagnostik] ?? diagnostik.nama}
+                              {diagnostik.ok ? " berhasil" : " gagal"}
+                            </span>
+                            {diagnostik.ms !== null && (
+                              <span className="text-[11px] font-semibold text-gray-500 tabular-nums">
+                                {diagnostik.ms} ms
+                              </span>
+                            )}
+                          </div>
+
+                          {!diagnostik.ok && diagnostik.alasan && (
+                            <p className="mt-0.5 text-[10.5px] text-red-700">
+                              {ARTI_ALASAN_DIAGNOSTIK[diagnostik.alasan] ?? diagnostik.alasan}
+                            </p>
+                          )}
+
+                          {/* Balasan mentah instrumen, maks 64 karakter. */}
+                          {!diagnostik.ok && diagnostik.raw && (
+                            <p className="mt-1 break-all font-mono text-[10.5px] text-red-900">
+                              {diagnostik.raw}
+                            </p>
+                          )}
+                        </div>
+                      )}
 
                       {/* Progres AutoTracking langsung dari firmware. Dibedakan
                           dari "Proses Log" di bawahnya yang disimpulkan dari
