@@ -25,6 +25,8 @@ import {
   LANGKAH_JOG,
   MAKS_JOG_DETIK,
   PENANDA_HAVA_GAGAL,
+  bacaBalasanUkur,
+  JENIS_UKUR,
 } from "../src/lib/protokol-rts";
 
 let lulus = 0;
@@ -351,6 +353,57 @@ periksa("batas berlaku juga untuk negatif", validasiJog(-MAKS_JOG_DETIK - 1, 0) 
 for (const l of LANGKAH_JOG) {
   periksa(`preset ${l.label} lolos validasi`, validasiJog(l.detik, 0), null);
 }
+
+// ── measure_bs / measure_fs (Bagian C.2) ───────────────────────────────────
+console.log("Measure — tahapan, hasil, kegagalan:");
+for (const t of ["start", "measure"]) {
+  periksa(`"${t}" → tahap`, bacaBalasanUkur({ value: t }).jenis, "tahap");
+}
+periksa('"done" → selesai', bacaBalasanUkur({ value: "done" }).jenis, "selesai");
+periksa('"failed" → gagal', bacaBalasanUkur({ value: "failed" }).jenis, "gagal");
+
+const UKUR_OK = {
+  HADMS: "151,38,71", VADMS: "102,50,53", SDis: "123.456", HD: "120.3451",
+};
+const H = bacaBalasanUkur(UKUR_OK);
+periksa("hasil dikenali", H.jenis, "hasil");
+periksa("hasil tidak ditandai kosong", H.kosong, false);
+periksa("HADMS apa adanya", H.HADMS, "151,38,71");
+// HD hanya ada di balasan ini; payload data berkala tidak memuatnya.
+periksa("HD terbaca", H.HD, "120.3451");
+
+// ── Hasil kosong TIDAK boleh terbaca sebagai bacaan ────────────────────────
+// Bentuk ini mendahului {"value":"failed"}. Di revisi lama `SDis` tetap terisi
+// saat gagal, jadi kebiasaan membaca angka apa adanya menampilkan jarak yang
+// tidak pernah terukur.
+console.log("Hasil kosong ditandai:");
+const UKUR_KOSONG = bacaBalasanUkur({ HADMS: "", VADMS: "", SDis: "", HD: "" });
+periksa("semua medan kosong → ditandai kosong", UKUR_KOSONG.kosong, true);
+periksa("tetap berjenis hasil", UKUR_KOSONG.jenis, "hasil");
+// Satu medan terisi bukan berarti kosong — itu bacaan parsial, bukan kegagalan.
+periksa(
+  "satu medan terisi → bukan kosong",
+  bacaBalasanUkur({ HADMS: "151,38,71", VADMS: "", SDis: "", HD: "" }).kosong,
+  false
+);
+periksa("spasi saja dihitung kosong", bacaBalasanUkur({ HADMS: " ", VADMS: " ", SDis: " ", HD: " " }).kosong, true);
+
+periksa("paket kosong → bukan", bacaBalasanUkur({}).jenis, "bukan");
+periksa("undefined → bukan", bacaBalasanUkur(undefined).jenis, "bukan");
+// `value` menang atas medan hasil: penutup "failed" tidak boleh terbaca
+// sebagai bacaan hanya karena kebetulan membawa medan.
+periksa(
+  "value menang atas medan",
+  bacaBalasanUkur({ value: "failed", HADMS: "151,38,71" }).jenis,
+  "gagal"
+);
+
+// Nama balasan BS dan FS tidak tertukar.
+console.log("BS dan FS terpisah:");
+periksa("bs → MeasureBS", JENIS_UKUR.bs.balasan, "MeasureBS");
+periksa("fs → MeasureFS", JENIS_UKUR.fs.balasan, "MeasureFS");
+periksa("bs → measure_bs", JENIS_UKUR.bs.perintah, "measure_bs");
+periksa("fs → measure_fs", JENIS_UKUR.fs.perintah, "measure_fs");
 
 console.log(`\n${gagal === 0 ? "✅" : "❌"} ${lulus} lulus, ${gagal} gagal`);
 process.exit(gagal === 0 ? 0 : 1);

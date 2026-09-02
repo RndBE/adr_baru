@@ -308,6 +308,78 @@ export function validasiJog(ha: unknown, va: unknown): string | null {
   return null;
 }
 
+// ── measure_bs / measure_fs (Bagian C.2) ─────────────────────────────────────
+//
+//   {"set_30002":{"command":"set_rts","measure_fs":true}}
+//
+//   {"MeasureFS":{"value":"start"}}
+//   {"MeasureFS":{"value":"measure"}}
+//   {"MeasureFS":{"HADMS":"151,38,71","VADMS":"102,50,53",
+//                 "SDis":"123.456","HD":"120.3451"}}
+//   {"MeasureFS":{"value":"done"}}
+//
+// Gagal — keempat medan DIKOSONGKAN, lalu penutupnya "failed":
+//
+//   {"MeasureFS":{"HADMS":"","VADMS":"","SDis":"","HD":""}}
+//   {"MeasureFS":{"value":"failed"}}
+//
+// Urutan itu penting: baris kosong datang SEBELUM "failed". Hasil yang seluruh
+// medannya kosong TIDAK boleh ditampilkan sebagai bacaan — di revisi sebelumnya
+// `SDis` tetap dikirim saat gagal, jadi kebiasaan lama membaca angka apa adanya
+// akan menampilkan jarak yang tidak pernah terukur.
+//
+// `HD` (jarak horizontal) dihitung logger dari SD × sin(sudut zenit), dan HANYA
+// ada di balasan ini — payload data berkala tidak memuatnya sama sekali.
+//
+// Catatan: sebelum revisi ini `measure_fs` salah dibalas dengan nama
+// `MeasureBS`. Sekarang sudah benar. Pemanggil memilah lewat NAMA KUNCI, bukan
+// menebak dari perintah yang dikirim — kalau firmware lama masih beredar,
+// hasilnya akan tampil di kolom yang salah, dan itu lebih jujur daripada
+// menerka-nerka mana yang dimaksud.
+
+export type JenisBalasanUkur = "tahap" | "hasil" | "selesai" | "gagal" | "bukan";
+
+export type BalasanUkur = {
+  jenis: JenisBalasanUkur;
+  nilai: string;
+  HADMS?: string;
+  VADMS?: string;
+  SDis?: string;
+  HD?: string;
+  /** true = keempat medan kosong; bentuk yang mendahului "failed". */
+  kosong?: boolean;
+};
+
+export function bacaBalasanUkur(paket: unknown): BalasanUkur {
+  if (paket === null || typeof paket !== "object") return { jenis: "bukan", nilai: "" };
+  const o = paket as Record<string, unknown>;
+
+  const v = o.value ?? o.stage;
+  if (v !== undefined && v !== null) {
+    const nilai = String(v);
+    if (nilai === "failed") return { jenis: "gagal", nilai };
+    if (nilai === "done") return { jenis: "selesai", nilai };
+    return { jenis: "tahap", nilai };
+  }
+
+  const punyaMedan = ["HADMS", "VADMS", "SDis", "HD"].some((k) => o[k] !== undefined);
+  if (!punyaMedan) return { jenis: "bukan", nilai: "" };
+
+  const s = (k: string) => (o[k] === undefined || o[k] === null ? "" : String(o[k]));
+  const HADMS = s("HADMS"), VADMS = s("VADMS"), SDis = s("SDis"), HD = s("HD");
+  const kosong = [HADMS, VADMS, SDis, HD].every((x) => x.trim() === "");
+
+  return { jenis: "hasil", nilai: "", HADMS, VADMS, SDis, HD, kosong };
+}
+
+/** Perintah ukur yang didukung, beserta nama kunci balasannya. */
+export const JENIS_UKUR = {
+  bs: { perintah: "measure_bs", balasan: "MeasureBS", label: "Backsight" },
+  fs: { perintah: "measure_fs", balasan: "MeasureFS", label: "Foresight" },
+} as const;
+
+export type KodeUkur = keyof typeof JENIS_UKUR;
+
 // ── Rentang setelan (Bagian D) ───────────────────────────────────────────────
 //
 // Dokumen menyebutnya eksplisit: nilai di luar rentang TERSIMPAN TANPA

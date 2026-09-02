@@ -60,6 +60,7 @@ import {
   ChevronDown,
   ChevronLeft,
   ChevronRight,
+  Ruler,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 
@@ -150,8 +151,12 @@ import {
   bacaManualHaVa,
   SEBAB_TOLAK_JOG,
   LANGKAH_JOG,
+  bacaBalasanUkur,
+  JENIS_UKUR,
   type BalasanJog,
   type BacaanHaVa,
+  type BalasanUkur,
+  type KodeUkur,
 } from "@/lib/protokol-rts";
 
 // --- Helper Date Formatter ---
@@ -510,6 +515,11 @@ export default function KontrolAdrPage() {
   const [haVa, setHaVa] = useState<BacaanHaVa | null>(null);
   const [haVaLoading, setHaVaLoading] = useState(false);
 
+  // ── Ukur backsight / foresight ──
+  const [ukurJalan, setUkurJalan] = useState<KodeUkur | null>(null);
+  const [ukurHasil, setUkurHasil] = useState<Record<KodeUkur, BalasanUkur | null>>({ bs: null, fs: null });
+  const [ukurGagal, setUkurGagal] = useState<KodeUkur | null>(null);
+
   const [setHomeStatus, setSetHomeStatus] = useState<"idle" | "waiting" | "done">("idle");
   const [setHomeJawaban, setSetHomeJawaban] = useState<string | null>(null);
   const [konfirmasiSetHome, setKonfirmasiSetHome] = useState(false);
@@ -688,6 +698,32 @@ export default function KontrolAdrPage() {
       console.error("[handleBacaHaVa]", err);
       setHaVaLoading(false);
       setPowerAlert({ type: "error", title: "Baca sudut", message: "Terjadi kesalahan jaringan" });
+    }
+  };
+
+  /** Ukur backsight atau foresight. Tidak menggerakkan teleskop. */
+  const handleUkur = async (jenis: KodeUkur) => {
+    setUkurJalan(jenis);
+    setUkurGagal(null);
+    setUkurHasil((p) => ({ ...p, [jenis]: null }));
+    try {
+      const res = await fetch("/api/kontrol/measure", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ site: selectedSite, jenis }),
+      });
+      const json = await res.json();
+      if (!json.success) {
+        setUkurJalan(null);
+        setUkurGagal(jenis);
+        setPowerAlert({ type: "error", title: "Ukur", message: json.error || "Gagal" });
+      }
+      // Hasilnya ditangkap handler MQTT (MeasureBS/MeasureFS).
+    } catch (err) {
+      console.error("[handleUkur]", err);
+      setUkurJalan(null);
+      setUkurGagal(jenis);
+      setPowerAlert({ type: "error", title: "Ukur", message: "Terjadi kesalahan jaringan" });
     }
   };
 
@@ -983,6 +1019,33 @@ export default function KontrolAdrPage() {
               setJogPesan("");
             }
             // "tahap" (start/check/read/rotate) dibiarkan menunggu.
+          }
+
+          // {"MeasureBS":…} / {"MeasureFS":…}
+          //
+          // Dipilah lewat NAMA KUNCI, bukan dari perintah yang barusan dikirim.
+          // Sebelum revisi protokol ini `measure_fs` salah dibalas `MeasureBS`;
+          // kalau masih ada unit lama, hasilnya tampil di kolom yang salah —
+          // dan itu lebih jujur daripada menerka mana yang dimaksud.
+          for (const kode of ["bs", "fs"] as const) {
+            const bUkur = bacaBalasanUkur(data[JENIS_UKUR[kode].balasan]);
+            if (bUkur.jenis === "bukan") continue;
+            console.log(`[KontrolADR] ${JENIS_UKUR[kode].balasan}:`, bUkur.jenis, bUkur.nilai);
+
+            if (bUkur.jenis === "hasil") {
+              // Baris berisi medan kosong mendahului "failed" — JANGAN
+              // ditampilkan sebagai bacaan. Di revisi lama `SDis` tetap terisi
+              // saat gagal, jadi membaca angka apa adanya menampilkan jarak
+              // yang tidak pernah terukur.
+              if (!bUkur.kosong) setUkurHasil((p) => ({ ...p, [kode]: bUkur }));
+            } else if (bUkur.jenis === "gagal") {
+              setUkurJalan(null);
+              setUkurGagal(kode);
+              setUkurHasil((p) => ({ ...p, [kode]: null }));
+            } else if (bUkur.jenis === "selesai") {
+              setUkurJalan(null);
+            }
+            // "tahap" (start/measure) dibiarkan menunggu.
           }
 
           // {"ManualHAVA":{"HA":"151,38,71","VA":"206,04,62"}}
@@ -2606,6 +2669,60 @@ export default function KontrolAdrPage() {
                   <span>{jogPesan}</span>
                 </div>
               )}
+
+              {/* Ukur — melengkapi alurnya: arahkan, baca sudut, lalu ukur.
+                  Tidak menggerakkan teleskop, hanya membaca. */}
+              <div className="border-t border-gray-100 pt-4">
+                <p className="mb-2 text-[12px] font-medium text-gray-600">Ukur dari arah sekarang</p>
+                <div className="grid grid-cols-2 gap-2">
+                  {(["bs", "fs"] as const).map((kode) => (
+                    <button
+                      key={kode}
+                      onClick={() => handleUkur(kode)}
+                      disabled={ukurJalan !== null || !isConnected || !selectedSite}
+                      className={cn(
+                        "flex h-[38px] items-center justify-center gap-2 rounded-md border text-[12.5px] font-bold transition-colors",
+                        ukurJalan !== null || !isConnected || !selectedSite
+                          ? "border-gray-200 bg-gray-50 text-gray-300 cursor-not-allowed"
+                          : "border-[#E86A1F] text-[#E86A1F] hover:bg-[#E86A1F] hover:text-white cursor-pointer"
+                      )}
+                    >
+                      {ukurJalan === kode ? <Loader2 className="h-4 w-4 animate-spin" /> : <Ruler className="h-4 w-4" />}
+                      {JENIS_UKUR[kode].label}
+                    </button>
+                  ))}
+                </div>
+
+                {(["bs", "fs"] as const).map((kode) => {
+                  const h = ukurHasil[kode];
+                  if (!h) return null;
+                  return (
+                    <div key={kode} className="mt-2 rounded-lg bg-gray-50 px-3.5 py-3">
+                      <p className="text-[11px] font-bold text-[#303481]">
+                        {JENIS_UKUR[kode].label}
+                      </p>
+                      <div className="mt-1 grid grid-cols-2 gap-x-3 gap-y-0.5 font-mono text-[11.5px] text-gray-800">
+                        <span>HA {h.HADMS}</span>
+                        <span>VA {h.VADMS}</span>
+                        <span>SD {h.SDis}</span>
+                        {/* HD hanya ada di balasan ini — payload data berkala
+                            tidak memuat jarak horizontal sama sekali. */}
+                        <span>HD {h.HD}</span>
+                      </div>
+                    </div>
+                  );
+                })}
+
+                {ukurGagal && (
+                  <div className="mt-2 flex gap-2.5 rounded-lg bg-amber-50 px-3.5 py-3 text-[12.5px] leading-relaxed text-amber-900">
+                    <AlertTriangle className="mt-[1px] h-4 w-4 flex-shrink-0" />
+                    <span>
+                      Pengukuran {JENIS_UKUR[ukurGagal].label} gagal. Instrumen tidak
+                      mendapat pantulan — periksa bidikan dan halangan di lintasan.
+                    </span>
+                  </div>
+                )}
+              </div>
             </div>
           </div>
         </div>
