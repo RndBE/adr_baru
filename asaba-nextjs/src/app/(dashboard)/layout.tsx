@@ -51,7 +51,17 @@ export default function DashboardLayout({
    * memunculkan overflow horizontal. Paling kentara di layar 1366.
    */
   const RUTE_FULL_BLEED = ["/master-data", "/kontrol-adr", "/beranda", "/power-rts"];
-  const fullBleed = RUTE_FULL_BLEED.some((r) => pathname.startsWith(r));
+  /**
+   * Cocok PERSIS, bukan berawalan. "/hasil-pengukuran" memakai tema monitoring
+   * dan memasang paddingnya sendiri, tapi sub-rutenya
+   * "/hasil-pengukuran/<nama-prisma>" belum — kalau dicocokkan dengan
+   * startsWith, halaman detail itu kehilangan gutter dan isinya menempel ke
+   * tepi layar.
+   */
+  const RUTE_FULL_BLEED_PERSIS = ["/hasil-pengukuran"];
+  const fullBleed =
+    RUTE_FULL_BLEED_PERSIS.includes(pathname) ||
+    RUTE_FULL_BLEED.some((r) => pathname.startsWith(r));
 
   return (
     <SidebarProvider>

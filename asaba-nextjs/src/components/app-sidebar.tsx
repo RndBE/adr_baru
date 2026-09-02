@@ -211,7 +211,9 @@ export function AppSidebar() {
               width={499}
               height={148}
               priority
-              className="h-10 w-auto object-contain"
+              /* Tinggi dari --app-logo-height di globals.css — satu tempat dengan
+                 lebar sidebar, jadi keduanya mengecil bersamaan. */
+              className="h-(--app-logo-height) w-auto object-contain"
               draggable={false}
             />
           </Link>

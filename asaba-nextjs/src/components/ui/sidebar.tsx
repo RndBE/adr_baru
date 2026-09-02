@@ -27,7 +27,14 @@ import { PanelLeftIcon } from "lucide-react"
 
 const SIDEBAR_COOKIE_NAME = "sidebar_state"
 const SIDEBAR_COOKIE_MAX_AGE = 60 * 60 * 24 * 7
-const SIDEBAR_WIDTH = "16rem"
+/**
+ * Lebar sidebar desktop. Nilai sebenarnya datang dari `--app-sidebar-width` di
+ * globals.css supaya bisa berbeda per breakpoint — inline style tidak bisa
+ * memuat media query, dan gaya inline di <div data-slot="sidebar-wrapper">
+ * mengalahkan kelas apa pun, jadi pengaturannya harus lewat variabel.
+ * 16rem adalah cadangan bila variabelnya belum terdefinisi.
+ */
+const SIDEBAR_WIDTH = "var(--app-sidebar-width, 16rem)"
 const SIDEBAR_WIDTH_MOBILE = "18rem"
 const SIDEBAR_WIDTH_ICON = "3rem"
 const SIDEBAR_KEYBOARD_SHORTCUT = "b"

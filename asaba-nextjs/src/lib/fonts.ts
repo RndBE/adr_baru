@@ -13,7 +13,7 @@
  * Geist adalah variable font (100–900), jadi `weight` tidak perlu disebut.
  * Ia hanya punya style normal; teks ber-`italic` dimiringkan browser.
  */
-import { Geist, Geist_Mono } from "next/font/google";
+import { Barlow_Semi_Condensed, Geist, Geist_Mono } from "next/font/google";
 
 // Nama variabelnya SENGAJA bukan --font-sans. Token Tailwind di globals.css
 // bernama --font-sans, dan dulu isinya `var(--font-sans)` — merujuk dirinya
@@ -29,4 +29,24 @@ export const fontSans = Geist({
 export const fontMono = Geist_Mono({
   variable: "--font-geist-mono",
   subsets: ["latin"],
+});
+
+/**
+ * Wajah display untuk Beranda — judul panel, eyebrow, dan kata status.
+ *
+ * Barlow Semi Condensed dipilih karena bentuknya diturunkan dari rambu dan
+ * pelat nama industri: cocok untuk panel instrumen pemantauan, dan lebar
+ * hurufnya yang rapat menyisakan ruang di layar 1366. Bukan variable font,
+ * jadi bobotnya harus disebut eksplisit. Teks tubuh tetap Geist supaya
+ * halaman ini masih terasa satu aplikasi dengan halaman lainnya.
+ *
+ * Variabelnya dipasang di root halaman Beranda (bukan di <html>) supaya font
+ * ini hanya dimuat di halaman yang memakainya. Token Tailwind `--font-display`
+ * di globals.css merujuk ke variabel ini.
+ */
+export const fontDisplay = Barlow_Semi_Condensed({
+  variable: "--font-barlow-sc",
+  subsets: ["latin"],
+  weight: ["600", "700"],
+  display: "swap",
 });

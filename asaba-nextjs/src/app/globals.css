@@ -15,6 +15,8 @@
   --font-sans: var(--font-geist-sans), ui-sans-serif, system-ui, sans-serif;
   --font-mono: var(--font-geist-mono), ui-monospace, monospace;
   --font-heading: var(--font-geist-sans), ui-sans-serif, system-ui, sans-serif;
+  /* Display Beranda — nilainya diisi fontDisplay.variable di root halaman. */
+  --font-display: var(--font-barlow-sc), var(--font-geist-sans), ui-sans-serif, system-ui, sans-serif;
   --color-sidebar-ring: var(--sidebar-ring);
   --color-sidebar-border: var(--sidebar-border);
   --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
@@ -188,4 +190,102 @@ html {
 }
 ::-webkit-scrollbar-thumb:hover {
   background: oklch(0.6 0 0);
+}
+/* ─── Tema monitoring: token panel instrumen & kertas ────────────────────────
+   Dipasang di root halaman yang memakai tema ini (Dashboard, Hasil
+   Pengukuran). Dua permukaan: panel gelap biru-tua untuk subjek utama
+   halaman, dan kertas terang untuk data rinci. Warna status (Normal/Waspada/
+   Siaga/Awas) tetap — tidak ikut tema — dan tidak pernah dipakai untuk hal
+   selain status.
+
+   Sengaja di-scope ke satu kelas, bukan :root, supaya halaman lain yang belum
+   dirapikan tetap memakai tampilan lamanya. */
+.tema-monitoring {
+  --paper: #f3f4f8;
+  --ink: #14173a;
+  --ink-2: #4f5374;
+  --ink-3: #6b6f8e;
+  --line: rgba(20, 23, 58, 0.1);
+  --navy: #303481;
+  --navy-deep: #252865;
+
+  --console: oklch(0.235 0.07 278);
+  --console-2: oklch(0.29 0.075 278);
+  --console-line: oklch(1 0 0 / 12%);
+  --console-ink: oklch(0.965 0.008 278);
+  --console-ink-2: oklch(0.8 0.035 278);
+  --console-ink-3: oklch(0.66 0.045 278);
+  --console-accent: oklch(0.8 0.08 250);
+
+  --st-normal: #0ca30c;
+  --st-waspada: #fab219;
+  --st-siaga: #ec835a;
+  --st-awas: #d03b3b;
+}
+
+/* Vektor pergeseran pada mawar arah "tergambar" dari pusat saat sesi berganti.
+   pathLength="1" pada elemennya membuat dasharray 1 = panjang penuh. */
+@keyframes rose-draw {
+  from { stroke-dashoffset: 1; }
+  to   { stroke-dashoffset: 0; }
+}
+.rose-vec {
+  stroke-dasharray: 1;
+  stroke-dashoffset: 0;
+  animation: rose-draw 0.7s cubic-bezier(0.2, 0.8, 0.2, 1) both;
+}
+@keyframes rose-pop {
+  from { opacity: 0; transform: scale(0.4); }
+  to   { opacity: 1; transform: scale(1); }
+}
+.rose-dot {
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: rose-pop 0.35s cubic-bezier(0.2, 0.8, 0.2, 1) both;
+}
+
+/* Satu momen masuk halaman: zona panel naik berurutan. */
+@keyframes rise-in {
+  from { opacity: 0; transform: translateY(10px); }
+  to   { opacity: 1; transform: none; }
+}
+.rise-in {
+  animation: rise-in 0.55s cubic-bezier(0.2, 0.8, 0.2, 1) both;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .rose-vec, .rose-dot, .rise-in { animation: none; }
+}
+
+
+/* ─── Lebar sidebar per breakpoint ───────────────────────────────────────────
+   Dibaca oleh SIDEBAR_WIDTH di src/components/ui/sidebar.tsx, yang
+   memasangnya sebagai `--sidebar-width` lewat inline style. Dulu satu nilai
+   tetap 16rem: pas di 1920 tapi memakan terlalu banyak kolom konten di 1366.
+   Titik henti terakhir sengaja 1920px — di atas Tailwind `2xl` (1536px) —
+   karena di situlah 16rem baru terasa proporsional. */
+/* --app-logo-height ikut di sini, bukan sebagai varian Tailwind di komponen,
+   supaya logo dan lebar sidebar yang menampungnya tidak bisa berubah terpisah.
+   Rasio logo 3,372 : 1 — tinggi 1,75rem berarti lebar ±94px di sidebar 200px. */
+:root {
+  --app-sidebar-width: 12.5rem;
+  --app-logo-height: 1.75rem;
+}
+@media (min-width: 1280px) {
+  :root {
+    --app-sidebar-width: 13.25rem;
+    --app-logo-height: 1.875rem;
+  }
+}
+@media (min-width: 1536px) {
+  :root {
+    --app-sidebar-width: 14.5rem;
+    --app-logo-height: 2rem;
+  }
+}
+@media (min-width: 1920px) {
+  :root {
+    --app-sidebar-width: 16rem;
+    --app-logo-height: 2.25rem;
+  }
 }
