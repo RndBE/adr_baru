@@ -1,15 +1,13 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { AlertCircle, Crosshair, Loader2, Search, Send, Target } from "lucide-react";
+import { AlertCircle, Crosshair, Loader2, Search, Target } from "lucide-react";
 import mqtt from "mqtt";
 import { cn } from "@/lib/utils";
 import { nilaiBalasanLogger, balasanSelesai, balasanGagal } from "@/lib/balasan-logger";
 import {
   klasifikasiTurningTarget,
-  bacaBalasanSearchArea,
   RENTANG_SETELAH_POWERON_DERAJAT,
-  type BalasanSearchArea,
 } from "@/lib/protokol-rts";
 import {
   INPUT,
@@ -152,14 +150,6 @@ export function PrismaModal({
   const [goTargetStatus, setGoTargetStatus] = useState<StatusPerintah>("idle");
   const [autoSearchStatus, setAutoSearchStatus] = useState<StatusPerintah>("idle");
 
-  // Rentang sapuan. Nilai awal disamakan dengan yang dipasang PowerOn
-  // (7° × 7°) supaya kolomnya menunjukkan keadaan sebenarnya di instrumen,
-  // bukan angka karangan yang belum pernah dikirim.
-  const [saHor, setSaHor] = useState(String(RENTANG_SETELAH_POWERON_DERAJAT));
-  const [saVer, setSaVer] = useState(String(RENTANG_SETELAH_POWERON_DERAJAT));
-  const [saLoading, setSaLoading] = useState(false);
-  const [searchArea, setSearchArea] = useState<BalasanSearchArea | null>(null);
-
   // Diturunkan, bukan disimpan sebagai state.
   //
   // Versi lama menyimpannya di useState dan effect-nya HANYA pernah menyetel
@@ -272,15 +262,6 @@ export function PrismaModal({
           // dikenal tidak boleh divonis gagal maupun sukses.
         }
 
-        // {"SearchArea":{"horizontal":15,"vertical":15}}
-        // Perhatikan namanya: balasan memakai horizontal/vertical, sedangkan
-        // permintaannya Hor/Ver.
-        const bSA = bacaBalasanSearchArea(data.SearchArea);
-        if (bSA.ada) {
-          setSearchArea(bSA);
-          setSaLoading(false);
-        }
-
         // 3. Balasan turning_target — bernama `TurningTarget` (PascalCase).
         //
         //    Revisi protokol sebelumnya menulis nama balasannya huruf kecil;
@@ -334,27 +315,6 @@ export function PrismaModal({
     // `site` ikut jadi dependency: handler MQTT mengirimnya ke prism-set,
     // jadi handler lama akan menyimpan HA/VA ke site yang sudah tidak dipilih.
   }, [onSuccess, site]);
-
-  const handleSearchArea = async () => {
-    setSaLoading(true);
-    setError("");
-    try {
-      const res = await fetch("/api/kontrol/search-area", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ site, hor: Number(saHor), ver: Number(saVer) }),
-      });
-      const json = await res.json();
-      if (!json.success) {
-        setError(json.error || "Gagal mengirim rentang sapuan");
-        setSaLoading(false);
-      }
-      // Konfirmasinya datang lewat MQTT: {"SearchArea":{"horizontal":…,"vertical":…}}
-    } catch (e: unknown) {
-      setError(e instanceof Error ? e.message : "Terjadi kesalahan");
-      setSaLoading(false);
-    }
-  };
 
   const handleAutoSearch = async () => {
     setLoading(true);
@@ -434,8 +394,7 @@ export function PrismaModal({
   // Go To Target hanya ada di mode edit — slot kosong belum punya sudut yang
   // bisa dituju. Penomoran langkahnya karena itu ikut bergeser.
   const adaGoTo = mode === "edit";
-  const nomorSapuan = adaGoTo ? 3 : 2;
-  const nomorCari = adaGoTo ? 4 : 3;
+  const nomorCari = adaGoTo ? 3 : 2;
 
   return (
     <ModalShell
@@ -544,70 +503,7 @@ export function PrismaModal({
           </Langkah>
         )}
 
-        {/* ── 3. Rentang sapuan ──
-            SENGAJA tepat sebelum Auto Search. PowerOn menimpa SearchArea
-            tersimpan dengan 7° yang ter-hardcode, dan `auto_search` yang
-            dikirim sendirian memakai apa pun yang sedang ada di instrumen.
-            Jadi rentang ini harus dikirim ULANG menjelang pencarian, bukan
-            sekali saat menyimpan konfigurasi. */}
-        <Langkah
-          nomor={nomorSapuan}
-          judul="Rentang sapuan"
-          keterangan={`Opsional. Setelah PowerOn instrumen selalu kembali ke ${RENTANG_SETELAH_POWERON_DERAJAT}° × ${RENTANG_SETELAH_POWERON_DERAJAT}°, jadi kirim ulang bila ukurannya penting.`}
-        >
-          <div className="rounded-[10px] bg-(--paper) p-3">
-            <div className="flex items-end gap-2">
-              <div className="min-w-0 flex-1">
-                <label htmlFor="sa-hor" className={cn(LABEL, "mb-1 text-[11px] font-medium")}>
-                  Horizontal °
-                </label>
-                <input
-                  id="sa-hor"
-                  type="number"
-                  value={saHor}
-                  onChange={(e) => setSaHor(e.target.value)}
-                  className={cn(INPUT, "h-8 font-mono tabular-nums")}
-                />
-              </div>
-              <div className="min-w-0 flex-1">
-                <label htmlFor="sa-ver" className={cn(LABEL, "mb-1 text-[11px] font-medium")}>
-                  Vertikal °
-                </label>
-                <input
-                  id="sa-ver"
-                  type="number"
-                  value={saVer}
-                  onChange={(e) => setSaVer(e.target.value)}
-                  className={cn(INPUT, "h-8 font-mono tabular-nums")}
-                />
-              </div>
-              <button
-                type="button"
-                onClick={handleSearchArea}
-                disabled={saLoading}
-                className={cn(TOMBOL_SEKUNDER, "h-8 shrink-0 px-3 text-[12px]")}
-              >
-                {saLoading ? <Loader2 className="size-3.5 animate-spin" /> : <Send className="size-3.5" />}
-                Kirim
-              </button>
-            </div>
-            {searchArea && (
-              <p className="mt-2 inline-flex items-center gap-1.5 text-[11.5px] text-(--ink-2)">
-                <span
-                  aria-hidden="true"
-                  className="size-2 rounded-full"
-                  style={{ background: "var(--st-normal)" }}
-                />
-                Terpasang di perangkat:{" "}
-                <span className="font-mono tabular-nums text-(--ink)">
-                  {searchArea.horizontal}° × {searchArea.vertical}°
-                </span>
-              </p>
-            )}
-          </div>
-        </Langkah>
-
-        {/* ── 4. Cari prisma ── */}
+        {/* ── 3. Cari prisma ── */}
         <Langkah
           nomor={nomorCari}
           judul="Cari prisma"
@@ -641,6 +537,17 @@ export function PrismaModal({
               teksGagal="Prisma tidak ditemukan"
             />
           </div>
+
+          <p className="mt-2.5 flex gap-1.5 text-[11.5px] leading-relaxed text-(--ink-3)">
+            <AlertCircle aria-hidden="true" className="mt-px size-3.5 shrink-0" />
+            <span>
+              Sapuan memakai rentang yang sedang terpasang di instrumen, dan setelah PowerOn
+              itu selalu {RENTANG_SETELAH_POWERON_DERAJAT}° ×{" "}
+              {RENTANG_SETELAH_POWERON_DERAJAT}°. Ubah lewat{" "}
+              <span className="font-semibold text-(--ink-2)">Kontrol ADR → RTS Config</span>{" "}
+              bila ukurannya penting, lalu kembali ke sini.
+            </span>
+          </p>
         </Langkah>
       </ol>
     </ModalShell>

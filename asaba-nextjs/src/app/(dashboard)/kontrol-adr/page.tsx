@@ -23,6 +23,8 @@ import {
   Power,
   RefreshCcw,
   Ruler,
+  Scan,
+  Send,
   Settings2,
   SlidersHorizontal,
   X,
@@ -51,11 +53,15 @@ import {
   klasifikasiPower,
   klasifikasiTracking,
   bacaKonfirmasiConfig,
+  bacaBalasanSearchArea,
   bacaBalasanSetHome,
   RENTANG_CYCLE_TIME_MS,
   RENTANG_RETRIES,
+  RENTANG_SEARCH_AREA,
+  RENTANG_SETELAH_POWERON_DERAJAT,
   validasiCycleTime,
   validasiRetries,
+  validasiSearchArea,
   bacaBalasanJog,
   bacaManualHaVa,
   SEBAB_TOLAK_JOG,
@@ -70,6 +76,7 @@ import {
   type NamaDiagnostik,
   type BalasanJog,
   type BacaanHaVa,
+  type BalasanSearchArea,
   type BalasanUkur,
   type KodeUkur,
 } from "@/lib/protokol-rts";
@@ -904,6 +911,19 @@ export default function KontrolAdrPage() {
             });
           }
 
+          // {"SearchArea":{"horizontal":15,"vertical":15}}
+          //
+          // Nama medannya BERBEDA dari permintaannya (`Hor`/`Ver`) — gampang
+          // tertukar kalau disalin dari payload perintah. Bentuk yang sama juga
+          // ikut sebagai salah satu medan di snapshot ack konfigurasi, jadi
+          // pembacaannya diletakkan bersebelahan dengan konfirmasi config.
+          const bSA = bacaBalasanSearchArea(data.SearchArea);
+          if (bSA.ada) {
+            console.log("[KontrolADR] SearchArea:", bSA.horizontal, bSA.vertical);
+            setSearchArea(bSA);
+            setSaLoading(false);
+          }
+
           // {"setHome":{"setHome":",0,061,41,90,199,18,72;"}}
           //
           // Kunci dalamnya MENGULANG nama perintahnya, bukan `value` — bentuk
@@ -1064,6 +1084,38 @@ export default function KontrolAdrPage() {
    */
   const configTerkirimRef = useRef<Record<string, string> | null>(null);
 
+  /**
+   * Rentang sapuan (SearchArea) — pindah ke sini dari modal prisma di Prism
+   * Config, karena ini setelan INSTRUMEN, bukan bagian identitas satu prisma.
+   *
+   * Nilai awalnya disamakan dengan yang dipasang PowerOn supaya kolomnya
+   * menunjukkan keadaan sebenarnya di instrumen, bukan angka karangan yang
+   * belum pernah dikirim.
+   */
+  const [saHor, setSaHor] = useState(String(RENTANG_SETELAH_POWERON_DERAJAT));
+  const [saVer, setSaVer] = useState(String(RENTANG_SETELAH_POWERON_DERAJAT));
+  const [saLoading, setSaLoading] = useState(false);
+  const [saGalat, setSaGalat] = useState("");
+  /** Nilai yang DIKEMBALIKAN instrumen — bukan isi kolom di atas. */
+  const [searchArea, setSearchArea] = useState<BalasanSearchArea | null>(null);
+
+  // Batas menunggu balasan SearchArea.
+  //
+  // Versi yang ada di modal prisma TIDAK punya ini: kalau logger tidak
+  // menjawab, tombol Kirim berputar selamanya dan tidak ada yang memberi tahu.
+  // Menulis setelan tidak menggerakkan instrumen, jadi 15 detik sudah longgar
+  // dibanding operasi terlama di tabel durasi protokol (auto_search 30 detik).
+  useEffect(() => {
+    if (!saLoading) return;
+    const timer = setTimeout(() => {
+      setSaLoading(false);
+      setSaGalat(
+        "Tidak ada balasan dalam 15 detik. Perintahnya sudah dikirim, tapi belum tentu diterima instrumen."
+      );
+    }, 15_000);
+    return () => clearTimeout(timer);
+  }, [saLoading]);
+
   // Timeout konfirmasi RTS Config.
   //
   // 20 detik: menulis setelan tidak menggerakkan instrumen, jadi jauh lebih
@@ -1206,6 +1258,8 @@ export default function KontrolAdrPage() {
     // Konfirmasi dari sesi simpan sebelumnya dibersihkan. Kalau dibiarkan,
     // modal terbuka dengan centang hijau untuk setelan yang belum dikirim.
     setKonfirmasiConfig(null);
+    setSearchArea(null);
+    setSaGalat("");
     setConfigLoading(true);
     try {
       const res = await fetch(`/api/config-adr?site=${encodeURIComponent(selectedSite)}`);
@@ -1228,6 +1282,49 @@ export default function KontrolAdrPage() {
       console.error("Failed to fetch config:", err);
     } finally {
       setConfigLoading(false);
+    }
+  };
+
+  /**
+   * Kirim rentang sapuan — SENDIRI, tidak lewat saveConfig.
+   *
+   * Perintahnya `set_rts` bermedan SearchArea dan berlaku saat itu juga,
+   * sedangkan /api/config-adr menulis ke database dulu. Nilainya sengaja tidak
+   * disimpan aplikasi: instrumen sudah melaporkannya balik, jadi menyimpannya
+   * berarti membuat sumber kebenaran kedua untuk besaran yang sama. Alasan
+   * lengkapnya ada di api/kontrol/search-area/route.ts.
+   */
+  const kirimSearchArea = async () => {
+    if (!selectedSite) {
+      setSaGalat("Pilih site pengukuran lebih dulu.");
+      return;
+    }
+    // Divalidasi di klien juga, bukan hanya di server: rentangnya sudah
+    // diketahui di sini, dan menunggu satu perjalanan HTTP untuk diberi tahu
+    // angkanya di luar 0–180 tidak ada gunanya.
+    const salah = validasiSearchArea(saHor, saVer);
+    if (salah) {
+      setSaGalat(salah);
+      return;
+    }
+    setSaGalat("");
+    setSearchArea(null);
+    setSaLoading(true);
+    try {
+      const res = await fetch("/api/kontrol/search-area", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ site: selectedSite, hor: Number(saHor), ver: Number(saVer) }),
+      });
+      const json = await res.json();
+      if (!json.success) {
+        setSaGalat(json.error || "Gagal mengirim rentang sapuan");
+        setSaLoading(false);
+      }
+      // Konfirmasinya datang lewat MQTT: {"SearchArea":{"horizontal":…,"vertical":…}}
+    } catch (e: unknown) {
+      setSaGalat(e instanceof Error ? e.message : "Terjadi kesalahan jaringan");
+      setSaLoading(false);
     }
   };
 
@@ -2230,6 +2327,112 @@ export default function KontrolAdrPage() {
                     </span>
                   </div>
                 )}
+              </fieldset>
+
+              {/* ── Rentang sapuan ──────────────────────────────────────────
+                  Pindah ke sini dari modal prisma di Prism Config: ini setelan
+                  INSTRUMEN, bukan bagian identitas satu prisma.
+
+                  SENGAJA di luar alur Simpan, dan bingkainya dibedakan supaya
+                  itu kelihatan. Setelan lain di modal ini ditulis ke database
+                  lalu dikirim ulang tiap kali alat menyala; rentang sapuan
+                  tidak disimpan aplikasi sama sekali dan berlaku begitu
+                  dikirim. Menggabungkannya ke Simpan akan menjanjikan sesuatu
+                  yang tidak bisa ditepati — nilainya hilang di PowerOn
+                  berikutnya. */}
+              <fieldset>
+                <legend className="mb-2 inline-flex items-center gap-2 font-display text-[12px] font-semibold uppercase tracking-[0.1em] text-(--ink-2)">
+                  <Scan className="size-3.5" /> Rentang sapuan
+                </legend>
+                <div className="rounded-[10px] bg-(--paper) p-3.5">
+                  <p className="text-[11.5px] leading-relaxed text-(--ink-3)">
+                    Dikirim langsung ke instrumen,{" "}
+                    <span className="font-semibold text-(--ink-2)">terpisah dari Simpan</span>.
+                    Nilainya tidak disimpan aplikasi: setelah PowerOn instrumen selalu kembali
+                    ke {RENTANG_SETELAH_POWERON_DERAJAT}° × {RENTANG_SETELAH_POWERON_DERAJAT}°,
+                    jadi kirim ulang menjelang Auto Search bila ukurannya penting.
+                  </p>
+
+                  <div className="mt-3 grid grid-cols-3 items-end gap-3">
+                    <div>
+                      <label htmlFor="cfg-sa-hor" className={LABEL}>
+                        Horizontal{" "}
+                        <span className="font-normal text-(--ink-3)">
+                          {RENTANG_SEARCH_AREA.min}–{RENTANG_SEARCH_AREA.maks}°
+                        </span>
+                      </label>
+                      <input
+                        id="cfg-sa-hor"
+                        type="number"
+                        value={saHor}
+                        onChange={(e) => setSaHor(e.target.value)}
+                        className={cn(INPUT, "font-mono tabular-nums")}
+                      />
+                    </div>
+                    <div>
+                      <label htmlFor="cfg-sa-ver" className={LABEL}>
+                        Vertikal{" "}
+                        <span className="font-normal text-(--ink-3)">
+                          {RENTANG_SEARCH_AREA.min}–{RENTANG_SEARCH_AREA.maks}°
+                        </span>
+                      </label>
+                      <input
+                        id="cfg-sa-ver"
+                        type="number"
+                        value={saVer}
+                        onChange={(e) => setSaVer(e.target.value)}
+                        className={cn(INPUT, "font-mono tabular-nums")}
+                      />
+                    </div>
+                    {/* SENGAJA tidak dinonaktifkan saat site belum dipilih:
+                        tombol mati tanpa keterangan tidak memberi tahu apa pun.
+                        Klik-nya dibiarkan masuk supaya handler-nya bisa
+                        MENGATAKAN alasannya di tempat yang terlihat. */}
+                    <button
+                      type="button"
+                      onClick={kirimSearchArea}
+                      disabled={saLoading}
+                      className={cn(TOMBOL_SEKUNDER, "w-full")}
+                    >
+                      {saLoading ? (
+                        <Loader2 className="size-4 animate-spin" />
+                      ) : (
+                        <Send className="size-4" />
+                      )}
+                      Kirim
+                    </button>
+                  </div>
+
+                  {saGalat && (
+                    <p className="mt-2.5 flex gap-2 text-[12px] leading-relaxed text-amber-900">
+                      <AlertTriangle className="mt-px size-4 shrink-0 text-amber-600" />
+                      <span>{saGalat}</span>
+                    </p>
+                  )}
+
+                  {saLoading && (
+                    <p className="mt-2.5 text-[12px] text-(--ink-2)">
+                      Menunggu instrumen mengonfirmasi…
+                    </p>
+                  )}
+
+                  {/* Yang ditampilkan nilai yang DIKEMBALIKAN instrumen, bukan
+                      isi kolom di atas — dua hal berbeda, dan yang kedua inilah
+                      yang nanti dipakai Auto Search. */}
+                  {searchArea && (
+                    <p className="mt-2.5 inline-flex items-center gap-1.5 text-[12px] text-(--ink-2)">
+                      <span
+                        aria-hidden="true"
+                        className="size-2 rounded-full"
+                        style={{ background: "var(--st-normal)" }}
+                      />
+                      Terpasang di instrumen:{" "}
+                      <span className="font-mono tabular-nums text-(--ink)">
+                        {searchArea.horizontal}° × {searchArea.vertical}°
+                      </span>
+                    </p>
+                  )}
+                </div>
               </fieldset>
 
               {/* Konfirmasi dari logger. Dipisah dari status simpan-ke-database
