@@ -1,141 +1,50 @@
 "use client";
 
 import React, { useState, useEffect, useRef, useCallback } from "react";
-import { CheckCircle2, XCircle, AlertTriangle } from "lucide-react";
-
-// ── Power Alert Toast ──────────────────────────────────────────────────────────
-type PowerAlert = {
-  type: "on" | "off" | "error";
-  message: string;
-  /** Menimpa judul bawaan. Tanpa ini setiap toast berjudul "RTS Power",
-   *  yang keliru untuk pesan di luar urusan daya (mis. Set Home). */
-  title?: string;
-};
-
-function PowerAlertToast({ alert, onClose }: { alert: PowerAlert; onClose: () => void }) {
-  useEffect(() => {
-    const timer = setTimeout(onClose, 5000);
-    return () => clearTimeout(timer);
-  }, [onClose]);
-
-  const config = {
-    on:    { bg: "bg-emerald-50 border-emerald-300", text: "text-emerald-800", icon: <CheckCircle2 className="w-5 h-5 text-emerald-500 shrink-0" />, title: "RTS Power ON" },
-    off:   { bg: "bg-red-50 border-red-300",         text: "text-red-800",     icon: <XCircle className="w-5 h-5 text-red-500 shrink-0" />,         title: "RTS Power OFF" },
-    error: { bg: "bg-amber-50 border-amber-300",     text: "text-amber-800",   icon: <AlertTriangle className="w-5 h-5 text-amber-500 shrink-0" />, title: "RTS Power" },
-  }[alert.type];
-
-  return (
-    <div className={`fixed top-4 right-4 z-[9999] flex items-start gap-3 px-4 py-3 rounded-lg border shadow-lg max-w-sm animate-in slide-in-from-top-2 fade-in duration-300 ${config.bg}`}>
-      {config.icon}
-      <div className="flex-1 min-w-0">
-        <p className={`text-[13px] font-bold ${config.text}`}>{alert.title ?? config.title}</p>
-        <p className={`text-[12px] mt-0.5 ${config.text} opacity-80`}>{alert.message}</p>
-      </div>
-      <button onClick={onClose} className={`shrink-0 ${config.text} opacity-50 hover:opacity-100 transition-opacity`}>
-        <X className="w-4 h-4" />
-      </button>
-    </div>
-  );
-}
 import mqtt from "mqtt";
-import Image from "next/image";
 import {
-  Settings2,
-  CalendarDays,
-  Lock,
-  History,
+  AlertTriangle,
   ArrowRight,
-  Loader2,
-  EyeOff,
-  Clock,
-  X,
-  FileText,
-  Navigation,
-  SlidersHorizontal,
-  RefreshCcw,
-  Power,
-  Home,
-  Move,
-  ChevronUp,
+  CalendarDays,
+  Check,
+  CheckCircle2,
   ChevronDown,
   ChevronLeft,
   ChevronRight,
+  ChevronUp,
+  Clock,
+  Crosshair,
+  Eye,
+  EyeOff,
+  FileText,
+  Home,
+  Loader2,
+  Move,
+  Power,
+  RefreshCcw,
   Ruler,
+  Settings2,
+  SlidersHorizontal,
+  X,
+  XCircle,
 } from "lucide-react";
-import { Button } from "@/components/ui/button";
-
-// ── RTS Sprite Animation ──────────────────────────────────────────────────────
-const TOTAL_FRAMES = 65; // frames 1.png → 65.png
-const FRAME_MS     = 60; // ms per frame (~16 fps)
-
-function RTSAnimation({ isRunning }: { isRunning: boolean }) {
-  const [frame, setFrame]     = useState(1);
-  const directionRef          = useRef<1 | -1>(1);
-  const intervalRef           = useRef<ReturnType<typeof setInterval> | null>(null);
-
-  useEffect(() => {
-    if (isRunning) {
-      intervalRef.current = setInterval(() => {
-        setFrame((prev) => {
-          const next = prev + directionRef.current;
-          if (next >= TOTAL_FRAMES) { directionRef.current = -1; return TOTAL_FRAMES; }
-          if (next <= 1)            { directionRef.current =  1; return 1; }
-          return next;
-        });
-      }, FRAME_MS);
-    } else {
-      if (intervalRef.current) clearInterval(intervalRef.current);
-      setFrame(1);
-      directionRef.current = 1;
-    }
-    return () => { if (intervalRef.current) clearInterval(intervalRef.current); };
-  }, [isRunning]);
-
-  if (!isRunning) {
-    return (
-      <Image
-        src="/65 2.svg"
-        width={90}
-        height={140}
-        alt="Sokkia Total Station"
-        className="object-contain w-[90px] h-[140px]"
-      />
-    );
-  }
-
-  return (
-    <div className="relative w-[140px] h-[140px]">
-      {/* Static Base (Bagian bawah / Tribrach yang diam) */}
-      <img
-        src="/rts-frames/1.png"
-        alt="RTS Base"
-        style={{ height: '140px', width: 'auto' }}
-        className="absolute left-1/2 top-0 -translate-x-1/2 object-contain"
-        draggable={false}
-      />
-
-      {/* Animated Top (Bagian atas yang berputar, cut bagian bawah ~18.5%) */}
-      <img
-        src={`/rts-frames/${frame}.png`}
-        alt={`RTS frame ${frame}`}
-        style={{ 
-          height: '140px', 
-          width: 'auto',
-          clipPath: 'inset(0 0 18.5% 0)',
-          WebkitClipPath: 'inset(0 0 18.5% 0)'
-        }}
-        className="absolute left-1/2 top-0 -translate-x-1/2 object-contain"
-        draggable={false}
-      />
-    </div>
-  );
-}
-// ─────────────────────────────────────────────────────────────────────────────
-import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
-import { RtsConnectionBadge } from "@/components/RtsConnectionBadge";
+import { fontDisplay } from "@/lib/fonts";
 import { useRtsConnectionStatus, useLogKontrol } from "@/hooks/use-api";
 import { useSites } from "@/hooks/use-sites";
+import { Chip, Eyebrow, Panel, PanelHeader } from "@/components/monitoring/panel";
+import {
+  INPUT,
+  LABEL,
+  ModalShell,
+  TOMBOL_SEKUNDER,
+  TOMBOL_UTAMA,
+} from "@/components/monitoring/modal-shell";
+import { fmtDate as fmtWaktu, fmtJam, fmtTanggal } from "@/components/monitoring/format";
+import { AttitudeDial } from "@/components/kontrol-adr/attitude-dial";
+import { PrismaGrid } from "@/components/kontrol-adr/prisma-grid";
+import { ProcessSteps, type LangkahProses } from "@/components/kontrol-adr/process-steps";
+import { mapStatus, type PrismaCard, type TempPrisma } from "@/components/kontrol-adr/prisma";
 import {
   nilaiRts,
   nilaiRtsLama,
@@ -165,135 +74,134 @@ import {
   type KodeUkur,
 } from "@/lib/protokol-rts";
 
-// --- Helper Date Formatter ---
-function fmtDate(d: string | Date | null) {
-  if (!d) return "-";
-  let isoStr = typeof d === "string" ? d : d.toISOString();
-  if (isoStr.includes("T")) {
-    const [datePart, timePart] = isoStr.split("T");
-    const [year, month, day] = datePart.split("-");
-    const [hr, min, sec] = timePart.split(".")[0].split(":");
-    return `${day}-${month}-${year} ${hr}:${min}`;
-  }
-  return "-";
-}
-
-// --- Metric Cards ---
-const TOP_METRICS = [
-  {
-    title: "Status RTS",
-    value: "Disconnected",
-    bg: "bg-gray-100",
-  },
-  {
-    title: "Slope Distance",
-    value: "0 m",
-    imageSrc: "/slope_distance.svg",
-    bg: "bg-emerald-50",
-  },
-  {
-    title: "Vertical Angle",
-    value: "000,00,00",
-    imageSrc: "/vertical_angle.svg",
-    bg: "bg-purple-50",
-  },
-  {
-    title: "Horizontal Angle",
-    value: "000,00,00",
-    imageSrc: "/horizontal_angle.svg",
-    bg: "bg-amber-50",
-  },
-  {
-    title: "Last Updated",
-    value: "01-04-2026 17:53:00",
-    imageSrc: "/kalender.svg",
-    bg: "bg-blue-50",
-  },
-];
-
-// Riwayat running dulu berupa array hardcode berisi 4 baris identik
-// ("21-11-2025 10:11:09, 10 prisma") yang tidak pernah berubah, apa pun
-// site-nya. Sekarang diambil dari log_kontrol per site — lihat `riwayat`
-// di dalam komponen.
-
-// --- Types ---
-type TempPrisma = {
-  id: number;
-  id_prisma: string;
-  waktu: string;
-  N1: string;
-  E1: string;
-  Z1: string;
-  N0: string;
-  E0: string;
-  Z0: string;
-  status_get: number; // 1=success, 0=failed, 2=running
-  HA: number | null;
-  VA: number | null;
-  SlopDis: number | null;
+// ── Pemberitahuan perintah ────────────────────────────────────────────────────
+type PowerAlert = {
+  type: "on" | "off" | "error";
+  message: string;
+  /** Menimpa judul bawaan. Tanpa ini setiap toast berjudul "RTS Power",
+   *  yang keliru untuk pesan di luar urusan daya (mis. Set Home). */
+  title?: string;
 };
 
 /**
- * "Running..."    – sesi kontrol sedang berjalan, menunggu hasil tembakan
- * "Menunggu"      – status di-reset tapi tidak ada sesi berjalan
- * "Belum diukur"  – prisma terdaftar tapi belum pernah ditembak sama sekali
+ * Toast hasil perintah, menutup sendiri setelah beberapa detik.
+ *
+ * Pesan galat SENGAJA bertahan lebih lama daripada pesan berhasil: yang
+ * berhasil cuma perlu dikonfirmasi sekilas, sedangkan yang gagal biasanya perlu
+ * dibaca sampai habis untuk tahu tahap mana yang berhenti.
  */
-type PrismaStatus = "Success" | "Failed" | "Running..." | "Menunggu" | "Belum diukur";
+function PowerAlertToast({ alert, onClose }: { alert: PowerAlert; onClose: () => void }) {
+  useEffect(() => {
+    const t = setTimeout(onClose, alert.type === "error" ? 8000 : 4000);
+    return () => clearTimeout(t);
+  }, [alert, onClose]);
 
-type PrismaCard = {
-  name: string;
-  status: PrismaStatus;
-  y: string;
-  x: string;
-  z: string;
-  waktu?: string;
-};
+  const galat = alert.type === "error";
+  const judul = alert.title ?? (galat ? "Perintah gagal" : "RTS Power");
 
-/**
- * Prisma yang belum pernah diukur menyimpan '0' di temp_prisma. Menampilkannya
- * apa adanya membuatnya terbaca seperti koordinat nol yang sah, padahal artinya
- * "tidak ada data" — jadi ditampilkan sebagai tanda hubung.
- */
-function nilaiPrisma(status: PrismaStatus, nilai: string): string {
-  if (status === "Belum diukur" || status === "Menunggu") return "–";
-  return nilai;
+  return (
+    <div
+      role="alert"
+      aria-live="assertive"
+      className="tema-monitoring fixed top-20 right-4 z-[70] w-[min(360px,calc(100vw-2rem))] rounded-[12px] bg-white p-3.5 shadow-xl ring-1 ring-(--line)"
+      style={{ animation: "rise-in 0.35s cubic-bezier(0.2,0.8,0.2,1) both" }}
+    >
+      <div className="flex items-start gap-2.5">
+        {galat ? (
+          <XCircle className="mt-px size-4 shrink-0 text-(--st-awas)" />
+        ) : (
+          <CheckCircle2 className="mt-px size-4 shrink-0 text-(--st-normal)" />
+        )}
+        <div className="min-w-0 flex-1">
+          <p className="text-[13px] font-semibold text-(--ink)">{judul}</p>
+          <p className="mt-0.5 text-[12.5px] leading-relaxed text-(--ink-2)">{alert.message}</p>
+        </div>
+        <button
+          type="button"
+          onClick={onClose}
+          aria-label="Tutup"
+          className="flex size-6 shrink-0 cursor-pointer items-center justify-center rounded-md text-(--ink-3) outline-none hover:bg-(--paper) hover:text-(--ink) focus-visible:ring-2 focus-visible:ring-(--navy)/40"
+        >
+          <X className="size-3.5" />
+        </button>
+      </div>
+    </div>
+  );
 }
 
+// ── Animasi sprite RTS ────────────────────────────────────────────────────────
+const TOTAL_FRAMES = 65; // frames 1.png → 65.png
+const FRAME_MS = 60; // ms per frame (~16 fps)
+
 /**
- * Terjemahkan baris temp_prisma menjadi status kartu.
+ * Foto instrumen: bagian atas berputar bolak-balik saat sesi berjalan.
  *
- * `status_get = 0` di DB mencampur DUA keadaan yang berbeda: "sedang menunggu
- * hasil tembakan" dan "belum pernah diukur sama sekali". Dulu keduanya
- * diterjemahkan jadi "Running...", sehingga prisma yang tidak pernah tertembak
- * berputar selamanya meski tidak ada kontrol yang berjalan.
- *
- * Pembedanya dua hal yang memang tersedia:
- *   - `kontrolBerjalan` — apakah RTS sedang menjalankan sesi (sensor16).
- *   - `waktu` — prisma yang belum pernah diukur nilainya '-' atau kosong.
+ * Dasar yang diam dan bagian yang berputar adalah dua gambar bertumpuk —
+ * frame-nya dipotong 18,5% di bawah supaya tribrach tidak ikut bergoyang.
+ * Berkasnya berlatar putih pekat (bukan transparan), jadi di atas kertas ia
+ * menyatu tanpa perlakuan khusus.
  */
-function mapStatus(
-  status_get: number | string,
-  n1: string,
-  e1: string,
-  z1: string,
-  kontrolBerjalan: boolean,
-  waktu?: string | null
-): PrismaStatus {
-  // Gunakan String() karena dari raw query Prisma bisa berupa number atau string
-  if (String(status_get) === "0") {
-    if (kontrolBerjalan) return "Running...";
-    const pernahDiukur = !!waktu && waktu !== "-" && waktu.trim() !== "";
-    return pernahDiukur ? "Menunggu" : "Belum diukur";
-  }
+function RTSAnimation({ isRunning }: { isRunning: boolean }) {
+  const [frame, setFrame] = useState(1);
+  const arah = useRef<1 | -1>(1);
+  const mulaiUlang = useRef(false);
 
-  // Jika sudah Done (1) tapi nilainya 0 semua, berarti Failed / Not Found
-  if (Number(n1) === 0 && Number(e1) === 0 && Number(z1) === 0) {
-    return "Failed";
-  }
+  useEffect(() => {
+    if (!isRunning) return;
+    arah.current = 1;
+    mulaiUlang.current = true;
+    const cache = Array.from({ length: TOTAL_FRAMES }, (_, i) => {
+      const im = new window.Image();
+      im.src = `/rts-frames/${i + 1}.png`;
+      return im;
+    });
+    const id = setInterval(() => {
+      setFrame((prev) => {
+        if (mulaiUlang.current) {
+          mulaiUlang.current = false;
+          return 1;
+        }
+        let next = prev + arah.current;
+        if (next >= TOTAL_FRAMES) {
+          arah.current = -1;
+          next = TOTAL_FRAMES;
+        } else if (next <= 1) {
+          arah.current = 1;
+          next = 1;
+        }
+        return next;
+      });
+    }, FRAME_MS);
+    return () => {
+      clearInterval(id);
+      cache.length = 0;
+    };
+  }, [isRunning]);
 
-  return "Success";
+  const frameTampil = isRunning ? frame : 1;
+
+  return (
+    <div aria-hidden="true" className="relative size-[104px] shrink-0">
+      {/* eslint-disable-next-line @next/next/no-img-element */}
+      <img
+        src="/rts-frames/1.png"
+        alt=""
+        draggable={false}
+        className="absolute inset-0 size-full object-contain"
+      />
+      {isRunning && (
+        // eslint-disable-next-line @next/next/no-img-element
+        <img
+          src={`/rts-frames/${frameTampil}.png`}
+          alt=""
+          draggable={false}
+          className="absolute inset-0 size-full object-contain"
+          style={{ clipPath: "inset(0 0 18.5% 0)" }}
+        />
+      )}
+    </div>
+  );
 }
-
 // --- RTS Config Types ---
 // ── Protokol balasan RTS (PROTOKOL_MQTT_ADR, revisi memutus kompatibilitas) ───
 //
@@ -1515,834 +1423,804 @@ export default function KontrolAdrPage() {
     }
   };
 
+  // ── Tahapan sesi, disimpulkan dari status kartu prisma ──
+  //
+  // Aturannya dipertahankan apa adanya dari versi sebelumnya; yang berubah cuma
+  // cara menampilkannya (lihat ProcessSteps).
+  const wasRunning = isControlRunning || respondedCount > 0;
+  const measuring = runningCount > 0 && respondedCount > 0;
+  const allResponded = respondedCount === totalPrisma && totalPrisma > 0;
+  const finished = allResponded && runningCount === 0;
+  const step1Active = isControlRunning && runningCount > 0 && !hasAnyResponse;
+  const step2Active = step1Active;
+  const step3Active = isControlRunning && measuring;
+
+  const langkahProses: LangkahProses[] = [
+    {
+      label: "Mengarahkan ke target",
+      aktif: step1Active,
+      selesai: wasRunning && (hasAnyResponse || finished) && !step1Active,
+    },
+    {
+      label: "Mencari target",
+      aktif: step2Active,
+      selesai: hasAnyResponse && !step2Active,
+    },
+    {
+      label: "Mengukur target",
+      aktif: step3Active,
+      selesai: allResponded && !step3Active,
+      kemajuan: totalPrisma > 0 ? `${respondedCount}/${totalPrisma}` : undefined,
+    },
+    {
+      label: "Merekam data",
+      aktif: false,
+      selesai: finished,
+      hasil: finished && failedCount > 0 ? `${successCount} OK / ${failedCount} gagal` : undefined,
+    },
+  ];
+
+  const rtsBerjalan = String(sensor16) === "1";
+  const rtsSiap = !rtsBerjalan && String(sensor14) === "1" && isConnected;
+  const labelStatusRts = rtsBerjalan
+    ? "Sedang mengukur"
+    : rtsSiap
+      ? "Menyala, siap"
+      : "Tidak aktif";
+  const warnaStatusRts = rtsBerjalan
+    ? "var(--navy)"
+    : rtsSiap
+      ? "var(--st-normal)"
+      : "var(--ink-3)";
+
+  const tombol =
+    "inline-flex h-9 cursor-pointer items-center justify-center gap-2 rounded-[9px] px-3.5 text-[13px] font-semibold outline-none transition-colors focus-visible:ring-2 focus-visible:ring-(--navy)/50 disabled:cursor-not-allowed disabled:opacity-50";
+
+  /** Alasan sebuah perintah instrumen tidak bisa dijalankan, atau null. */
+  const alasanTerkunci = !selectedSite
+    ? "Pilih site dulu"
+    : !isConnected
+      ? "RTS tidak terhubung"
+      : null;
+
   return (
-    <main className="min-h-screen">
-      {/* Power Alert Toast */}
-      {powerAlert && (
-        <PowerAlertToast alert={powerAlert} onClose={() => setPowerAlert(null)} />
+    // <div>, bukan <main>: layout (dashboard) sudah membungkus halaman dengan
+    // <main>, dan versi sebelumnya membuka <main> kedua di dalamnya sehingga
+    // dokumennya punya dua landmark utama.
+    <div
+      className={cn(
+        "tema-monitoring min-h-[calc(100vh-4rem)] bg-(--paper) p-3 text-(--ink) sm:p-4 md:p-6",
+        fontDisplay.variable
       )}
-      {/* Gutter layout dilepas lewat daftar RUTE_FULL_BLEED di (dashboard)/layout.tsx,
-          bukan dibatalkan dengan margin negatif seperti sebelumnya — margin negatif
-          membuat wrapper ini 48px lebih lebar dari <main> dan memicu overflow. */}
-      <div className="bg-[#F4F6F9] min-h-[calc(100vh-3.5rem)] flex flex-col p-4 md:p-6 gap-7">
+    >
+      {powerAlert && <PowerAlertToast alert={powerAlert} onClose={() => setPowerAlert(null)} />}
 
-        {/* Header Section */}
-        <div>
-          <div className="flex flex-wrap items-center justify-between gap-4">
-            <div className="flex items-center gap-4">
-              <div className="w-10 h-10 rounded-full border border-gray-200 bg-[#E5E5E5] flex items-center justify-center shadow-inner relative">
-                {isConnected && <div className="absolute w-3.5 h-3.5 rounded-full bg-green-400/80 animate-ping" />}
-                <div className={cn("w-3.5 h-3.5 rounded-full relative z-10", isConnected ? "bg-[#06C022]" : "bg-gray-800")} />
-              </div>
-              <div className="flex flex-col gap-1 items-start">
-                <h2 className="font-extrabold text-[#1f2937] text-[18px] leading-tight">{namaPos(selectedSite)}</h2>
-                <RtsConnectionBadge />
-              </div>
-            </div>
-            {/* Right Buttons */}
-            <div className="flex flex-wrap items-center gap-3">
-              {/* Power On/Off — warna mengikuti state yang disinkronkan dengan status RTS aktual */}
-              <div className="flex items-center bg-white border border-[#EAEAEA] rounded-md h-[40px] overflow-hidden shadow-sm">
+      <div className="mx-auto max-w-[1600px] space-y-4 md:space-y-5">
+        {/* ── Bar kontrol ── */}
+        <div className="flex flex-wrap items-center gap-x-4 gap-y-3">
+          <Eyebrow>Site</Eyebrow>
+          <div
+            role="tablist"
+            aria-label="Pilih site pengukuran"
+            className="flex max-w-full gap-1.5 overflow-x-auto pb-0.5 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+          >
+            {siteList.map((s) => {
+              const aktif = s.slug === selectedSite;
+              const b = siteBadge(s.slug);
+              return (
                 <button
-                  onClick={() => handlePower("on")}
-                  disabled={powerLoading}
+                  key={s.slug}
+                  type="button"
+                  role="tab"
+                  aria-selected={aktif}
+                  onClick={() => {
+                    setSelectedSite(s.slug);
+                    setAccessCodeError("");
+                  }}
                   className={cn(
-                    "flex items-center gap-1.5 px-4 h-full text-[12.5px] font-semibold transition-colors cursor-pointer border-r border-[#EAEAEA]",
-                    rtsPowerState === "on"
-                      ? "bg-[#E5F7E7] text-[#06C022]"
-                      : "text-gray-500 hover:bg-green-50 hover:text-green-600"
+                    "inline-flex h-9 shrink-0 cursor-pointer items-center gap-2 rounded-full px-3.5 text-[13px] font-medium outline-none transition-colors focus-visible:ring-2 focus-visible:ring-(--navy)/40",
+                    aktif
+                      ? "bg-(--navy) text-white"
+                      : "bg-white text-(--ink-2) ring-1 ring-(--line) hover:text-(--ink)"
                   )}
                 >
-                  <Power className="w-[15px] h-[15px]" />
-                  ON
-                </button>
-                <button
-                  onClick={() => handlePower("off")}
-                  disabled={powerLoading}
-                  className={cn(
-                    "flex items-center gap-1.5 px-4 h-full text-[12.5px] font-semibold transition-colors cursor-pointer",
-                    rtsPowerState === "off"
-                      ? "bg-red-50 text-red-500"
-                      : "text-gray-500 hover:bg-red-50 hover:text-red-500"
+                  <span
+                    aria-hidden="true"
+                    className="size-2 rounded-full"
+                    style={{ background: s.badge_color }}
+                  />
+                  {s.nama}
+                  {b.peringatan && (
+                    <AlertTriangle
+                      className={cn("size-3.5", aktif ? "text-amber-300" : "text-amber-600")}
+                      aria-label="Data site ini belum bisa dipercaya"
+                    />
                   )}
-                >
-                  <Power className="w-[15px] h-[15px]" />
-                  OFF
                 </button>
-              </div>
+              );
+            })}
+          </div>
 
-              {/* Progres bertahap power. Muncul sejak perintah dikirim dan
-                  hilang begitu stage terakhir masuk atau timeout tercapai. */}
-              {progresPower && (
-                <div
-                  className="flex items-center gap-2 h-[40px] px-3.5 rounded-md border border-[#EAEAEA] bg-white shadow-sm"
-                  role="status"
-                  aria-live="polite"
-                >
-                  <Loader2 className="w-[15px] h-[15px] animate-spin text-[#303481]" />
-                  <span className="text-[12.5px] font-semibold text-gray-600">
-                    {progresPower.action === "on" ? "Menyalakan" : "Mematikan"}:{" "}
-                    {LABEL_NILAI_POWER[progresPower.action][progresPower.nilai] ?? progresPower.nilai}
-                  </span>
-                </div>
-              )}
-
-              {/* Arahkan RTS — remote kontrol arah lewat perintah jog. */}
-              <Button
-                variant="outline"
-                onClick={() => setShowJog(true)}
-                disabled={!selectedSite || !isConnected}
-                title={
-                  !selectedSite ? "Pilih site dulu"
-                  : !isConnected ? "RTS tidak terhubung"
-                  : "Geser arah teleskop sedikit demi sedikit"
-                }
-                className="flex items-center gap-2 px-5 rounded-md h-[40px] text-[13.5px] font-medium text-[#303481] border-[#303481] hover:bg-[#303481]/5 bg-white transition-colors cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
-              >
-                <Move className="w-[17px] h-[17px]" />
-                Arahkan
-              </Button>
-
-              {/* Set Home — menimpa posisi home tersimpan dengan arah teleskop
-                  saat ini. Sengaja TIDAK ditempel ke grup ON/OFF: bentuknya
-                  mirip perintah daya padahal akibatnya jauh berbeda, dan salah
-                  pencet baru ketahuan saat teleskop pulang ke arah yang keliru. */}
-              <Button
-                variant="outline"
-                onClick={() => {
-                  // Kotak nama dikosongkan tiap modal dibuka. Nama home menimpa
-                  // titik acuan pulang teleskop, jadi membiarkan isian lama
-                  // tertinggal di sana mengundang penyimpanan atas nama yang
-                  // sebetulnya sisa percobaan sebelumnya.
-                  setNamaHome("");
-                  setKonfirmasiSetHome(true);
-                }}
-                disabled={setHomeStatus === "waiting" || !selectedSite || !isConnected}
-                title={
-                  !selectedSite
-                    ? "Pilih site dulu"
-                    : !isConnected
-                      ? "RTS tidak terhubung"
-                      : setHomeJawaban
-                        ? `Balasan terakhir: ${setHomeJawaban}`
-                        : "Simpan arah teleskop saat ini sebagai posisi home"
-                }
-                className="flex items-center gap-2 px-5 rounded-md h-[40px] text-[13.5px] font-medium text-[#E86A1F] border-[#E86A1F] hover:bg-[#E86A1F]/5 bg-white transition-colors cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
-              >
-                {setHomeStatus === "waiting"
-                  ? <Loader2 className="w-[17px] h-[17px] animate-spin" />
-                  : <Home className="w-[17px] h-[17px]" />}
-                {setHomeStatus === "waiting" ? "Menunggu RTS…" : "Set Home"}
-              </Button>
-
-              <Button
-                onClick={openRtsConfig}
-                className="bg-[#303481] hover:bg-[#1f2259] text-white flex items-center gap-2 px-5 rounded-md h-[40px] text-[13.5px] font-medium shadow-sm transition-colors border-none cursor-pointer"
-              >
-                <Settings2 className="w-[17px] h-[17px]" /> RTS Config
-              </Button>
-              <Button
-                variant="outline"
-                onClick={fetchScheduling}
-                className="flex items-center gap-2 px-5 rounded-md h-[40px] text-[13.5px] font-medium text-[#303481] border-[#303481] hover:bg-[#303481]/5 bg-white transition-colors cursor-pointer"
-              >
-                <CalendarDays className="w-[17px] h-[17px]" /> Jadwal Running
-              </Button>
-            </div>
+          <div className="ml-auto flex flex-wrap items-center gap-2.5">
+            <span
+              className="inline-flex h-9 items-center gap-2 rounded-full bg-white px-3 text-[12px] font-medium text-(--ink-2) ring-1 ring-(--line)"
+              title={
+                lastUpdate
+                  ? `Data terakhir ${fmtWaktu(lastUpdate, { detik: true })}`
+                  : "Belum ada data masuk"
+              }
+            >
+              <span
+                aria-hidden="true"
+                className="size-2 rounded-full"
+                style={{ background: isConnected ? "var(--st-normal)" : "var(--st-awas)" }}
+              />
+              Logger {isConnected ? "terhubung" : "terputus"}
+            </span>
+            {/* Pengaturan — tidak menggerakkan apa pun, jadi tempatnya di bar
+                kontrol, bukan bersama perintah instrumen di bawah. */}
+            <button
+              type="button"
+              onClick={openRtsConfig}
+              className={cn(tombol, "bg-white text-(--ink-2) ring-1 ring-(--line) hover:text-(--ink)")}
+            >
+              <Settings2 className="size-4" /> RTS Config
+            </button>
+            <button
+              type="button"
+              onClick={fetchScheduling}
+              className={cn(tombol, "bg-white text-(--ink-2) ring-1 ring-(--line) hover:text-(--ink)")}
+            >
+              <CalendarDays className="size-4" /> Jadwal running
+            </button>
           </div>
         </div>
 
-        {/* Main Content Layout */}
-        <div className="grid grid-cols-1 xl:grid-cols-[360px_1fr] gap-6 items-start">
+        {selectedSiteBadge?.peringatan && (
+          <div
+            role="status"
+            className="flex items-start gap-3 rounded-[12px] border border-amber-200 bg-amber-50 px-4 py-3 text-[12.5px] leading-relaxed text-amber-900"
+          >
+            <AlertTriangle className="mt-0.5 size-4 shrink-0 text-amber-600" />
+            <p>
+              <span className="font-semibold">{selectedSiteBadge.peringatan}.</span> Sesi
+              pengukuran tetap bisa dijalankan, tapi hasilnya belum bisa dipakai mengambil
+              keputusan.
+            </p>
+          </div>
+        )}
 
-          {/* Left Column (Kontrol + RTS Image + Riwayat) */}
-          <div className="flex flex-col gap-4 w-full">
+        {/* ── Baris A: keadaan, perintah, sesi ── */}
+        {/* Tanpa items-start: ketiga panel mengikuti tinggi yang tertinggi.
+            Blok terakhir di tiap panel dipatok ke bawah dengan mt-auto,
+            jadi ruang lebihnya terbagi di antara kelompok — bukan menumpuk
+            jadi satu rongga kosong di kaki kartu. */}
+        <div className="grid grid-cols-1 gap-4 md:gap-5 xl:grid-cols-[minmax(0,1fr)_minmax(0,0.85fr)_minmax(0,1.05fr)]">
+          {/* Sikap instrumen — elemen tanda tangan halaman ini. */}
+          {/* @container di tiap panel: isinya melipat menurut lebar PANEL, bukan
+              lebar layar. Sidebar yang diciutkan menambah ~200px tanpa mengubah
+              lebar viewport sedikit pun, dan aturan berbasis breakpoint layar
+              buta terhadap itu — pelajaran yang sama sudah tercatat di kartu
+              metrik versi sebelumnya. */}
+          <Panel className="@container rise-in">
+            <PanelHeader title="Sikap instrumen">
+              <span>{namaPos(selectedSite)}</span>
+            </PanelHeader>
+            <div className="flex flex-1 flex-col px-5 pb-4 @lg:flex-row @lg:items-start @lg:gap-5">
+              <AttitudeDial ha={sensor5} va={sensor6} basi={!isConnected} />
 
-            {/* Kontrol ADR Card */}
-            <div className={`bg-white border rounded-[8px] shadow-sm overflow-hidden text-slate-800 transition-all ${!isConnected ? 'border-gray-200 opacity-75' : 'border-[#EAEAEA]'}`}>
-              <div className="border-b border-gray-100 px-4 py-3 flex items-center gap-2.5">
-                <Image
-                  src="/kontrol_adr_fill.svg"
-                  alt="Kontrol ADR"
-                  width={16}
-                  height={16}
-                  className="object-contain"
-                />
-                <h3 className="font-bold text-[#303481] text-[14px]">Kontrol ADR</h3>
-              </div>
-              <div className="px-4 py-4">
-                {/* Selektor site SENGAJA tidak ikut dinonaktifkan saat logger
-                    terputus. Memilih site adalah tindakan melihat data (riwayat,
-                    daftar prisma, konfigurasi RTS) yang tetap berguna meski
-                    perangkat offline — yang butuh koneksi hanya tombol Mulai
-                    Kontrol di bawah. */}
-                <label className="block text-[12.5px] font-bold mb-2 text-gray-900">Site Pengukuran</label>
-                <select
-                  value={selectedSite}
-                  onChange={(e) => { setSelectedSite(e.target.value); setAccessCodeError(""); }}
-                  className="mb-3 h-[38px] w-full cursor-pointer rounded-md border border-gray-300 px-3 text-[13px] font-medium outline-none transition-colors focus:border-[#303481]"
+              <dl className="mt-auto grid grid-cols-2 gap-x-4 gap-y-2 border-t border-(--line) pt-3 @lg:mt-0 @lg:grid-cols-1 @lg:gap-y-3 @lg:border-t-0 @lg:pt-1">
+                <div>
+                  <dt className="text-[11.5px] text-(--ink-2)">Slope distance</dt>
+                  <dd className="font-mono text-[14px] tabular-nums text-(--ink)">
+                    {sensor7 || 0}
+                    <span className="ml-1 text-[11px] text-(--ink-3)">m</span>
+                  </dd>
+                </div>
+                <div>
+                  <dt className="text-[11.5px] text-(--ink-2)">Data terakhir</dt>
+                  <dd className="font-mono text-[13px] tabular-nums text-(--ink)">
+                    {lastUpdate ? fmtWaktu(lastUpdate) : "—"}
+                  </dd>
+                </div>
+              </dl>
+
+              {/* Diagnostik instrumen terakhir.
+                  Rotate datang dari SETIAP jalur rotasi — jog, turning_target,
+                  pulang ke home, dan tiap target AutoTracking — jadi ini sinyal
+                  milik instrumen, bukan milik satu tombol. Tempatnya di panel
+                  keadaan, bukan di dalam modal yang harus dibuka dulu.
+
+                  `raw` ditampilkan APA ADANYA: itulah yang membedakan instrumen
+                  yang diam sama sekali dari yang menjawab tapi isinya lain — dua
+                  masalah dengan penanganan yang sangat berbeda. */}
+              {diagnostik && (
+                <div
+                  className={cn(
+                    "mt-3 rounded-[10px] border px-3.5 py-2.5",
+                    diagnostik.ok
+                      ? "border-(--line) bg-(--paper)"
+                      : "border-red-200 bg-red-50"
+                  )}
                 >
-                  {siteList.map((s) => (
-                    <option key={s.slug} value={s.slug}>
-                      {s.nama}
-                      {!s.terkalibrasi ? " (belum dikalibrasi)" : s.data_dummy ? " (data contoh)" : ""}
-                    </option>
-                  ))}
-                </select>
-                {selectedSiteBadge?.peringatan && (
-                  <div className="mb-3 flex items-start gap-2 rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-[11.5px] leading-snug text-amber-900">
-                    <AlertTriangle className="mt-[1px] h-3.5 w-3.5 flex-shrink-0 text-amber-600" />
-                    <span>
-                      {selectedSiteBadge.peringatan}. Hasil pengukuran di site ini
-                      belum bisa dipakai mengambil keputusan.
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="inline-flex items-center gap-1.5 text-[12px] font-semibold text-(--ink)">
+                      <span
+                        aria-hidden="true"
+                        className="size-2 rounded-full"
+                        style={{
+                          background: diagnostik.ok ? "var(--st-normal)" : "var(--st-awas)",
+                        }}
+                      />
+                      {OPERASI_DIAGNOSTIK[diagnostik.nama as NamaDiagnostik] ?? diagnostik.nama}
+                      {diagnostik.ok ? " berhasil" : " gagal"}
+                    </span>
+                    {diagnostik.ms !== null && (
+                      <span className="font-mono text-[11.5px] tabular-nums text-(--ink-3)">
+                        {diagnostik.ms} ms
+                      </span>
+                    )}
+                  </div>
+                  {!diagnostik.ok && diagnostik.alasan && (
+                    <p className="mt-1 text-[11.5px] leading-relaxed text-red-800">
+                      {ARTI_ALASAN_DIAGNOSTIK[diagnostik.alasan] ?? diagnostik.alasan}
+                    </p>
+                  )}
+                  {!diagnostik.ok && diagnostik.raw && (
+                    <p className="mt-1 break-all font-mono text-[10.5px] text-red-900">
+                      {diagnostik.raw}
+                    </p>
+                  )}
+                </div>
+              )}
+            </div>
+          </Panel>
+
+          {/* Perintah yang menggerakkan instrumen. */}
+          <Panel className="@container rise-in" style={{ animationDelay: "70ms" }}>
+            <PanelHeader title="Perintah instrumen">
+              <span>menggerakkan alat di lapangan</span>
+            </PanelHeader>
+            {/* Saat panel melebar, foto alat + statusnya pindah ke kolom kiri
+                yang sempit dan kedua kelompok tombol menumpuk di kanan. Kolom
+                tombolnya sengaja yang mendapat sisa lebar: percobaan sebelumnya
+                membagi panel jadi dua kolom sama besar, dan pada 457px tiap
+                tombol tinggal ~90px sampai label "Set Home" pecah dua baris. */}
+            <div className="flex flex-1 flex-col px-5 pb-4 @md:flex-row @md:gap-5">
+              <div className="flex items-center gap-4 @md:w-[124px] @md:shrink-0 @md:flex-col @md:items-start @md:gap-3">
+                <RTSAnimation isRunning={isControlRunning} />
+                <div className="min-w-0">
+                  <Eyebrow>Status RTS</Eyebrow>
+                  <p className="mt-1 inline-flex items-center gap-2 font-display text-[19px] font-bold leading-tight text-(--ink)">
+                    <span
+                      aria-hidden="true"
+                      className="size-2.5 shrink-0 rounded-full"
+                      style={{ background: warnaStatusRts }}
+                    />
+                    {labelStatusRts}
+                  </p>
+                  <p className="mt-1 text-[11.5px] text-(--ink-3)">
+                    Logger <span className="font-mono tabular-nums">{idLogger ?? "—"}</span>
+                  </p>
+                </div>
+              </div>
+
+              {/* Daya. Dua tombol terpisah, bukan sakelar: sakelar menyiratkan
+                  keadaan yang bisa dibalik seketika, padahal keduanya perintah
+                  bertahap yang bisa gagal di tengah jalan. */}
+              <div className="flex flex-1 flex-col">
+              <div className="mt-4 @md:mt-0">
+                <Eyebrow>Daya</Eyebrow>
+                <div className="mt-2 grid grid-cols-2 gap-2">
+                  <button
+                    type="button"
+                    onClick={() => handlePower("on")}
+                    disabled={powerLoading}
+                    className={cn(
+                      tombol,
+                      rtsPowerState === "on"
+                        ? "bg-(--st-normal)/12 text-(--ink) ring-1 ring-(--st-normal)/40"
+                        : "bg-white text-(--ink-2) ring-1 ring-(--line) hover:text-(--ink)"
+                    )}
+                  >
+                    <Power className="size-4" /> Nyalakan
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handlePower("off")}
+                    disabled={powerLoading}
+                    className={cn(
+                      tombol,
+                      rtsPowerState === "off"
+                        ? "bg-(--st-awas)/10 text-(--ink) ring-1 ring-(--st-awas)/40"
+                        : "bg-white text-(--ink-2) ring-1 ring-(--line) hover:text-(--ink)"
+                    )}
+                  >
+                    <Power className="size-4" /> Matikan
+                  </button>
+                </div>
+
+                {/* Progres bertahap power. Muncul sejak perintah dikirim dan
+                    hilang begitu tahap terakhir masuk atau timeout tercapai. */}
+                {progresPower && (
+                  <div
+                    role="status"
+                    aria-live="polite"
+                    className="mt-2 flex items-center gap-2 rounded-[9px] bg-(--paper) px-3 py-2"
+                  >
+                    <Loader2 className="size-3.5 shrink-0 animate-spin text-(--navy)" />
+                    <span className="text-[12px] font-medium text-(--ink-2)">
+                      {progresPower.action === "on" ? "Menyalakan" : "Mematikan"}:{" "}
+                      {LABEL_NILAI_POWER[progresPower.action][progresPower.nilai] ??
+                        progresPower.nilai}
                     </span>
                   </div>
                 )}
+              </div>
 
-                <label className={`block text-[12.5px] font-bold mb-2 ${!isConnected ? 'text-gray-400' : 'text-gray-900'}`}>Masukkan Kode Akses</label>
-                <div className="flex items-center gap-3">
-                  <div className="relative flex-1">
-                    <Input
-                      type={showPassword ? "text" : "password"}
-                      value={accessCode}
-                      onChange={(e) => { setAccessCode(e.target.value); setAccessCodeError(""); }}
-                      onKeyDown={(e) => e.key === "Enter" && isConnected && handleMulaiKontrol()}
-                      placeholder={!isConnected ? "Logger tidak terhubung..." : "Masukkan kode..."}
-                      disabled={!isConnected}
-                      autoComplete="new-password"
-                      className={`h-[38px] pr-10 text-[13px] rounded-md font-medium ${!isConnected ? 'bg-gray-100 cursor-not-allowed text-gray-400 border-gray-200' : accessCodeError ? "border-red-400 focus-visible:ring-red-400" : "border-gray-300 focus-visible:ring-[#303481]"}`}
-                    />
-                    <button
-                      type="button"
-                      onClick={() => setShowPassword(!showPassword)}
-                      disabled={!isConnected}
-                      className="absolute right-3.5 top-1/2 -translate-y-1/2 text-gray-500 hover:text-gray-800 focus:outline-none transition-colors disabled:opacity-40"
-                    >
-                      {showPassword ? <EyeOff className="w-[16px] h-[16px]" /> : <Lock className="w-[16px] h-[16px]" />}
-                    </button>
-                  </div>
-                  <Button
-                    onClick={handleMulaiKontrol}
-                    disabled={!accessCode.trim() || !selectedSite || isControlRunning || !isConnected}
-                    className="shrink-0 h-[38px] px-6 bg-[#303481] hover:bg-[#1f2259] text-white font-medium text-[13px] rounded-lg transition-colors border-none cursor-pointer disabled:opacity-60"
+              <div className="mt-auto pt-4">
+                <Eyebrow>Arah teleskop</Eyebrow>
+                <div className="mt-2 grid grid-cols-2 gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setShowJog(true)}
+                    disabled={!!alasanTerkunci}
+                    title={alasanTerkunci ?? "Geser arah teleskop sedikit demi sedikit"}
+                    className={cn(tombol, "bg-(--navy) text-white hover:bg-(--navy-deep)")}
                   >
-                    {isControlRunning
-                      ? <><Loader2 className="w-3.5 h-3.5 animate-spin" /> Running...</>
-                      : "Mulai Kontrol"}
-                  </Button>
+                    <Move className="size-4" /> Arahkan
+                  </button>
+                  {/* Set Home SENGAJA tidak ditempel ke grup daya: bentuknya
+                      mirip perintah daya padahal akibatnya jauh berbeda, dan
+                      salah pencet baru ketahuan saat teleskop pulang ke arah
+                      yang keliru. */}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      // Kotak nama dikosongkan tiap modal dibuka. Nama home
+                      // menimpa titik acuan pulang teleskop, jadi isian lama
+                      // yang tertinggal mengundang penyimpanan atas nama yang
+                      // sebetulnya sisa percobaan sebelumnya.
+                      setNamaHome("");
+                      setKonfirmasiSetHome(true);
+                    }}
+                    disabled={setHomeStatus === "waiting" || !!alasanTerkunci}
+                    title={
+                      alasanTerkunci ??
+                      (setHomeJawaban
+                        ? `Balasan terakhir: ${setHomeJawaban}`
+                        : "Simpan arah teleskop saat ini sebagai posisi home")
+                    }
+                    className={cn(
+                      tombol,
+                      "bg-white text-(--ink-2) ring-1 ring-(--line) hover:text-(--ink)"
+                    )}
+                  >
+                    {setHomeStatus === "waiting" ? (
+                      <Loader2 className="size-4 animate-spin" />
+                    ) : (
+                      <Home className="size-4" />
+                    )}
+                    {setHomeStatus === "waiting" ? "Menunggu…" : "Set Home"}
+                  </button>
                 </div>
-                {/* Error message kode akses */}
-                {accessCodeError && (
-                  <p className="text-[12px] text-red-500 font-medium mt-1.5 flex items-center gap-1">
-                    <X className="w-3.5 h-3.5" />
-                    {accessCodeError}
-                  </p>
+                {alasanTerkunci && (
+                  <p className="mt-2 text-[11.5px] text-(--ink-3)">{alasanTerkunci}.</p>
                 )}
               </div>
-            </div>
-            {/* Robotic Total Station Card */}
-            <div className="bg-white border border-[#EAEAEA] rounded-[8px] shadow-sm overflow-hidden text-slate-800">
-              <div className="border-b border-gray-100 px-4 py-3 flex items-center gap-2.5">
-                <Image
-                  src="/ikon_rts.svg"
-                  alt="Robotic Total Station"
-                  width={14}
-                  height={14}
-                  className="object-contain"
-                />
-                <h3 className="font-bold text-[#303481] text-[14px]">Robotic Total Station</h3>
-              </div>
-              <div className="p-5 flex gap-4">
-                 <div className="w-[140px] shrink-0 flex items-center justify-center">
-                   <RTSAnimation isRunning={isControlRunning} />
-                 </div>
-                 <div className="flex-1 flex flex-col">
-                    <div className="flex gap-10 mb-5">
-                      <div>
-                        <p className="text-[13px] font-bold text-[#303481]">Retries</p>
-                        <p className="text-[28px] font-bold text-gray-900 flex items-center gap-2 mt-1 leading-[1.1]">
-                          <RefreshCcw className={`w-6 h-6 text-[#F26522] ${isControlRunning ? 'animate-spin' : ''}`} strokeWidth={3} style={{ animationDirection: 'reverse' }} />
-                          {rtsConfig.retries || "1"}
-                        </p>
-                      </div>
-                      <div>
-                        <p className="text-[13px] font-bold text-[#303481]">Cycle Time</p>
-                        <p className="text-[28px] font-bold text-gray-900 mt-1 leading-[1.1]">{rtsConfig.cycleTime || "1"}</p>
-                      </div>
-                   </div>
-                   <div>
-                      <p className="text-[12px] font-bold text-[#303481] mb-1.5 flex justify-between items-center">
-                        Proses Log
-                        {isControlRunning && <span className="text-[10px] text-gray-400 font-normal italic flex items-center gap-1.5"><span className="w-1.5 h-1.5 rounded-full bg-blue-500 animate-pulse inline-block" />&nbsp;Live</span>}
-                      </p>
-
-                      {/* Diagnostik instrumen terakhir.
-                          `raw` ditampilkan APA ADANYA — itulah yang membedakan
-                          instrumen yang diam sama sekali dari yang menjawab tapi
-                          isinya lain, dua masalah dengan penanganan yang sangat
-                          berbeda. Menafsirkannya justru menghapus bedanya. */}
-                      {diagnostik && (
-                        <div
-                          className={cn(
-                            "mb-2 rounded-md border px-3 py-2",
-                            diagnostik.ok
-                              ? "border-emerald-200 bg-emerald-50"
-                              : "border-red-200 bg-red-50"
-                          )}
-                        >
-                          <div className="flex items-center justify-between gap-2">
-                            <span className={cn(
-                              "text-[11px] font-bold",
-                              diagnostik.ok ? "text-emerald-800" : "text-red-800"
-                            )}>
-                              {OPERASI_DIAGNOSTIK[diagnostik.nama as NamaDiagnostik] ?? diagnostik.nama}
-                              {diagnostik.ok ? " berhasil" : " gagal"}
-                            </span>
-                            {diagnostik.ms !== null && (
-                              <span className="text-[11px] font-semibold text-gray-500 tabular-nums">
-                                {diagnostik.ms} ms
-                              </span>
-                            )}
-                          </div>
-
-                          {!diagnostik.ok && diagnostik.alasan && (
-                            <p className="mt-0.5 text-[10.5px] text-red-700">
-                              {ARTI_ALASAN_DIAGNOSTIK[diagnostik.alasan] ?? diagnostik.alasan}
-                            </p>
-                          )}
-
-                          {/* Balasan mentah instrumen, maks 64 karakter. */}
-                          {!diagnostik.ok && diagnostik.raw && (
-                            <p className="mt-1 break-all font-mono text-[10.5px] text-red-900">
-                              {diagnostik.raw}
-                            </p>
-                          )}
-                        </div>
-                      )}
-
-                      {/* Progres AutoTracking langsung dari firmware. Dibedakan
-                          dari "Proses Log" di bawahnya yang disimpulkan dari
-                          kartu prisma — yang ini angka yang dilaporkan alatnya
-                          sendiri, termasuk target yang belum sempat menjawab. */}
-                      {progresTracking && (
-                        <div
-                          className={cn(
-                            "mb-2 rounded-md border px-3 py-2",
-                            progresTracking.diam
-                              ? "border-amber-300 bg-amber-50"
-                              : "border-[#EAEAEA] bg-[#F8F9FB]"
-                          )}
-                          role="status"
-                          aria-live="polite"
-                        >
-                          <div className="flex items-center justify-between gap-2">
-                            <span className={cn(
-                              "text-[11px] font-bold",
-                              progresTracking.diam ? "text-amber-800" : "text-[#303481]"
-                            )}>
-                              {progresTracking.diam
-                                ? "AutoTracking tidak merespons"
-                                : LABEL_NILAI_TRACKING[progresTracking.nilai] ?? progresTracking.nilai}
-                            </span>
-                            {progresTracking.nilai === "target" && progresTracking.total > 0 && (
-                              <span className="text-[11px] font-semibold text-gray-500 tabular-nums">
-                                {progresTracking.current} / {progresTracking.total}
-                              </span>
-                            )}
-                          </div>
-
-                          {progresTracking.nilai === "target" && progresTracking.status && (
-                            <p className="mt-0.5 text-[10.5px] text-gray-500">
-                              Target {progresTracking.current}:{" "}
-                              {LABEL_STATUS_TARGET[progresTracking.status] ?? progresTracking.status}
-                              {progresTracking.retries ? ` · ${progresTracking.retries}× percobaan` : ""}
-                            </p>
-                          )}
-
-                          {progresTracking.diam && (
-                            <p className="mt-0.5 text-[10.5px] text-amber-700">
-                              Tidak ada kabar baru selama {BATAS_DIAM_TRACKING_MS / 1000} detik terakhir.
-                            </p>
-                          )}
-
-                          {progresTracking.total > 0 && !progresTracking.diam && (
-                            <div className="mt-1.5 h-1 w-full overflow-hidden rounded-full bg-gray-200">
-                              <div
-                                className="h-full rounded-full bg-[#303481] transition-[width] duration-300"
-                                style={{
-                                  width: `${Math.min(100, Math.round((progresTracking.current / progresTracking.total) * 100))}%`,
-                                }}
-                              />
-                            </div>
-                          )}
-                        </div>
-                      )}
-                      <div className="text-[11px] font-medium text-gray-700 leading-snug flex flex-col gap-1">
-                        {(() => {
-                          // Fase:
-                          // 1. Directing to Target: semua prisma masih Running, belum ada response
-                          // 2. Search Target: transisi, data pertama mulai masuk
-                          // 3. Measuring Target: beberapa prisma sudah response, beberapa masih Running
-                          // 4. Recording Data: semua prisma selesai (tidak ada Running lagi)
-                          const wasRunning = isControlRunning || respondedCount > 0;
-                          const measuring = runningCount > 0 && respondedCount > 0;
-                          const allResponded = respondedCount === totalPrisma && totalPrisma > 0;
-                          const finished = allResponded && runningCount === 0;
-
-                          const step1Active = isControlRunning && runningCount > 0 && !hasAnyResponse;
-                          const step1Done = wasRunning && (hasAnyResponse || finished);
-
-                          const step2Active = isControlRunning && runningCount > 0 && !hasAnyResponse;
-                          const step2Done = hasAnyResponse;
-
-                          const step3Active = isControlRunning && measuring;
-                          const step3Done = allResponded;
-
-                          const step4Active = false;
-                          const step4Done = finished;
-                          const steps = [
-                            { step: 1, label: "Directing to Target", active: step1Active, done: step1Done && !step1Active, showProgress: false },
-                            { step: 2, label: "Search Target", active: step2Active, done: step2Done && !step2Active, showProgress: false },
-                            { step: 3, label: "Measuring Target", active: step3Active, done: step3Done && !step3Active, showProgress: true },
-                            { step: 4, label: "Recording Data", active: step4Active, done: step4Done, showProgress: false },
-                          ];
-                          return steps.map((log) => (
-                            <p key={log.step} className="flex justify-between items-center group">
-                              <span className={`truncate flex-1 tracking-tight ${log.active ? 'text-[#303481] font-bold drop-shadow-sm' : ''}`}>
-                                {log.label}
-                                {log.showProgress && (isControlRunning || measuring) && totalPrisma > 0
-                                  ? <span className="text-gray-400 text-[10px] ml-1">({respondedCount}/{totalPrisma})</span>
-                                  : <span className="text-gray-300">{".".repeat(Math.max(0, 35 - log.label.length))}</span>
-                                }
-                              </span>
-                              {log.active ? (
-                                <Loader2 className="w-[14px] h-[14px] animate-spin text-[#303481] ml-2 shrink-0" />
-                              ) : log.done ? (
-                                failedCount > 0 && log.step === 4 ? (
-                                  <span className="font-bold text-amber-500 ml-2 shrink-0">{successCount} OK / {failedCount} Fail</span>
-                                ) : (
-                                  <span className="font-bold text-emerald-500 ml-2 shrink-0">OK!</span>
-                                )
-                              ) : (
-                                <span className="font-bold text-gray-300 ml-2 shrink-0">-</span>
-                              )}
-                            </p>
-                          ));
-                        })()}
-                      </div>
-                   </div>
-                 </div>
               </div>
             </div>
-            {/* Riwayat Running Card */}
-            <div className="bg-white border border-[#EAEAEA] rounded-[8px] shadow-sm overflow-hidden">
-              <div className="border-b border-gray-100 px-4 py-3 flex items-center gap-2.5">
-                <History className="w-[16px] h-[16px] text-[#303481]" />
-                <h3 className="font-bold text-[#303481] text-[14px]">Riwayat Running</h3>
-              </div>
-              <div className="flex flex-col">
-                {!selectedSite ? (
-                  <p className="px-4 py-8 text-center text-[12.5px] text-gray-400">
-                    Pilih site untuk melihat riwayat.
-                  </p>
-                ) : riwayatLogs.length === 0 ? (
-                  <p className="px-4 py-8 text-center text-[12.5px] text-gray-400">
-                    Belum ada riwayat running untuk site ini.
-                  </p>
-                ) : (
-                  riwayatLogs.map((item: { id_log: string; datetime?: string | null; prisma_count?: number }) => {
-                    const d = item.datetime ? new Date(item.datetime) : null;
-                    const pad = (n: number) => String(n).padStart(2, "0");
-                    const tanggal = d ? `${pad(d.getDate())}-${pad(d.getMonth() + 1)}-${d.getFullYear()}` : "-";
-                    const jam = d ? `${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}` : "-";
-                    return (
-                      <div key={item.id_log} className="p-4 py-3.5 border-b border-gray-100 last:border-b-0 hover:bg-gray-50 transition-colors">
-                        <div className="flex items-center gap-3 mb-1.5">
-                          <p className="text-[13px] text-gray-800 font-medium">Running Date: {tanggal}</p>
-                          <div className="flex items-center gap-1.5 text-gray-500">
-                            <Clock className="w-[13px] h-[13px]" />
-                            <span className="text-[12px] font-medium">{jam}</span>
-                          </div>
-                        </div>
-                        <div className="flex items-center gap-2 mt-2">
-                          <p className="text-[13px] text-gray-700 font-medium tracking-tight">Prisma Count:</p>
-                          <span className="px-2 py-[3px] bg-[#EBF0FF] text-[#303481] rounded-[4px] text-[11px] font-bold leading-none">
-                            {item.prisma_count ?? 0}
-                          </span>
-                        </div>
-                      </div>
-                    );
-                  })
-                )}
-                <div className="p-3.5 border-t border-gray-100 flex justify-end">
-                  <a
-                    href={`/hasil-pengukuran${selectedSite ? `?site=${encodeURIComponent(selectedSite)}` : ""}`}
-                    className="text-[12.5px] font-bold text-[#303481] hover:text-[#1f2259] flex items-center gap-1.5 transition-colors hover:underline cursor-pointer"
-                  >
-                    Lihat Semua <ArrowRight className="w-3.5 h-3.5" />
-                  </a>
-                </div>
-              </div>
-            </div>
+          </Panel>
 
-          </div>
-
-          {/* Right Column (Metrics + Prisma Data) */}
-          <div className="flex flex-col gap-4 w-full">
-            
-            {/* 5 Status Cards */}
-            {/* Jumlah kolom dihitung grid, bukan ditentukan breakpoint layar.
-                165px adalah lebar alami kartu terlebar ("Status RTS:
-                Disconnected"); auto-fit memasang sebanyak yang muat.
-
-                Sebelumnya `xl:grid-cols-5`, dan itu justru menyala tepat saat
-                ruang menyempit: di `xl` layout induknya berubah jadi dua kolom
-                (xl:grid-cols-[360px_1fr]), sehingga kolom kanan turun ke ~672px
-                di layar 1366. Lima kartu di sana tinggal ~116px — nilainya
-                terpotong di tengah kata.
-
-                Breakpoint viewport memang alat yang salah di sini: lebar yang
-                tersedia bukan fungsi dari lebar layar saja. Sidebar yang
-                diciutkan menambah ~200px tanpa mengubah lebar layar sedikit pun,
-                dan aturan berbasis viewport buta terhadap itu. */}
-            <div className="grid grid-cols-2 md:grid-cols-[repeat(auto-fit,minmax(165px,1fr))] gap-5">
-              {TOP_METRICS.map((metric, i) => {
-                let finalValue = metric.value;
-                let valueColor = "#0f172a";
-                // Prioritas: sensor16=1 → Running, sensor14=1 + data < 1jam → Connected, else → Disconnected
-                const isRtsRunning   = String(sensor16) === "1";
-                const isRtsConnected = !isRtsRunning && String(sensor14) === "1" && isConnected;
-
-                if (metric.title === "Status RTS") {
-                  if (isRtsRunning) {
-                    finalValue = "Running...";
-                    valueColor = "#303481";
-                  } else if (isRtsConnected) {
-                    finalValue = "Connected";
-                    valueColor = "#059669";
-                  } else {
-                    finalValue = "Disconnected";
-                    valueColor = "#EF4444";
-                  }
-                } else if (metric.title === "Slope Distance") {
-                  finalValue = `${sensor7 || 0} m`;
-                } else if (metric.title === "Vertical Angle") {
-                  finalValue = String(sensor6 || 0);
-                } else if (metric.title === "Horizontal Angle") {
-                  finalValue = String(sensor5 || 0);
-                } else if (metric.title === "Last Updated") {
-                  finalValue = lastUpdate ? fmtDate(lastUpdate) : metric.value;
-                }
-
-                // Pilih warna bg & ikon untuk Status RTS card
-                const rtsIconSrc = isRtsRunning
-                  ? "/ikon_rts_online.svg"
-                  : isRtsConnected
-                    ? "/ikon_rts_online.svg"
-                    : "/ikon_rts_offline.svg";
-                const rtsBg = isRtsRunning ? "bg-blue-50" : isRtsConnected ? "bg-green-50" : "bg-gray-50";
-
-                return (
-                  <div key={i} className="bg-white border border-[#EAEAEA] rounded-[8px] p-4 flex items-center gap-4 shadow-sm h-full hover:border-gray-300 hover:shadow-md transition-all duration-200">
-                    <div className={cn("w-[42px] h-[42px] rounded-lg flex items-center justify-center flex-shrink-0 overflow-hidden", metric.bg, metric.title === "Status RTS" ? rtsBg : "")}>
-                      {metric.title === "Status RTS" ? (
-                        <div className="relative">
-                          {isRtsRunning && (
-                            <span className="absolute inset-0 rounded-full bg-[#303481]/20 animate-ping" />
-                          )}
-                          <Image
-                            src={rtsIconSrc}
-                            alt="Status RTS"
-                            width={26}
-                            height={26}
-                            className="object-contain relative z-10"
-                          />
-                        </div>
-                      ) : (
-                        <Image
-                          src={metric.imageSrc!}
-                          alt={metric.title}
-                          width={22}
-                          height={22}
-                          className="object-contain"
-                        />
-                      )}
-                    </div>
-                    {/* `min-w-0` wajib: tanpa itu blok teks ini menolak menyusut
-                        di bawah lebar isinya — aturan flex memberi item lebar
-                        minimum sebesar kontennya — sehingga kartu yang sempit
-                        MELUBER dan nilainya terpotong, bukan membungkus.
-                        `break-words` jadi jaring terakhir untuk nilai panjang
-                        tanpa spasi, yang tidak punya tempat untuk patah. */}
-                    <div className="flex flex-col justify-center min-w-0">
-                      <p className="text-[12px] text-gray-500 font-medium leading-none mb-1.5">{metric.title}:</p>
-                      <p className="text-[13.5px] font-bold leading-tight break-words" style={{ color: valueColor }}>{finalValue}</p>
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-
-            {/* Prisma Data Grid Box */}
-            <div className="bg-white border border-[#EAEAEA] rounded-[8px] shadow-sm w-full h-full flex flex-col">
-              {/* Header Card Prisma Data */}
-              <div className="flex items-center justify-between border-b border-gray-100 px-4 py-3">
-                <div className="flex items-center gap-2.5">
-                  <Image
-                    src="/prisma_data.svg"
-                    alt="Prisma Data"
-                    width={16}
-                    height={16}
-                    className="object-contain"
+          {/* Sesi pengukuran. */}
+          <Panel className="@container rise-in" style={{ animationDelay: "140ms" }}>
+            <PanelHeader title="Sesi pengukuran">
+              <Chip mono>{runningDate !== "-" ? fmtWaktu(runningDate) : "belum ada"}</Chip>
+              {totalPrisma > 0 && (
+                <Chip>
+                  <span className="font-mono tabular-nums">{totalPrisma}</span>&nbsp;prisma
+                </Chip>
+              )}
+            </PanelHeader>
+            <div className="flex flex-1 flex-col px-5 pb-4">
+              <div className="@lg:grid @lg:grid-cols-2 @lg:items-start @lg:gap-x-6">
+              <div>
+              <label htmlFor="kode-akses-kontrol" className={LABEL}>
+                Kode akses
+              </label>
+              <div className="flex items-start gap-2">
+                <div className="relative min-w-0 flex-1">
+                  <input
+                    id="kode-akses-kontrol"
+                    type={showPassword ? "text" : "password"}
+                    value={accessCode}
+                    onChange={(e) => {
+                      setAccessCode(e.target.value);
+                      setAccessCodeError("");
+                    }}
+                    onKeyDown={(e) => e.key === "Enter" && isConnected && handleMulaiKontrol()}
+                    placeholder={isConnected ? "Masukkan kode" : "Logger tidak terhubung"}
+                    disabled={!isConnected}
+                    autoComplete="off"
+                    className={cn(
+                      INPUT,
+                      "pr-10 font-mono tracking-[0.18em]",
+                      accessCodeError && "border-(--st-awas) focus:ring-(--st-awas)/25",
+                      !isConnected && "cursor-not-allowed bg-(--paper) text-(--ink-3)"
+                    )}
                   />
-                  <h3 className="font-bold text-[#303481] text-[14px]">Prisma Data</h3>
+                  <button
+                    type="button"
+                    onClick={() => setShowPassword(!showPassword)}
+                    disabled={!isConnected}
+                    aria-label={showPassword ? "Sembunyikan kode" : "Tampilkan kode"}
+                    className="absolute top-1/2 right-1.5 flex size-7 -translate-y-1/2 cursor-pointer items-center justify-center rounded-md text-(--ink-3) outline-none transition-colors hover:bg-(--paper) hover:text-(--ink) focus-visible:ring-2 focus-visible:ring-(--navy)/40 disabled:cursor-not-allowed disabled:opacity-40"
+                  >
+                    {showPassword ? <EyeOff className="size-4" /> : <Eye className="size-4" />}
+                  </button>
                 </div>
-                <div className="text-[11.5px] font-medium text-gray-600 italic">
-                  Running Date : {runningDate}
+                <button
+                  type="button"
+                  onClick={handleMulaiKontrol}
+                  disabled={
+                    !accessCode.trim() || !selectedSite || isControlRunning || !isConnected
+                  }
+                  className={cn(tombol, "shrink-0 bg-(--navy) text-white hover:bg-(--navy-deep)")}
+                >
+                  {isControlRunning ? (
+                    <>
+                      <Loader2 className="size-4 animate-spin" /> Berjalan
+                    </>
+                  ) : (
+                    "Mulai"
+                  )}
+                </button>
+              </div>
+              {accessCodeError && (
+                <p className="mt-1.5 inline-flex items-center gap-1.5 text-[12px] font-medium text-(--st-awas)">
+                  <XCircle className="size-3.5" />
+                  {accessCodeError}
+                </p>
+              )}
+
+              {/* Progres AutoTracking langsung dari firmware. Dibedakan dari
+                  tahapan di bawahnya yang disimpulkan dari kartu prisma — yang
+                  ini angka yang dilaporkan alatnya sendiri, termasuk target yang
+                  belum sempat menjawab. */}
+              {progresTracking && (
+                <div
+                  role="status"
+                  aria-live="polite"
+                  className={cn(
+                    "mt-3 rounded-[10px] border px-3.5 py-2.5",
+                    progresTracking.diam
+                      ? "border-amber-200 bg-amber-50"
+                      : "border-(--line) bg-(--paper)"
+                  )}
+                >
+                  <div className="flex items-center justify-between gap-2">
+                    <span
+                      className={cn(
+                        "text-[12px] font-semibold",
+                        progresTracking.diam ? "text-amber-900" : "text-(--ink)"
+                      )}
+                    >
+                      {progresTracking.diam
+                        ? "AutoTracking tidak merespons"
+                        : LABEL_NILAI_TRACKING[progresTracking.nilai] ?? progresTracking.nilai}
+                    </span>
+                    {progresTracking.nilai === "target" && progresTracking.total > 0 && (
+                      <span className="font-mono text-[11.5px] tabular-nums text-(--ink-3)">
+                        {progresTracking.current} / {progresTracking.total}
+                      </span>
+                    )}
+                  </div>
+                  {progresTracking.nilai === "target" && progresTracking.status && (
+                    <p className="mt-0.5 text-[11.5px] text-(--ink-3)">
+                      Target {progresTracking.current}:{" "}
+                      {LABEL_STATUS_TARGET[progresTracking.status] ?? progresTracking.status}
+                      {progresTracking.retries ? ` · ${progresTracking.retries}× percobaan` : ""}
+                    </p>
+                  )}
+                  {progresTracking.diam && (
+                    <p className="mt-0.5 text-[11.5px] text-amber-800">
+                      Tidak ada kabar baru selama {BATAS_DIAM_TRACKING_MS / 1000} detik terakhir.
+                    </p>
+                  )}
+                  {progresTracking.total > 0 && !progresTracking.diam && (
+                    <div className="mt-2 h-1 w-full overflow-hidden rounded-full bg-white">
+                      <div
+                        className="h-full rounded-full bg-(--navy) transition-[width] duration-300"
+                        style={{
+                          width: `${Math.min(100, Math.round((progresTracking.current / progresTracking.total) * 100))}%`,
+                        }}
+                      />
+                    </div>
+                  )}
                 </div>
+              )}
+
               </div>
 
-              {/* Body - Grid Prisma Cards */}
-              <div className="p-4 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4 flex-1">
-                {prismaLoading ? (
-                  Array.from({ length: 6 }).map((_, idx) => (
-                    <div key={idx} className="bg-gray-50 border border-[#EAEAEA] rounded-[8px] overflow-hidden flex flex-col animate-pulse">
-                      <div className="bg-gray-200 h-[44px]"></div>
-                      <div className="flex flex-col gap-2 p-3">
-                        <div className="h-4 bg-gray-200 rounded w-3/4"></div>
-                        <div className="h-4 bg-gray-200 rounded w-3/4"></div>
-                        <div className="h-4 bg-gray-200 rounded w-1/2"></div>
-                      </div>
-                    </div>
-                  ))
-                ) : !selectedSite ? (
-                  <div className="col-span-4 py-12 text-center text-gray-400 text-[13px]">
-                    Pilih site pengukuran untuk melihat daftar prisma.
-                  </div>
-                ) : prismaCards.length === 0 ? (
-                  <div className="col-span-4 py-12 text-center text-gray-400 text-[13px]">
-                    Tidak ada data prisma untuk site ini.
-                  </div>
-                ) : (
-                  prismaCards.map((prisma, idx) => (
-                    <div key={idx} className="bg-white border border-[#EAEAEA] rounded-[8px] shadow-sm overflow-hidden flex flex-col flex-1">
-                      {/* Card Header */}
-                      <div className="bg-[#FAFAFA] border-b border-gray-100 px-4 py-2.5 flex items-center justify-between">
-                        <h4 className="font-bold text-gray-900 text-[13.5px]">{prisma.name}</h4>
-                        {prisma.status === "Success" && (
-                          <span className="px-2.5 py-[3px] bg-[#DFF4DF] text-[#1B801E] text-[10px] font-bold rounded-full leading-none">Success</span>
-                        )}
-                        {prisma.status === "Failed" && (
-                          <span className="px-2.5 py-[3px] bg-[#FDE2E4] text-[#D32F2F] text-[10px] font-bold rounded-full leading-none">Failed</span>
-                        )}
-                        {prisma.status === "Running..." && (
-                          <span className="px-2.5 py-[3px] bg-[#EEF2FC] text-[#303481] text-[10px] font-bold rounded-full flex items-center gap-1.5 leading-none">
-                            Running... <Loader2 className="w-2.5 h-2.5 animate-spin" />
-                          </span>
-                        )}
-                        {/* Keadaan diam — tanpa spinner, supaya tidak terbaca
-                            seolah ada proses yang sedang berjalan. */}
-                        {prisma.status === "Menunggu" && (
-                          <span className="px-2.5 py-[3px] bg-[#FFF4E5] text-[#B26A00] text-[10px] font-bold rounded-full leading-none">Menunggu</span>
-                        )}
-                        {prisma.status === "Belum diukur" && (
-                          <span className="px-2.5 py-[3px] bg-[#F0F1F5] text-[#6B7280] text-[10px] font-bold rounded-full leading-none">Belum diukur</span>
-                        )}
-                      </div>
-                      {/* Card Body */}
-                      <div className="flex flex-col pb-1">
-                        <div className="grid grid-cols-[1fr_2fr] border-b border-gray-100 px-2 py-2.5">
-                          <div className="text-[13.5px] text-gray-500 font-bold text-center">Y</div>
-                          <div className="text-[13.5px] text-gray-900 text-center font-medium">
-                            {prisma.status === "Running..." ? <Loader2 className="w-[14px] h-[14px] animate-spin mx-auto text-gray-400" /> : nilaiPrisma(prisma.status, prisma.y)}
-                          </div>
-                        </div>
-                        <div className="grid grid-cols-[1fr_2fr] border-b border-gray-100 px-2 py-2.5">
-                          <div className="text-[13.5px] text-gray-500 font-bold text-center">X</div>
-                          <div className="text-[13.5px] text-gray-900 text-center font-medium">
-                            {prisma.status === "Running..." ? <Loader2 className="w-[14px] h-[14px] animate-spin mx-auto text-gray-400" /> : nilaiPrisma(prisma.status, prisma.x)}
-                          </div>
-                        </div>
-                        <div className="grid grid-cols-[1fr_2fr] px-2 py-2.5">
-                          <div className="text-[13.5px] text-gray-500 font-bold text-center">Z</div>
-                          <div className="text-[13.5px] text-gray-900 text-center font-medium">
-                            {prisma.status === "Running..." ? <Loader2 className="w-[14px] h-[14px] animate-spin mx-auto text-gray-400" /> : nilaiPrisma(prisma.status, prisma.z)}
-                          </div>
-                        </div>
-                      </div>
-                    </div>
-                  ))
-                )}
+              <div className="mt-4 border-t border-(--line) pt-3 @lg:mt-0 @lg:border-t-0 @lg:pt-0">
+                <Eyebrow>Tahapan</Eyebrow>
+                <div className="mt-2.5">
+                  <ProcessSteps langkah={langkahProses} />
+                </div>
               </div>
+              </div>
+
+              <dl className="mt-auto grid grid-cols-2 gap-x-4 border-t border-(--line) pt-3">
+                <div>
+                  <dt className="text-[11.5px] text-(--ink-2)">Percobaan ulang</dt>
+                  <dd className="inline-flex items-baseline gap-1.5 font-mono text-[15px] tabular-nums text-(--ink)">
+                    {rtsConfig.retries || "1"}
+                    <RefreshCcw
+                      className={cn("size-3.5 text-(--ink-3)", isControlRunning && "animate-spin")}
+                      style={{ animationDirection: "reverse" }}
+                      aria-hidden="true"
+                    />
+                  </dd>
+                </div>
+                <div>
+                  <dt className="text-[11.5px] text-(--ink-2)">Cycle time</dt>
+                  <dd className="font-mono text-[15px] tabular-nums text-(--ink)">
+                    {rtsConfig.cycleTime || "1"}
+                    <span className="ml-1 text-[11px] text-(--ink-3)">ms</span>
+                  </dd>
+                </div>
+              </dl>
             </div>
-          </div>
+          </Panel>
+        </div>
 
+        {/* ── Baris B: hasil & riwayat ── */}
+        <div className="grid grid-cols-1 items-start gap-4 md:gap-5 xl:grid-cols-[minmax(0,1fr)_300px]">
+          <Panel className="rise-in" style={{ animationDelay: "200ms" }}>
+            <PanelHeader title="Hasil prisma">
+              <span>sesi terakhir · koordinat dalam meter</span>
+            </PanelHeader>
+            <div className="border-t border-(--line) p-4">
+              <PrismaGrid
+                cards={prismaCards}
+                loading={prismaLoading}
+                adaSite={!!selectedSite}
+              />
+            </div>
+          </Panel>
+
+          <Panel className="rise-in" style={{ animationDelay: "260ms" }}>
+            <PanelHeader title="Riwayat running" />
+            <div className="border-t border-(--line)">
+              {!selectedSite ? (
+                <p className="px-5 py-8 text-center text-[12.5px] text-(--ink-3)">
+                  Pilih site untuk melihat riwayat.
+                </p>
+              ) : riwayatLogs.length === 0 ? (
+                <p className="px-5 py-8 text-center text-[12.5px] text-(--ink-3)">
+                  Belum ada running untuk site ini.
+                </p>
+              ) : (
+                <ul className="flex flex-col">
+                  {riwayatLogs.map(
+                    (item: {
+                      id_log: string;
+                      datetime?: string | null;
+                      prisma_count?: number;
+                    }) => (
+                      <li
+                        key={item.id_log}
+                        className="flex items-baseline justify-between gap-3 border-b border-(--line) px-5 py-3 last:border-0"
+                      >
+                        <span className="min-w-0">
+                          <span className="block text-[13px] font-semibold text-(--ink)">
+                            {fmtTanggal(item.datetime ?? null)}
+                          </span>
+                          <span className="font-mono text-[11.5px] tabular-nums text-(--ink-3)">
+                            {fmtJam(item.datetime ?? null)}
+                          </span>
+                        </span>
+                        <span className="shrink-0 text-[11.5px] text-(--ink-2)">
+                          <span className="font-mono tabular-nums text-(--ink)">
+                            {item.prisma_count ?? 0}
+                          </span>{" "}
+                          prisma
+                        </span>
+                      </li>
+                    )
+                  )}
+                </ul>
+              )}
+            </div>
+            <div className="flex items-center justify-end border-t border-(--line) px-5 py-3">
+              <a
+                href={`/hasil-pengukuran${selectedSite ? `?site=${encodeURIComponent(selectedSite)}` : ""}`}
+                className="group inline-flex items-center gap-1.5 rounded-md text-[13px] font-semibold text-(--navy) outline-none hover:underline focus-visible:ring-2 focus-visible:ring-(--navy)/40"
+              >
+                Lihat semua
+                <ArrowRight className="size-3.5 transition-transform group-hover:translate-x-0.5" />
+              </a>
+            </div>
+          </Panel>
         </div>
       </div>
 
-      {/* ─── RTS Config Modal ─── */}
+      {/* ─── RTS Config ─── */}
       {showRtsConfig && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center">
-          {/* Backdrop */}
-          <div
-            className="absolute inset-0 bg-black/30 backdrop-blur-[2px]"
-            onClick={() => setShowRtsConfig(false)}
-          />
-
-          {/* Modal Panel */}
-          <div className="relative z-10 bg-white rounded-[10px] shadow-2xl w-full max-w-[600px] mx-4 overflow-hidden">
-            {/* Modal Header */}
-            <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100">
-              <h2 className="text-[16px] font-bold text-gray-900">RTS Configuration</h2>
+        <ModalShell
+          judul="RTS Config"
+          keterangan="Setelan yang dikirim ke instrumen saat menyala dan di awal setiap sesi."
+          ikon={<Settings2 className="size-4.5" />}
+          lebar="max-w-[600px]"
+          onClose={() => setShowRtsConfig(false)}
+          bisaDitutup={!configSaving && konfirmasiConfig?.status !== "menunggu"}
+          footer={
+            <>
               <button
+                type="button"
                 onClick={() => setShowRtsConfig(false)}
-                className="text-gray-400 hover:text-gray-700 transition-colors cursor-pointer"
+                className={TOMBOL_SEKUNDER}
               >
-                <X className="w-5 h-5" />
+                {konfirmasiConfig?.status === "ok" ? "Tutup" : "Batal"}
               </button>
+              <button
+                type="button"
+                onClick={saveConfig}
+                disabled={configSaving || konfirmasiConfig?.status === "menunggu"}
+                className={TOMBOL_UTAMA}
+              >
+                {configSaving || konfirmasiConfig?.status === "menunggu" ? (
+                  <>
+                    <Loader2 className="size-4 animate-spin" /> Menyimpan…
+                  </>
+                ) : (
+                  "Simpan"
+                )}
+              </button>
+            </>
+          }
+        >
+          {configLoading ? (
+            <div className="flex items-center justify-center gap-2 py-10 text-[13px] text-(--ink-3)">
+              <Loader2 className="size-5 animate-spin text-(--navy)" />
+              Memuat konfigurasi…
             </div>
-
-            {/* Modal Body */}
-            <div className="px-6 py-5 flex flex-col gap-4 max-h-[75vh] overflow-y-auto">
-              {configLoading ? (
-                <div className="flex items-center justify-center py-10">
-                  <Loader2 className="w-6 h-6 animate-spin text-[#303481]" />
-                  <span className="ml-2 text-[13px] text-gray-500">Memuat konfigurasi...</span>
-                </div>
-              ) : (
-                <>
-
-              {/* Card 1: Job Information */}
-              <div className="border border-[#EAEAEA] rounded-[8px] overflow-hidden">
-                <div className="flex items-center gap-2 px-4 py-3 border-b border-[#EAEAEA] bg-gray-50">
-                  <FileText className="w-[15px] h-[15px] text-[#303481]" />
-                  <h3 className="font-bold text-[#303481] text-[13px]">Job Information</h3>
-                </div>
-                <div className="p-4 grid grid-cols-3 gap-3">
-                  <div className="col-span-1">
-                    <label className="block text-[12px] font-medium text-gray-600 mb-1.5">Job Name</label>
-                    <Input
+          ) : (
+            <div className="flex flex-col gap-4">
+              <fieldset>
+                <legend className="mb-2 inline-flex items-center gap-2 font-display text-[12px] font-semibold uppercase tracking-[0.1em] text-(--ink-2)">
+                  <FileText className="size-3.5" /> Informasi job
+                </legend>
+                <div className="grid grid-cols-3 gap-3">
+                  <div>
+                    <label htmlFor="cfg-job" className={LABEL}>
+                      Job name
+                    </label>
+                    <input
+                      id="cfg-job"
                       value={rtsConfig.jobName}
                       onChange={(e) => setRtsConfig({ ...rtsConfig, jobName: e.target.value })}
-                      className="h-[38px] text-[13px] border-gray-300 focus-visible:ring-[#303481] rounded-md"
+                      className={INPUT}
                     />
                   </div>
                   <div>
-                    <label className="block text-[12px] font-medium text-gray-600 mb-1.5">Prisma Const</label>
-                    <Input
+                    <label htmlFor="cfg-prisma" className={LABEL}>
+                      Prisma const
+                    </label>
+                    <input
+                      id="cfg-prisma"
                       value={rtsConfig.prismaConst}
                       onChange={(e) => setRtsConfig({ ...rtsConfig, prismaConst: e.target.value })}
-                      className="h-[38px] text-[13px] border-gray-300 focus-visible:ring-[#303481] rounded-md"
+                      className={cn(INPUT, "font-mono tabular-nums")}
                     />
                   </div>
                   <div>
-                    <label className="block text-[12px] font-medium text-gray-600 mb-1.5">TS High</label>
-                    <Input
+                    <label htmlFor="cfg-tshigh" className={LABEL}>
+                      TS high
+                    </label>
+                    <input
+                      id="cfg-tshigh"
                       value={rtsConfig.tsHigh}
                       onChange={(e) => setRtsConfig({ ...rtsConfig, tsHigh: e.target.value })}
-                      className="h-[38px] text-[13px] border-gray-300 focus-visible:ring-[#303481] rounded-md"
+                      className={cn(INPUT, "font-mono tabular-nums")}
                     />
                   </div>
                 </div>
-              </div>
+              </fieldset>
 
-              {/* Card 2: RTS Coordinate */}
-              <div className="border border-[#EAEAEA] rounded-[8px] overflow-hidden">
-                <div className="flex items-center gap-2 px-4 py-3 border-b border-[#EAEAEA] bg-gray-50">
-                  <Image src="/prisma_data.svg" alt="RTS Coordinate" width={15} height={15} className="object-contain" />
-                  <h3 className="font-bold text-[#303481] text-[13px]">RTS Coordinate</h3>
+              <fieldset>
+                <legend className="mb-2 inline-flex items-center gap-2 font-display text-[12px] font-semibold uppercase tracking-[0.1em] text-(--ink-2)">
+                  <Crosshair className="size-3.5" /> Koordinat RTS
+                </legend>
+                <div className="grid grid-cols-3 gap-3">
+                  {(
+                    [
+                      ["coordX", "Coordinate X"],
+                      ["coordY", "Coordinate Y"],
+                      ["coordZ", "Coordinate Z"],
+                    ] as const
+                  ).map(([kunci, label]) => (
+                    <div key={kunci}>
+                      <label htmlFor={`cfg-${kunci}`} className={LABEL}>
+                        {label}
+                      </label>
+                      <input
+                        id={`cfg-${kunci}`}
+                        value={rtsConfig[kunci]}
+                        onChange={(e) => setRtsConfig({ ...rtsConfig, [kunci]: e.target.value })}
+                        className={cn(INPUT, "font-mono tabular-nums")}
+                      />
+                    </div>
+                  ))}
                 </div>
-                <div className="p-4 grid grid-cols-3 gap-3">
-                  <div>
-                    <label className="block text-[12px] font-medium text-gray-600 mb-1.5">Coordinate X</label>
-                    <Input
-                      value={rtsConfig.coordX}
-                      onChange={(e) => setRtsConfig({ ...rtsConfig, coordX: e.target.value })}
-                      className="h-[38px] text-[13px] border-gray-300 focus-visible:ring-[#303481] rounded-md"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-[12px] font-medium text-gray-600 mb-1.5">Coordinate Y</label>
-                    <Input
-                      value={rtsConfig.coordY}
-                      onChange={(e) => setRtsConfig({ ...rtsConfig, coordY: e.target.value })}
-                      className="h-[38px] text-[13px] border-gray-300 focus-visible:ring-[#303481] rounded-md"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-[12px] font-medium text-gray-600 mb-1.5">Coordinate Z</label>
-                    <Input
-                      value={rtsConfig.coordZ}
-                      onChange={(e) => setRtsConfig({ ...rtsConfig, coordZ: e.target.value })}
-                      className="h-[38px] text-[13px] border-gray-300 focus-visible:ring-[#303481] rounded-md"
-                    />
-                  </div>
-                </div>
-              </div>
+              </fieldset>
 
-              {/* Card 3: Running Parameters */}
-              <div className="border border-[#EAEAEA] rounded-[8px] overflow-hidden">
-                <div className="flex items-center gap-2 px-4 py-3 border-b border-[#EAEAEA] bg-gray-50">
-                  <SlidersHorizontal className="w-[15px] h-[15px] text-[#303481]" />
-                  <h3 className="font-bold text-[#303481] text-[13px]">Running Parameters</h3>
-                </div>
-                <div className="p-4 grid grid-cols-3 gap-3">
+              <fieldset>
+                <legend className="mb-2 inline-flex items-center gap-2 font-display text-[12px] font-semibold uppercase tracking-[0.1em] text-(--ink-2)">
+                  <SlidersHorizontal className="size-3.5" /> Parameter running
+                </legend>
+                <div className="grid grid-cols-3 gap-3">
                   <div>
-                    <label className="block text-[12px] font-medium text-gray-600 mb-1.5">Step Record</label>
-                    <Input
+                    <label htmlFor="cfg-step" className={LABEL}>
+                      Step record
+                    </label>
+                    <input
+                      id="cfg-step"
                       value={rtsConfig.stepRecord}
                       onChange={(e) => setRtsConfig({ ...rtsConfig, stepRecord: e.target.value })}
-                      className="h-[38px] text-[13px] border-gray-300 focus-visible:ring-[#303481] rounded-md"
+                      className={cn(INPUT, "font-mono tabular-nums")}
                     />
                   </div>
                   <div>
-                    <label className="block text-[12px] font-medium text-gray-600 mb-1.5">
+                    <label htmlFor="cfg-retries" className={LABEL}>
                       Retries{" "}
-                      <span className="font-normal text-gray-400">
-                        ({RENTANG_RETRIES.min}–{RENTANG_RETRIES.maks})
+                      <span className="font-normal text-(--ink-3)">
+                        {RENTANG_RETRIES.min}–{RENTANG_RETRIES.maks}
                       </span>
                     </label>
-                    <Input
+                    <input
+                      id="cfg-retries"
                       value={rtsConfig.retries}
                       onChange={(e) => setRtsConfig({ ...rtsConfig, retries: e.target.value })}
-                      className="h-[38px] text-[13px] border-gray-300 focus-visible:ring-[#303481] rounded-md"
+                      className={cn(INPUT, "font-mono tabular-nums")}
                     />
                   </div>
                   <div>
-                    {/* Satuannya WAJIB tertulis. Menu serial dan Bluetooth memakai
-                        DETIK untuk setelan yang sama, jadi angka yang identik
-                        memberi hasil 1000× berbeda tergantung jalurnya — dan
-                        firmware tidak menolak nilai di luar rentang, ia hanya
-                        diam-diam menggantinya dengan bawaan. */}
-                    <label className="block text-[12px] font-medium text-gray-600 mb-1.5">
-                      Cycle Time{" "}
-                      <span className="font-normal text-gray-400">
-                        (milidetik, {RENTANG_CYCLE_TIME_MS.min.toLocaleString("id-ID")}–
-                        {RENTANG_CYCLE_TIME_MS.maks.toLocaleString("id-ID")})
+                    {/* Satuannya WAJIB tertulis. Menu serial dan Bluetooth
+                        memakai DETIK untuk setelan yang sama, jadi angka yang
+                        identik memberi hasil 1000× berbeda tergantung jalurnya —
+                        dan firmware tidak menolak nilai di luar rentang, ia
+                        hanya diam-diam menggantinya dengan bawaan. */}
+                    <label htmlFor="cfg-cycle" className={LABEL}>
+                      Cycle time{" "}
+                      <span className="font-normal text-(--ink-3)">
+                        milidetik, {RENTANG_CYCLE_TIME_MS.min.toLocaleString("id-ID")}–
+                        {RENTANG_CYCLE_TIME_MS.maks.toLocaleString("id-ID")}
                       </span>
                     </label>
-                    <Input
+                    <input
+                      id="cfg-cycle"
                       value={rtsConfig.cycleTime}
                       onChange={(e) => setRtsConfig({ ...rtsConfig, cycleTime: e.target.value })}
-                      className="h-[38px] text-[13px] border-gray-300 focus-visible:ring-[#303481] rounded-md"
+                      className={cn(INPUT, "font-mono tabular-nums")}
                     />
                     {Number(rtsConfig.cycleTime) >= RENTANG_CYCLE_TIME_MS.min &&
                       Number(rtsConfig.cycleTime) <= RENTANG_CYCLE_TIME_MS.maks && (
-                        <p className="mt-1 text-[11px] text-gray-400">
+                        <p className="mt-1 text-[11px] text-(--ink-3)">
                           = {(Number(rtsConfig.cycleTime) / 1000).toLocaleString("id-ID")} detik
                         </p>
                       )}
                   </div>
                 </div>
 
-                {/* Peringatan untuk nilai tersimpan yang di luar rentang.
-                    Nilai seperti ini sudah terlanjur ada di database: firmware
+                {/* Peringatan untuk nilai tersimpan yang di luar rentang. Nilai
+                    seperti ini sudah terlanjur ada di database: firmware
                     menerimanya tanpa protes lalu menggantinya dengan bawaan,
                     jadi setelannya tidak pernah berlaku dan tidak ada yang
                     memberi tahu. */}
                 {(validasiCycleTime(rtsConfig.cycleTime) || validasiRetries(rtsConfig.retries)) && (
-                  <div className="mx-4 mb-4 flex gap-2.5 rounded-lg bg-amber-50 px-3.5 py-3 text-[12px] leading-relaxed text-amber-900">
-                    <AlertTriangle className="mt-[1px] h-4 w-4 flex-shrink-0" />
+                  <div className="mt-3 flex gap-2.5 rounded-[10px] border border-amber-200 bg-amber-50 px-3.5 py-2.5 text-[12px] leading-relaxed text-amber-900">
+                    <AlertTriangle className="mt-px size-4 shrink-0 text-amber-600" />
                     <span>
                       {[validasiCycleTime(rtsConfig.cycleTime), validasiRetries(rtsConfig.retries)]
                         .filter(Boolean)
@@ -2352,576 +2230,652 @@ export default function KontrolAdrPage() {
                     </span>
                   </div>
                 )}
+              </fieldset>
+
+              {/* Konfirmasi dari logger. Dipisah dari status simpan-ke-database
+                  dengan sengaja: tersimpan di aplikasi dan sampai ke perangkat
+                  adalah dua hal berbeda, dan yang kedua itulah yang menentukan
+                  RTS benar-benar memakai setelan baru. */}
+              {konfirmasiConfig && (
+                <div className="border-t border-(--line) pt-3.5">
+                  {konfirmasiConfig.status === "menunggu" && (
+                    <div className="flex items-center gap-2.5 rounded-[10px] bg-(--paper) px-3.5 py-2.5 text-[12.5px] text-(--ink-2)">
+                      <Loader2 className="size-4 shrink-0 animate-spin text-(--navy)" />
+                      Tersimpan di aplikasi. Menunggu logger mengonfirmasi…
+                    </div>
+                  )}
+
+                  {konfirmasiConfig.status === "ok" && (
+                    <div className="rounded-[10px] bg-(--paper) px-3.5 py-2.5">
+                      <p className="inline-flex items-center gap-2 text-[12.5px] font-semibold text-(--ink)">
+                        <span
+                          aria-hidden="true"
+                          className="size-2 rounded-full"
+                          style={{ background: "var(--st-normal)" }}
+                        />
+                        Logger menerima setelan ({konfirmasiConfig.setRts})
+                      </p>
+                      {konfirmasiConfig.updated?.length ? (
+                        <p className="mt-1 text-[11.5px] leading-relaxed text-(--ink-2)">
+                          Diterapkan:{" "}
+                          {konfirmasiConfig.updated
+                            .map((m) => LABEL_MEDAN_CONFIG[m] ?? m)
+                            .join(", ")}
+                        </p>
+                      ) : null}
+                    </div>
+                  )}
+
+                  {konfirmasiConfig.status === "gagal" && (
+                    <div className="flex gap-2.5 rounded-[10px] border border-amber-200 bg-amber-50 px-3.5 py-2.5 text-[12.5px] leading-relaxed text-amber-900">
+                      <AlertTriangle className="mt-px size-4 shrink-0 text-amber-600" />
+                      <span>
+                        {konfirmasiConfig.setRts || "Logger tidak mengonfirmasi setelan."}
+                      </span>
+                    </div>
+                  )}
+
+                  {/* Nilai yang kembali BERBEDA dari yang dikirim. Ditampilkan
+                      terpisah dari status: logger bisa menjawab OK sambil
+                      menyimpan angka lain. */}
+                  {konfirmasiConfig.beda?.length ? (
+                    <div className="mt-2 rounded-[10px] border border-red-200 bg-red-50 px-3.5 py-2.5 text-[12px] leading-relaxed text-red-900">
+                      <p className="font-semibold">Nilai yang dikembalikan logger berbeda:</p>
+                      <ul className="mt-1 space-y-0.5">
+                        {konfirmasiConfig.beda.map((b) => (
+                          <li key={b.medan} className="font-mono text-[11.5px]">
+                            {LABEL_MEDAN_CONFIG[b.medan] ?? b.medan}: dikirim{" "}
+                            <strong>{b.dikirim || "(kosong)"}</strong> → tersimpan{" "}
+                            <strong>{b.diterima || "(kosong)"}</strong>
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  ) : null}
+                </div>
+              )}
+            </div>
+          )}
+        </ModalShell>
+      )}
+
+      {/* ─── Jadwal running ─── */}
+      {showJadwalModal && (
+        <ModalShell
+          judul="Jadwal running"
+          keterangan="Sesi berjalan otomatis pada waktu yang ditentukan, tanpa kode akses."
+          ikon={<CalendarDays className="size-4.5" />}
+          lebar="max-w-[560px]"
+          onClose={() => setShowJadwalModal(false)}
+          bisaDitutup={!jadwalSaving}
+          footer={
+            <>
+              <button
+                type="button"
+                onClick={() => setShowJadwalModal(false)}
+                className={TOMBOL_SEKUNDER}
+              >
+                Batal
+              </button>
+              <button
+                type="button"
+                onClick={saveScheduling}
+                disabled={jadwalSaving}
+                className={TOMBOL_UTAMA}
+              >
+                {jadwalSaving ? (
+                  <>
+                    <Loader2 className="size-4 animate-spin" /> Menyimpan…
+                  </>
+                ) : (
+                  "Simpan"
+                )}
+              </button>
+            </>
+          }
+        >
+          {jadwalLoading ? (
+            <div className="flex items-center justify-center gap-2 py-10 text-[13px] text-(--ink-3)">
+              <Loader2 className="size-5 animate-spin text-(--navy)" />
+              Memuat jadwal…
+            </div>
+          ) : (
+            <>
+              <div
+                role="tablist"
+                aria-label="Pilih hari"
+                className="flex gap-1 overflow-x-auto rounded-[10px] bg-(--paper) p-1 ring-1 ring-(--line) [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+              >
+                {schedules.map((s) => (
+                  <button
+                    key={s.day}
+                    type="button"
+                    role="tab"
+                    aria-selected={activeTab === s.day}
+                    onClick={() => setActiveTab(s.day)}
+                    className={cn(
+                      "inline-flex h-8 shrink-0 cursor-pointer items-center gap-1.5 rounded-[7px] px-3 text-[12.5px] font-semibold outline-none transition-colors focus-visible:ring-2 focus-visible:ring-(--navy)/40",
+                      activeTab === s.day
+                        ? "bg-white text-(--ink) shadow-sm"
+                        : "text-(--ink-3) hover:text-(--ink-2)"
+                    )}
+                  >
+                    {/* Titik penanda hari yang punya jadwal aktif — tanpa ini
+                        operator harus membuka tujuh tab untuk tahu mana yang
+                        sudah diatur. */}
+                    {s.active && (
+                      <span
+                        aria-hidden="true"
+                        className="size-1.5 rounded-full"
+                        style={{ background: "var(--st-normal)" }}
+                      />
+                    )}
+                    {s.day}
+                  </button>
+                ))}
               </div>
 
-                </>
+              <div className="mt-4 flex items-center justify-between gap-4 rounded-[10px] bg-(--paper) px-3.5 py-3">
+                <div className="min-w-0">
+                  <p className="text-[13px] font-semibold text-(--ink)">
+                    Penjadwalan {activeTab}
+                  </p>
+                  <p className="mt-0.5 text-[11.5px] text-(--ink-2)">
+                    Otomatis running pada waktu yang ditentukan
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  role="switch"
+                  aria-checked={currentSchedule.active}
+                  aria-label={`Aktifkan penjadwalan ${activeTab}`}
+                  onClick={toggleDayActive}
+                  className={cn(
+                    "relative inline-flex h-6 w-11 shrink-0 cursor-pointer items-center rounded-full outline-none transition-colors focus-visible:ring-2 focus-visible:ring-(--navy)/40",
+                    currentSchedule.active ? "bg-(--navy)" : "bg-(--ink-3)/40"
+                  )}
+                >
+                  <span
+                    aria-hidden="true"
+                    className={cn(
+                      "pointer-events-none inline-block size-5 transform rounded-full bg-white shadow transition",
+                      currentSchedule.active ? "translate-x-[22px]" : "translate-x-0.5"
+                    )}
+                  />
+                </button>
+              </div>
+
+              {currentSchedule.active && currentSchedule.runs && currentSchedule.runs.length > 0 && (
+                <div className="mt-4">
+                  <Eyebrow>Waktu running</Eyebrow>
+                  <ul className="mt-2 rounded-[10px] ring-1 ring-(--line)">
+                    {currentSchedule.runs.map((r, i) => (
+                      <li
+                        key={r.id}
+                        className={cn(
+                          "flex items-center justify-between gap-3 px-3.5 py-2.5",
+                          i > 0 && "border-t border-(--line)"
+                        )}
+                      >
+                        <label className="inline-flex min-w-0 cursor-pointer items-center gap-2.5">
+                          <input
+                            type="checkbox"
+                            checked={r.active}
+                            onChange={() => toggleRunActive(r.id)}
+                            className="peer sr-only"
+                          />
+                          <span
+                            aria-hidden="true"
+                            className={cn(
+                              "flex size-[17px] shrink-0 items-center justify-center rounded-[5px] border transition-colors",
+                              r.active
+                                ? "border-(--navy) bg-(--navy)"
+                                : "border-(--ink-3)/50 bg-white"
+                            )}
+                          >
+                            {r.active && <Check className="size-3 text-white" strokeWidth={3.5} />}
+                          </span>
+                          <span className="truncate text-[13px] text-(--ink)">{r.nama}</span>
+                        </label>
+
+                        <div className="relative shrink-0">
+                          <button
+                            type="button"
+                            onClick={() =>
+                              r.active && setOpenTimePickerId(openTimePickerId === r.id ? null : r.id)
+                            }
+                            disabled={!r.active}
+                            className="inline-flex h-8 w-[92px] cursor-pointer items-center justify-center gap-1.5 rounded-[8px] bg-white font-mono text-[13px] tabular-nums text-(--ink) ring-1 ring-(--line) outline-none transition-colors hover:bg-(--paper) focus-visible:ring-2 focus-visible:ring-(--navy)/40 disabled:cursor-not-allowed disabled:bg-(--paper) disabled:text-(--ink-3)"
+                          >
+                            <Clock className="size-3.5 text-(--ink-3)" />
+                            {r.time || "00:00"}
+                          </button>
+
+                          {openTimePickerId === r.id && (
+                            <>
+                              <div
+                                className="fixed inset-0 z-40"
+                                onClick={() => setOpenTimePickerId(null)}
+                              />
+                              <div className="absolute top-9 right-0 z-50 flex h-[168px] w-[124px] overflow-hidden rounded-[10px] bg-white shadow-xl ring-1 ring-(--line)">
+                                <div className="h-full w-1/2 overflow-y-auto border-r border-(--line) [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+                                  {Array.from({ length: 24 }, (_, i) => {
+                                    const h = String(i).padStart(2, "0");
+                                    const dipilih = (r.time?.split(":")[0] || "00") === h;
+                                    return (
+                                      <button
+                                        type="button"
+                                        key={`h-${i}`}
+                                        onClick={() =>
+                                          updateRunTime(r.id, `${h}:${r.time?.split(":")[1] || "00"}`)
+                                        }
+                                        className={cn(
+                                          "w-full cursor-pointer py-1.5 font-mono text-[13px] tabular-nums transition-colors",
+                                          dipilih
+                                            ? "bg-(--navy) text-white"
+                                            : "text-(--ink-2) hover:bg-(--paper)"
+                                        )}
+                                      >
+                                        {h}
+                                      </button>
+                                    );
+                                  })}
+                                </div>
+                                <div className="h-full w-1/2 overflow-y-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+                                  {Array.from({ length: 60 }, (_, i) => {
+                                    const m = String(i).padStart(2, "0");
+                                    const dipilih = (r.time?.split(":")[1] || "00") === m;
+                                    return (
+                                      <button
+                                        type="button"
+                                        key={`m-${i}`}
+                                        onClick={() =>
+                                          updateRunTime(r.id, `${r.time?.split(":")[0] || "00"}:${m}`)
+                                        }
+                                        className={cn(
+                                          "w-full cursor-pointer py-1.5 font-mono text-[13px] tabular-nums transition-colors",
+                                          dipilih
+                                            ? "bg-(--navy) text-white"
+                                            : "text-(--ink-2) hover:bg-(--paper)"
+                                        )}
+                                      >
+                                        {m}
+                                      </button>
+                                    );
+                                  })}
+                                </div>
+                              </div>
+                            </>
+                          )}
+                        </div>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+            </>
+          )}
+        </ModalShell>
+      )}
+
+      {/* ─── Arahkan RTS ───
+          Menggeser teleskop secara relatif lewat perintah `jog`. Sengaja dialog
+          terpisah, bukan tombol lepas di panel: setiap penekanan menggerakkan
+          instrumen sungguhan, jadi harus jelas sedang berada di mode ini. */}
+      {showJog && (
+        <ModalShell
+          judul="Arahkan RTS"
+          keterangan="Setiap penekanan memutar teleskop di lapangan."
+          ikon={<Move className="size-4.5" />}
+          lebar="max-w-[440px]"
+          onClose={() => setShowJog(false)}
+        >
+          <div className="flex flex-col gap-4">
+            {/* Sudut sekarang */}
+            <div className="rounded-[10px] bg-(--paper) px-3.5 py-3">
+              <div className="flex items-center justify-between gap-2">
+                <Eyebrow>Sudut instrumen sekarang</Eyebrow>
+                <button
+                  type="button"
+                  onClick={handleBacaHaVa}
+                  disabled={haVaLoading || !isConnected}
+                  className="inline-flex cursor-pointer items-center gap-1.5 rounded-md text-[11.5px] font-semibold text-(--navy) outline-none hover:underline focus-visible:ring-2 focus-visible:ring-(--navy)/40 disabled:cursor-not-allowed disabled:text-(--ink-3) disabled:no-underline"
+                >
+                  {haVaLoading ? (
+                    <Loader2 className="size-3 animate-spin" />
+                  ) : (
+                    <RefreshCcw className="size-3" />
+                  )}
+                  Baca
+                </button>
+              </div>
+              {haVa?.gagal ? (
+                // Kedua nilai "000,00,00" adalah penanda gagal, bukan sudut
+                // sungguhan — kalau ditampilkan apa adanya akan terbaca sebagai
+                // instrumen menghadap titik nol.
+                <p className="mt-1.5 inline-flex items-center gap-1.5 text-[12.5px] font-semibold text-(--ink)">
+                  <span
+                    aria-hidden="true"
+                    className="size-2 rounded-full"
+                    style={{ background: "var(--st-awas)" }}
+                  />
+                  Instrumen tidak menjawab (000,00,00)
+                </p>
+              ) : haVa ? (
+                <div className="mt-1.5 grid grid-cols-2 gap-2 font-mono text-[13px] tabular-nums text-(--ink)">
+                  <span>
+                    <span className="text-(--ink-3)">HA</span> {haVa.HA}
+                  </span>
+                  <span>
+                    <span className="text-(--ink-3)">VA</span> {haVa.VA}
+                  </span>
+                </div>
+              ) : (
+                <p className="mt-1.5 text-[12px] text-(--ink-3)">Belum dibaca</p>
               )}
             </div>
 
-            {/* Konfirmasi dari logger.
-                Dipisah dari status simpan-ke-database dengan sengaja: tersimpan
-                di aplikasi dan sampai ke perangkat adalah dua hal berbeda, dan
-                yang kedua itulah yang menentukan RTS benar-benar memakai setelan
-                baru. */}
-            {konfirmasiConfig && (
-              <div className="px-6 pb-1">
-                {konfirmasiConfig.status === "menunggu" && (
-                  <div className="flex items-center gap-2.5 rounded-lg bg-gray-50 px-3.5 py-3 text-[12.5px] text-gray-600">
-                    <Loader2 className="h-4 w-4 flex-shrink-0 animate-spin text-[#303481]" />
-                    Tersimpan di aplikasi. Menunggu logger mengonfirmasi…
-                  </div>
-                )}
+            {/* Pemilih langkah */}
+            <div>
+              <p className={LABEL}>Besar langkah</p>
+              <div className="grid grid-cols-4 gap-2">
+                {LANGKAH_JOG.map((l) => (
+                  <button
+                    key={l.label}
+                    type="button"
+                    onClick={() => setLangkahJog(l.derajat)}
+                    title={`${l.keterangan} — dikirim sebagai ${String(l.derajat).replace(".", ",")}°`}
+                    className={cn(
+                      "h-9 cursor-pointer rounded-[9px] text-[12.5px] font-semibold outline-none transition-colors focus-visible:ring-2 focus-visible:ring-(--navy)/40",
+                      langkahJog === l.derajat
+                        ? "bg-(--navy) text-white"
+                        : "bg-white text-(--ink-2) ring-1 ring-(--line) hover:text-(--ink)"
+                    )}
+                  >
+                    {l.label}
+                  </button>
+                ))}
+              </div>
+            </div>
 
-                {konfirmasiConfig.status === "ok" && (
-                  <div className="rounded-lg bg-emerald-50 px-3.5 py-3">
-                    <p className="flex items-center gap-2 text-[12.5px] font-bold text-emerald-800">
-                      <CheckCircle2 className="h-4 w-4 flex-shrink-0" />
-                      Logger menerima setelan ({konfirmasiConfig.setRts})
+            {/* Tombol arah */}
+            <div className="flex flex-col items-center gap-2">
+              {(() => {
+                const sibuk = jogStatus === "waiting";
+                const mati = sibuk || !isConnected || !selectedSite;
+                const kelas = cn(
+                  "flex size-11 items-center justify-center rounded-[10px] outline-none transition-colors focus-visible:ring-2 focus-visible:ring-(--navy)/40",
+                  mati
+                    ? "cursor-not-allowed bg-(--paper) text-(--ink-3)/50"
+                    : "cursor-pointer bg-white text-(--navy) ring-1 ring-(--navy)/30 hover:bg-(--navy) hover:text-white"
+                );
+                const Tombol = ({
+                  arah,
+                  children,
+                }: {
+                  arah: "atas" | "bawah" | "kiri" | "kanan";
+                  children: React.ReactNode;
+                }) => (
+                  <button
+                    type="button"
+                    onClick={() => handleJog(arah)}
+                    disabled={mati}
+                    className={kelas}
+                    aria-label={`Geser ${arah}`}
+                  >
+                    {children}
+                  </button>
+                );
+                return (
+                  <>
+                    <Tombol arah="atas">
+                      <ChevronUp className="size-5" />
+                    </Tombol>
+                    <div className="flex items-center gap-2">
+                      <Tombol arah="kiri">
+                        <ChevronLeft className="size-5" />
+                      </Tombol>
+                      <div className="flex size-11 items-center justify-center rounded-[10px] bg-(--paper) font-mono text-[11px] font-semibold tabular-nums text-(--ink-2)">
+                        {sibuk ? (
+                          <Loader2 className="size-4 animate-spin" />
+                        ) : (
+                          LANGKAH_JOG.find((l) => l.derajat === langkahJog)?.label
+                        )}
+                      </div>
+                      <Tombol arah="kanan">
+                        <ChevronRight className="size-5" />
+                      </Tombol>
+                    </div>
+                    <Tombol arah="bawah">
+                      <ChevronDown className="size-5" />
+                    </Tombol>
+                  </>
+                );
+              })()}
+            </div>
+
+            {/* VA adalah sudut zenit, bukan elevasi. Disebut supaya operator
+                tahu kenapa angkanya mengecil saat mendongak.
+
+                Batas ZA 30°–150° tidak dijaga aplikasi maupun firmware — di luar
+                itu instrumen menolak DIAM-DIAM, dan satu-satunya jejaknya adalah
+                `Rotate` gagal dengan alasan `no_response` setelah menunggu.
+                Disebutkan supaya kegagalan itu tidak terbaca sebagai alat rusak. */}
+            <p className="text-center text-[11px] leading-relaxed text-(--ink-3)">
+              Atas/bawah mengubah VA (sudut zenit — mendongak membuat angkanya mengecil),
+              kiri/kanan mengubah HA. Teropong hanya bisa dipakai sekitar VA 30°–150°.
+            </p>
+
+            {/* Titik awal → tujuan dari balasan `target` */}
+            {jogTarget && (jogTarget.keHA || jogTarget.HA) && (
+              <div
+                className={cn(
+                  "rounded-[10px] px-3.5 py-3 text-[11.5px] leading-relaxed",
+                  jogTarget.jenis === "ditolak"
+                    ? "border border-red-200 bg-red-50 text-red-900"
+                    : "bg-(--paper) text-(--ink-2)"
+                )}
+              >
+                {jogTarget.jenis === "ditolak" ? (
+                  <>
+                    <p className="font-semibold">Sudut awal yang ditolak</p>
+                    <p className="mt-0.5 font-mono tabular-nums">
+                      HA {jogTarget.HA} · VA {jogTarget.VA}
                     </p>
-                    {konfirmasiConfig.updated?.length ? (
-                      <p className="mt-1 text-[11.5px] leading-relaxed text-emerald-900">
-                        Diterapkan:{" "}
-                        {konfirmasiConfig.updated
-                          .map((m) => LABEL_MEDAN_CONFIG[m] ?? m)
-                          .join(", ")}
-                      </p>
-                    ) : null}
-                  </div>
+                  </>
+                ) : (
+                  <>
+                    {/* Dua satuan berbeda dalam satu balasan: `dari_*` desimal
+                        derajat, `ke_*` DMS. Diberi label karena tanpa itu
+                        bentuknya terlihat seperti data rusak. */}
+                    <p className="font-semibold text-(--ink)">Perpindahan</p>
+                    <p className="mt-0.5 font-mono tabular-nums">
+                      dari HA {jogTarget.dariHA} · VA {jogTarget.dariVA}
+                      <span className="ml-1.5 font-sans text-[10.5px] text-(--ink-3)">
+                        desimal
+                      </span>
+                    </p>
+                    <p className="font-mono tabular-nums">
+                      ke&nbsp;&nbsp; HA {jogTarget.keHA} · VA {jogTarget.keVA}
+                      <span className="ml-1.5 font-sans text-[10.5px] text-(--ink-3)">d,m,d</span>
+                    </p>
+                  </>
                 )}
-
-                {konfirmasiConfig.status === "gagal" && (
-                  <div className="flex gap-2.5 rounded-lg bg-amber-50 px-3.5 py-3 text-[12.5px] leading-relaxed text-amber-900">
-                    <AlertTriangle className="mt-[1px] h-4 w-4 flex-shrink-0" />
-                    <span>{konfirmasiConfig.setRts || "Logger tidak mengonfirmasi setelan."}</span>
-                  </div>
-                )}
-
-                {/* Nilai yang kembali BERBEDA dari yang dikirim. Ditampilkan
-                    terpisah dari status: logger bisa menjawab OK sambil
-                    menyimpan angka lain. */}
-                {konfirmasiConfig.beda?.length ? (
-                  <div className="mt-2 rounded-lg bg-red-50 px-3.5 py-3 text-[12px] leading-relaxed text-red-900">
-                    <p className="font-bold">Nilai yang dikembalikan logger berbeda:</p>
-                    <ul className="mt-1 space-y-0.5">
-                      {konfirmasiConfig.beda.map((b) => (
-                        <li key={b.medan} className="font-mono text-[11.5px]">
-                          {LABEL_MEDAN_CONFIG[b.medan] ?? b.medan}: dikirim{" "}
-                          <strong>{b.dikirim || "(kosong)"}</strong> → tersimpan{" "}
-                          <strong>{b.diterima || "(kosong)"}</strong>
-                        </li>
-                      ))}
-                    </ul>
-                  </div>
-                ) : null}
               </div>
             )}
 
-            {/* Modal Footer */}
-            <div className="px-6 py-4 border-t border-gray-100 flex justify-end gap-3">
-              <Button
-                variant="outline"
-                onClick={() => setShowRtsConfig(false)}
-                className="h-[38px] px-5 text-[13px] font-medium border-gray-300 text-gray-700 hover:bg-gray-50 cursor-pointer"
-              >
-                {konfirmasiConfig?.status === "ok" ? "Tutup" : "Batal"}
-              </Button>
-              <Button
-                onClick={saveConfig}
-                disabled={configSaving || konfirmasiConfig?.status === "menunggu"}
-                className="h-[38px] px-6 text-[13px] font-medium bg-[#303481] hover:bg-[#1f2259] text-white border-none cursor-pointer disabled:opacity-60"
-              >
-                {configSaving || konfirmasiConfig?.status === "menunggu"
-                  ? <><Loader2 className="w-4 h-4 animate-spin mr-1.5" />Menyimpan...</>
-                  : "Simpan"}
-              </Button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* ─── Jadwal Running Modal ─── */}
-      {showJadwalModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center">
-          <div className="absolute inset-0 bg-black/30 backdrop-blur-[2px]" onClick={() => setShowJadwalModal(false)} />
-          <div className="relative z-10 bg-white rounded-[10px] shadow-2xl w-full max-w-[550px] mx-4 overflow-hidden flex flex-col">
-            <div className="flex items-center justify-between px-6 py-4">
-              <h2 className="text-[16px] font-bold text-gray-900">Jadwal Running RTS</h2>
-              <button onClick={() => setShowJadwalModal(false)} className="text-gray-400 hover:text-gray-700 transition-colors cursor-pointer">
-                <X className="w-5 h-5" />
-              </button>
-            </div>
-
-            <div className="px-6 flex items-center gap-1 border-b border-[#EAEAEA] pt-2">
-              {schedules.map(s => (
-                <button
-                  key={s.day}
-                  onClick={() => setActiveTab(s.day)}
-                  className={cn(
-                    "px-4 py-2.5 text-[13px] font-medium transition-colors border-b-2 cursor-pointer",
-                    activeTab === s.day ? "border-[#303481] text-[#303481] font-bold" : "border-transparent text-gray-500 hover:text-gray-700"
-                  )}
-                >
-                  {s.day}
-                </button>
-              ))}
-            </div>
-
-            <div className="px-6 py-5 flex flex-col gap-6 max-h-[75vh] overflow-y-auto">
-              {jadwalLoading ? (
-                <div className="flex items-center justify-center py-10">
-                  <Loader2 className="w-6 h-6 animate-spin text-[#303481]" />
-                  <span className="ml-2 text-[13px] text-gray-500">Memuat jadwal...</span>
-                </div>
-              ) : (
-                <>
-                  <div className="bg-gray-50 border border-[#EAEAEA] rounded-[8px] p-4 flex items-center justify-between">
-                    <div>
-                      <h3 className="text-[13.5px] font-bold text-gray-900">Aktifkan Penjadwalan: {activeTab}</h3>
-                      <p className="text-[12px] text-gray-500">Otomatis running pada waktu yang telah ditentukan</p>
-                    </div>
-                    {/* Custom Toggle Switch */}
-                    <button
-                      type="button"
-                      onClick={toggleDayActive}
-                      className={cn(
-                        "relative inline-flex h-[24px] w-[44px] shrink-0 cursor-pointer items-center rounded-full border-2 border-transparent transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#303481] focus-visible:ring-offset-2",
-                        currentSchedule.active ? "bg-[#303481]" : "bg-gray-300"
-                      )}
-                    >
-                      <span
-                        className={cn(
-                          "pointer-events-none inline-block h-[20px] w-[20px] transform rounded-full bg-white shadow-lg ring-0 transition duration-200 ease-in-out",
-                          currentSchedule.active ? "translate-x-[20px]" : "translate-x-0"
-                        )}
-                      />
-                    </button>
-                  </div>
-
-                  {currentSchedule.active && currentSchedule.runs && currentSchedule.runs.length > 0 && (
-                    <div>
-                      <h3 className="text-[13.5px] font-bold text-gray-900 mb-3">Pengaturan Waktu</h3>
-                      <div className="border border-[#EAEAEA] rounded-[8px] flex flex-col">
-                        {currentSchedule.runs.map((r, i) => (
-                          <div key={r.id} className={cn("flex items-center justify-between p-3.5", i !== currentSchedule.runs.length - 1 && "border-b border-[#EAEAEA]")}>
-                            <div className="flex items-center gap-3">
-                              <input
-                                type="checkbox"
-                                checked={r.active}
-                                onChange={() => toggleRunActive(r.id)}
-                                className="w-4 h-4 rounded border-gray-300 text-[#303481] focus:ring-[#303481] cursor-pointer"
-                              />
-                              <span className="text-[13px] font-medium text-gray-700">{r.nama}</span>
-                            </div>
-                            <div className="flex items-center gap-2 relative">
-                              <Clock className="w-4 h-4 text-gray-400" />
-                              
-                              {/* Trigger Button */}
-                              <button
-                                type="button"
-                                onClick={() => r.active && setOpenTimePickerId(openTimePickerId === r.id ? null : r.id)}
-                                disabled={!r.active}
-                                className="w-[85px] h-[34px] flex items-center justify-center text-[14px] text-center font-medium bg-white border border-gray-300 rounded-md disabled:bg-gray-50 disabled:text-gray-400 disabled:cursor-not-allowed hover:bg-gray-50 transition-colors"
-                              >
-                                {r.time || "00:00"}
-                              </button>
-
-                              {/* Custom Time Picker Dropdown */}
-                              {openTimePickerId === r.id && (
-                                <>
-                                  <div className="fixed inset-0 z-40" onClick={() => setOpenTimePickerId(null)} />
-                                  <div className="absolute right-0 top-10 flex bg-white border border-gray-200 rounded-md shadow-xl w-[120px] h-[160px] overflow-hidden z-50">
-                                    
-                                    {/* Hours Scroll */}
-                                    <div className="w-1/2 h-full overflow-y-auto border-r border-gray-100 [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none]">
-                                      {Array.from({ length: 24 }).map((_, i) => {
-                                        const h = i.toString().padStart(2, '0');
-                                        const isSelected = (r.time?.split(':')[0] || "00") === h;
-                                        return (
-                                          <button
-                                            type="button"
-                                            key={`h-${i}`}
-                                            onClick={() => updateRunTime(r.id, `${h}:${r.time?.split(':')[1] || "00"}`)}
-                                            className={cn(
-                                              "w-full py-1.5 text-[14px] font-medium transition-colors hover:bg-gray-100",
-                                              isSelected ? "bg-[#303481] text-white hover:bg-[#303481] time-active-hour" : "text-gray-700"
-                                            )}
-                                          >
-                                            {h}
-                                          </button>
-                                        );
-                                      })}
-                                    </div>
-                                    
-                                    {/* Minutes Scroll */}
-                                    <div className="w-1/2 h-full overflow-y-auto [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none]">
-                                      {Array.from({ length: 60 }).map((_, i) => {
-                                        const m = i.toString().padStart(2, '0');
-                                        const isSelected = (r.time?.split(':')[1] || "00") === m;
-                                        return (
-                                          <button
-                                            type="button"
-                                            key={`m-${i}`}
-                                            onClick={() => updateRunTime(r.id, `${r.time?.split(':')[0] || "00"}:${m}`)}
-                                            className={cn(
-                                              "w-full py-1.5 text-[14px] font-medium transition-colors hover:bg-gray-100",
-                                              isSelected ? "bg-[#303481] text-white hover:bg-[#303481] time-active-minute" : "text-gray-700"
-                                            )}
-                                          >
-                                            {m}
-                                          </button>
-                                        );
-                                      })}
-                                    </div>
-                                  </div>
-                                </>
-                              )}
-                            </div>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  )}
-                </>
-              )}
-            </div>
-
-            <div className="px-6 py-4 border-t border-gray-100 flex justify-end gap-3">
-              <Button variant="outline" onClick={() => setShowJadwalModal(false)} className="h-[38px] px-5 text-[13px] font-medium border-gray-300 text-gray-700 hover:bg-gray-50 cursor-pointer">Batal</Button>
-              <Button onClick={saveScheduling} disabled={jadwalSaving} className="h-[38px] px-6 text-[13px] font-medium bg-[#303481] hover:bg-[#1f2259] text-white border-none cursor-pointer disabled:opacity-60">
-                {jadwalSaving ? <><Loader2 className="w-4 h-4 animate-spin mr-1.5"/>Menyimpan...</> : "Simpan"}
-              </Button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Remote kontrol arah RTS.
-          Menggeser teleskop secara relatif lewat perintah `jog`. Sengaja modal
-          terpisah, bukan tombol lepas di header: setiap penekanan menggerakkan
-          instrumen sungguhan, jadi harus jelas sedang berada di mode ini. */}
-      {showJog && (
-        <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm"
-          onClick={() => setShowJog(false)}
-        >
-          <div
-            className="bg-white rounded-xl shadow-2xl w-full max-w-[440px] mx-4 overflow-hidden"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100">
-              <div className="flex items-center gap-2">
-                <Move className="h-[17px] w-[17px] text-[#303481]" />
-                <h3 className="font-bold text-gray-900 text-[16px]">Arahkan RTS</h3>
+            {jogStatus === "gagal" && jogPesan && (
+              <div className="flex gap-2.5 rounded-[10px] border border-amber-200 bg-amber-50 px-3.5 py-2.5 text-[12.5px] leading-relaxed text-amber-900">
+                <AlertTriangle className="mt-px size-4 shrink-0 text-amber-600" />
+                <span>{jogPesan}</span>
               </div>
-              <button
-                onClick={() => setShowJog(false)}
-                className="w-8 h-8 flex items-center justify-center rounded-lg hover:bg-gray-100 transition-colors text-gray-500 cursor-pointer"
-              >
-                <X className="w-5 h-5" />
-              </button>
-            </div>
+            )}
 
-            <div className="px-6 py-4 flex flex-col gap-4">
-              {/* Sudut sekarang */}
-              <div className="rounded-lg bg-gray-50 px-3.5 py-3">
-                <div className="flex items-center justify-between">
-                  <p className="text-[11px] font-semibold text-gray-500">Sudut instrumen sekarang</p>
-                  <button
-                    onClick={handleBacaHaVa}
-                    disabled={haVaLoading || !isConnected}
-                    className="flex items-center gap-1.5 text-[11.5px] font-semibold text-[#303481] hover:underline cursor-pointer disabled:cursor-not-allowed disabled:text-gray-400 disabled:no-underline"
-                  >
-                    {haVaLoading ? <Loader2 className="h-3 w-3 animate-spin" /> : <RefreshCcw className="h-3 w-3" />}
-                    Baca
-                  </button>
-                </div>
-                {haVa?.gagal ? (
-                  // Kedua nilai "000,00,00" adalah penanda gagal, bukan sudut
-                  // sungguhan — kalau ditampilkan apa adanya akan terbaca
-                  // sebagai instrumen menghadap titik nol.
-                  <p className="mt-1 text-[12px] font-semibold text-red-600">
-                    Instrumen tidak menjawab (000,00,00)
-                  </p>
-                ) : haVa ? (
-                  <div className="mt-1 grid grid-cols-2 gap-2 font-mono text-[12.5px] text-gray-800">
-                    <span>HA {haVa.HA}</span>
-                    <span>VA {haVa.VA}</span>
-                  </div>
-                ) : (
-                  <p className="mt-1 text-[12px] text-gray-400">Belum dibaca</p>
-                )}
-              </div>
-
-              {/* Pemilih langkah */}
-              <div>
-                <p className="mb-1.5 text-[12px] font-medium text-gray-600">Besar langkah</p>
-                <div className="grid grid-cols-4 gap-2">
-                  {LANGKAH_JOG.map((l) => (
-                    <button
-                      key={l.label}
-                      onClick={() => setLangkahJog(l.derajat)}
-                      title={`${l.keterangan} — dikirim sebagai ${String(l.derajat).replace(".", ",")}°`}
-                      className={cn(
-                        "h-[36px] rounded-md border text-[12.5px] font-bold transition-colors cursor-pointer",
-                        langkahJog === l.derajat
-                          ? "border-[#303481] bg-[#303481] text-white"
-                          : "border-gray-300 text-gray-600 hover:bg-gray-50"
-                      )}
-                    >
-                      {l.label}
-                    </button>
-                  ))}
-                </div>
-              </div>
-
-              {/* Tombol arah */}
-              <div className="flex flex-col items-center gap-2">
-                {(() => {
-                  const sibuk = jogStatus === "waiting";
-                  const mati = sibuk || !isConnected || !selectedSite;
-                  const kelas =
-                    "flex h-[46px] w-[46px] items-center justify-center rounded-lg border transition-colors " +
-                    (mati
-                      ? "border-gray-200 bg-gray-50 text-gray-300 cursor-not-allowed"
-                      : "border-[#303481] text-[#303481] hover:bg-[#303481] hover:text-white cursor-pointer");
-                  const Tombol = ({ arah, children }: { arah: "atas" | "bawah" | "kiri" | "kanan"; children: React.ReactNode }) => (
-                    <button onClick={() => handleJog(arah)} disabled={mati} className={kelas} aria-label={`Geser ${arah}`}>
-                      {children}
-                    </button>
-                  );
+            {/* Ukur — melengkapi alurnya: arahkan, baca sudut, lalu ukur.
+                Tidak menggerakkan teleskop, hanya membaca. */}
+            <div className="border-t border-(--line) pt-4">
+              <p className={LABEL}>Ukur dari arah sekarang</p>
+              <div className="grid grid-cols-2 gap-2">
+                {(["bs", "fs"] as const).map((kode) => {
+                  const mati = ukurJalan !== null || !isConnected || !selectedSite;
                   return (
-                    <>
-                      <Tombol arah="atas"><ChevronUp className="h-5 w-5" /></Tombol>
-                      <div className="flex items-center gap-2">
-                        <Tombol arah="kiri"><ChevronLeft className="h-5 w-5" /></Tombol>
-                        <div className="flex h-[46px] w-[46px] items-center justify-center rounded-lg bg-gray-100 text-[11px] font-bold text-gray-500">
-                          {sibuk ? <Loader2 className="h-4 w-4 animate-spin" /> : LANGKAH_JOG.find((l) => l.derajat === langkahJog)?.label}
-                        </div>
-                        <Tombol arah="kanan"><ChevronRight className="h-5 w-5" /></Tombol>
-                      </div>
-                      <Tombol arah="bawah"><ChevronDown className="h-5 w-5" /></Tombol>
-                    </>
-                  );
-                })()}
-              </div>
-
-              {/* VA adalah sudut zenit, bukan elevasi. Disebut supaya operator
-                  tahu kenapa angkanya mengecil saat mendongak.
-
-                  Batas ZA 30°–150° tidak dijaga aplikasi maupun firmware —
-                  di luar itu instrumen menolak DIAM-DIAM, dan satu-satunya
-                  jejaknya adalah `Rotate` gagal dengan alasan `no_response`
-                  setelah menunggu. Disebutkan supaya kegagalan itu tidak
-                  terbaca sebagai alat rusak. */}
-              <p className="text-center text-[11px] leading-relaxed text-gray-400">
-                Atas/bawah mengubah VA (sudut zenit — mendongak membuat angkanya mengecil),
-                kiri/kanan mengubah HA. Teropong hanya bisa dipakai sekitar VA 30°–150°.
-              </p>
-
-              {/* Titik awal → tujuan dari balasan `target` */}
-              {jogTarget && (jogTarget.keHA || jogTarget.HA) && (
-                <div className={cn(
-                  "rounded-lg px-3.5 py-3 text-[11.5px] leading-relaxed",
-                  jogTarget.jenis === "ditolak" ? "bg-red-50 text-red-900" : "bg-gray-50 text-gray-700"
-                )}>
-                  {jogTarget.jenis === "ditolak" ? (
-                    <>
-                      <p className="font-bold">Sudut awal yang ditolak</p>
-                      <p className="mt-0.5 font-mono">HA {jogTarget.HA} · VA {jogTarget.VA}</p>
-                    </>
-                  ) : (
-                    <>
-                      {/* Dua satuan berbeda dalam satu balasan: `dari_*`
-                          desimal derajat, `ke_*` DMS. Diberi label karena
-                          tanpa itu bentuknya terlihat seperti data rusak. */}
-                      <p className="font-bold">Perpindahan</p>
-                      <p className="mt-0.5 font-mono">
-                        dari HA {jogTarget.dariHA} · VA {jogTarget.dariVA}
-                        <span className="ml-1.5 font-sans text-[10.5px] text-gray-400">desimal</span>
-                      </p>
-                      <p className="font-mono">
-                        ke&nbsp;&nbsp; HA {jogTarget.keHA} · VA {jogTarget.keVA}
-                        <span className="ml-1.5 font-sans text-[10.5px] text-gray-400">d,m,d</span>
-                      </p>
-                    </>
-                  )}
-                </div>
-              )}
-
-              {jogStatus === "gagal" && jogPesan && (
-                <div className="flex gap-2.5 rounded-lg bg-amber-50 px-3.5 py-3 text-[12.5px] leading-relaxed text-amber-900">
-                  <AlertTriangle className="mt-[1px] h-4 w-4 flex-shrink-0" />
-                  <span>{jogPesan}</span>
-                </div>
-              )}
-
-              {/* Ukur — melengkapi alurnya: arahkan, baca sudut, lalu ukur.
-                  Tidak menggerakkan teleskop, hanya membaca. */}
-              <div className="border-t border-gray-100 pt-4">
-                <p className="mb-2 text-[12px] font-medium text-gray-600">Ukur dari arah sekarang</p>
-                <div className="grid grid-cols-2 gap-2">
-                  {(["bs", "fs"] as const).map((kode) => (
                     <button
                       key={kode}
+                      type="button"
                       onClick={() => handleUkur(kode)}
-                      disabled={ukurJalan !== null || !isConnected || !selectedSite}
+                      disabled={mati}
                       className={cn(
-                        "flex h-[38px] items-center justify-center gap-2 rounded-md border text-[12.5px] font-bold transition-colors",
-                        ukurJalan !== null || !isConnected || !selectedSite
-                          ? "border-gray-200 bg-gray-50 text-gray-300 cursor-not-allowed"
-                          : "border-[#E86A1F] text-[#E86A1F] hover:bg-[#E86A1F] hover:text-white cursor-pointer"
+                        tombol,
+                        "bg-white text-(--ink-2) ring-1 ring-(--line) hover:text-(--ink)"
                       )}
                     >
-                      {ukurJalan === kode ? <Loader2 className="h-4 w-4 animate-spin" /> : <Ruler className="h-4 w-4" />}
+                      {ukurJalan === kode ? (
+                        <Loader2 className="size-4 animate-spin" />
+                      ) : (
+                        <Ruler className="size-4" />
+                      )}
                       {JENIS_UKUR[kode].label}
                     </button>
-                  ))}
-                </div>
-
-                {(["bs", "fs"] as const).map((kode) => {
-                  const h = ukurHasil[kode];
-                  if (!h) return null;
-                  return (
-                    <div key={kode} className="mt-2 rounded-lg bg-gray-50 px-3.5 py-3">
-                      <p className="text-[11px] font-bold text-[#303481]">
-                        {JENIS_UKUR[kode].label}
-                      </p>
-                      <div className="mt-1 grid grid-cols-2 gap-x-3 gap-y-0.5 font-mono text-[11.5px] text-gray-800">
-                        <span>HA {h.HADMS}</span>
-                        <span>VA {h.VADMS}</span>
-                        <span>SD {h.SDis}</span>
-                        {/* HD hanya ada di balasan ini — payload data berkala
-                            tidak memuat jarak horizontal sama sekali. */}
-                        <span>HD {h.HD}</span>
-                      </div>
-                    </div>
                   );
                 })}
-
-                {ukurGagal && (
-                  <div className="mt-2 flex gap-2.5 rounded-lg bg-amber-50 px-3.5 py-3 text-[12.5px] leading-relaxed text-amber-900">
-                    <AlertTriangle className="mt-[1px] h-4 w-4 flex-shrink-0" />
-                    <span>
-                      Pengukuran {JENIS_UKUR[ukurGagal].label} gagal. Instrumen tidak
-                      mendapat pantulan — periksa bidikan dan halangan di lintasan.
-                    </span>
-                  </div>
-                )}
               </div>
+
+              {(["bs", "fs"] as const).map((kode) => {
+                const h = ukurHasil[kode];
+                if (!h) return null;
+                return (
+                  <div key={kode} className="mt-2 rounded-[10px] bg-(--paper) px-3.5 py-2.5">
+                    <Eyebrow>{JENIS_UKUR[kode].label}</Eyebrow>
+                    <dl className="mt-1.5 grid grid-cols-2 gap-x-4 gap-y-1 font-mono text-[11.5px] tabular-nums text-(--ink)">
+                      <div className="flex justify-between gap-2">
+                        <dt className="text-(--ink-3)">HA</dt>
+                        <dd>{h.HADMS}</dd>
+                      </div>
+                      <div className="flex justify-between gap-2">
+                        <dt className="text-(--ink-3)">VA</dt>
+                        <dd>{h.VADMS}</dd>
+                      </div>
+                      <div className="flex justify-between gap-2">
+                        <dt className="text-(--ink-3)">SD</dt>
+                        <dd>{h.SDis}</dd>
+                      </div>
+                      {/* HD hanya ada di balasan ini — payload data berkala
+                          tidak memuat jarak horizontal sama sekali. */}
+                      <div className="flex justify-between gap-2">
+                        <dt className="text-(--ink-3)">HD</dt>
+                        <dd>{h.HD}</dd>
+                      </div>
+                    </dl>
+                  </div>
+                );
+              })}
+
+              {ukurGagal && (
+                <div className="mt-2 flex gap-2.5 rounded-[10px] border border-amber-200 bg-amber-50 px-3.5 py-2.5 text-[12.5px] leading-relaxed text-amber-900">
+                  <AlertTriangle className="mt-px size-4 shrink-0 text-amber-600" />
+                  <span>
+                    Pengukuran {JENIS_UKUR[ukurGagal].label} gagal. Instrumen tidak mendapat
+                    pantulan — periksa bidikan dan halangan di lintasan.
+                  </span>
+                </div>
+              )}
             </div>
           </div>
-        </div>
+        </ModalShell>
       )}
 
-      {/* Konfirmasi Set Home.
+      {/* ─── Konfirmasi Set Home ───
           Wajib ada: perintah ini menimpa titik acuan yang dipakai PowerOff dan
           akhir siklus AutoTracking untuk memulangkan teleskop. Menyetelnya saat
           teleskop sedang membidik target membuat semua homing berikutnya
           mengarah ke tempat yang salah — dan karena firmware tidak membalas,
           kekeliruannya baru ketahuan jauh kemudian. */}
       {konfirmasiSetHome && (
-        <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm"
-          onClick={() => setKonfirmasiSetHome(false)}
-        >
-          <div
-            className="bg-white rounded-xl shadow-2xl w-full max-w-[420px] mx-4 overflow-hidden"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <div className="flex items-center justify-between px-6 py-4">
-              <h3 className="font-bold text-gray-900 text-[16px]">Set Home</h3>
+        <ModalShell
+          judul="Set Home"
+          keterangan={`Arah teleskop saat ini akan disimpan sebagai posisi home untuk ${namaPos(selectedSite)}, menimpa yang lama.`}
+          ikon={<Home className="size-4.5" />}
+          lebar="max-w-[420px]"
+          onClose={() => setKonfirmasiSetHome(false)}
+          footer={
+            <>
               <button
+                type="button"
                 onClick={() => setKonfirmasiSetHome(false)}
-                className="w-8 h-8 flex items-center justify-center rounded-lg hover:bg-gray-100 transition-colors text-gray-500 cursor-pointer"
-              >
-                <X className="w-5 h-5" />
-              </button>
-            </div>
-
-            <div className="px-6 pb-4 flex flex-col gap-3.5">
-              <p className="text-[13px] leading-relaxed text-gray-600">
-                Arah teleskop <strong>saat ini</strong> akan disimpan sebagai posisi
-                home untuk <strong>{namaPos(selectedSite)}</strong> dengan nama di
-                bawah, menimpa posisi home yang lama.
-              </p>
-
-              {/* Nama home. Kunci `setHome` mengirim NAMA ini, bukan penanda
-                  aksi, jadi kotak ini bukan pelengkap — tanpa isian tidak ada
-                  perintah yang layak dikirim. Enter ikut mengirim supaya alur
-                  ketik-lalu-simpan tidak memaksa pindah ke mouse. */}
-              <div className="flex flex-col gap-1.5">
-                <label htmlFor="nama-home" className="text-[12px] font-semibold text-gray-700">
-                  Nama posisi home
-                </label>
-                <input
-                  id="nama-home"
-                  type="text"
-                  value={namaHome}
-                  onChange={(e) => setNamaHome(e.target.value)}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter" && namaHomeSah) handleSetHome();
-                  }}
-                  maxLength={20}
-                  autoFocus
-                  placeholder="mis. HOME-01"
-                  className="h-[38px] rounded-lg border border-gray-300 px-3 font-mono text-[13px] text-gray-900 placeholder:font-sans placeholder:text-gray-400 focus:border-[#E86A1F] focus:outline-none"
-                />
-                {/* Peringatan hanya muncul setelah ada yang diketik: kotak yang
-                    masih kosong saat modal baru terbuka bukan kesalahan operator. */}
-                {namaHomeBersih.length > 0 && /[,;]/.test(namaHomeBersih) && (
-                  <p className="text-[11.5px] leading-relaxed text-red-600">
-                    Koma dan titik koma tidak boleh dipakai — keduanya pemisah medan
-                    di balasan RTS, jadi nama yang memuatnya membuat balasannya tidak
-                    bisa dibaca.
-                  </p>
-                )}
-              </div>
-
-              <div className="flex gap-2.5 rounded-lg bg-amber-50 px-3.5 py-3 text-[12.5px] leading-relaxed text-amber-900">
-                <AlertTriangle className="mt-[1px] h-4 w-4 flex-shrink-0" />
-                <span>
-                  Pastikan teleskop sedang menghadap posisi home yang benar, bukan
-                  sedang membidik target. Titik ini dipakai saat mematikan RTS dan
-                  di akhir setiap siklus AutoTracking.
-                </span>
-              </div>
-
-              <p className="text-[12px] leading-relaxed text-gray-500">
-                RTS akan membalas dengan nama itu diikuti sederet angka mentah,
-                mis. <span className="font-mono">HOME,0,151,42,06,206,04,54;</span>
-                {" "}— ditampilkan apa adanya karena formatnya tidak
-                terdokumentasi. Kehadirannya menandakan perintah diterima, bukan
-                bahwa arahnya sudah benar.
-              </p>
-
-              {setHomeJawaban && (
-                <div className="rounded-lg bg-gray-50 px-3.5 py-2.5">
-                  <p className="text-[11px] font-semibold text-gray-500">Balasan terakhir</p>
-                  <p className="mt-0.5 break-all font-mono text-[12px] text-gray-800">
-                    {setHomeJawaban}
-                  </p>
-                </div>
-              )}
-            </div>
-
-            <div className="flex justify-end gap-2 px-6 py-4">
-              <button
-                onClick={() => setKonfirmasiSetHome(false)}
-                className="h-[38px] px-5 rounded-lg border border-gray-300 text-[13px] font-semibold text-gray-600 hover:bg-gray-50 transition-colors cursor-pointer"
+                className={TOMBOL_SEKUNDER}
               >
                 Batal
               </button>
               <button
+                type="button"
                 onClick={handleSetHome}
                 disabled={!namaHomeSah}
-                className="h-[38px] px-7 rounded-lg text-[13px] font-semibold text-white bg-[#E86A1F] hover:bg-[#c55a18] transition-colors cursor-pointer disabled:cursor-not-allowed disabled:bg-gray-300"
+                className={TOMBOL_UTAMA}
               >
-                Simpan sebagai Home
+                Simpan sebagai home
               </button>
+            </>
+          }
+        >
+          <div className="flex flex-col gap-3.5">
+            {/* Nama home. Kunci `setHome` mengirim NAMA ini, bukan penanda aksi,
+                jadi kotak ini bukan pelengkap — tanpa isian tidak ada perintah
+                yang layak dikirim. Enter ikut mengirim supaya alur ketik-lalu-
+                simpan tidak memaksa pindah ke mouse. */}
+            <div>
+              <label htmlFor="nama-home" className={LABEL}>
+                Nama posisi home
+              </label>
+              <input
+                id="nama-home"
+                type="text"
+                value={namaHome}
+                onChange={(e) => setNamaHome(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" && namaHomeSah) handleSetHome();
+                }}
+                maxLength={20}
+                autoFocus
+                placeholder="mis. HOME-01"
+                className={cn(INPUT, "font-mono placeholder:font-sans")}
+              />
+              {/* Peringatan hanya muncul setelah ada yang diketik: kotak yang
+                  masih kosong saat dialog baru terbuka bukan kesalahan operator. */}
+              {namaHomeBersih.length > 0 && /[,;]/.test(namaHomeBersih) && (
+                <p className="mt-1.5 text-[11.5px] leading-relaxed text-(--st-awas)">
+                  Koma dan titik koma tidak boleh dipakai — keduanya pemisah medan di balasan
+                  RTS, jadi nama yang memuatnya membuat balasannya tidak bisa dibaca.
+                </p>
+              )}
             </div>
+
+            <div className="flex gap-2.5 rounded-[10px] border border-amber-200 bg-amber-50 px-3.5 py-2.5 text-[12.5px] leading-relaxed text-amber-900">
+              <AlertTriangle className="mt-px size-4 shrink-0 text-amber-600" />
+              <span>
+                Pastikan teleskop sedang menghadap posisi home yang benar, bukan sedang
+                membidik target. Titik ini dipakai saat mematikan RTS dan di akhir setiap
+                siklus AutoTracking.
+              </span>
+            </div>
+
+            <p className="text-[12px] leading-relaxed text-(--ink-3)">
+              RTS akan membalas dengan nama itu diikuti sederet angka mentah, mis.{" "}
+              <span className="font-mono">HOME,0,151,42,06,206,04,54;</span> — ditampilkan apa
+              adanya karena formatnya tidak terdokumentasi. Kehadirannya menandakan perintah
+              diterima, bukan bahwa arahnya sudah benar.
+            </p>
+
+            {setHomeJawaban && (
+              <div className="rounded-[10px] bg-(--paper) px-3.5 py-2.5">
+                <Eyebrow>Balasan terakhir</Eyebrow>
+                <p className="mt-1 break-all font-mono text-[12px] text-(--ink)">
+                  {setHomeJawaban}
+                </p>
+              </div>
+            )}
           </div>
-        </div>
+        </ModalShell>
       )}
-    </main>
+    </div>
   );
 }

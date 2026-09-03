@@ -58,7 +58,7 @@ export default function DashboardLayout({
    * startsWith, halaman detail itu kehilangan gutter dan isinya menempel ke
    * tepi layar.
    */
-  const RUTE_FULL_BLEED_PERSIS = ["/hasil-pengukuran"];
+  const RUTE_FULL_BLEED_PERSIS = ["/hasil-pengukuran", "/prism-config", "/visualisasi-3d"];
   const fullBleed =
     RUTE_FULL_BLEED_PERSIS.includes(pathname) ||
     RUTE_FULL_BLEED.some((r) => pathname.startsWith(r));
@@ -80,14 +80,18 @@ export default function DashboardLayout({
           <h1 className="truncate text-lg font-bold tracking-tight text-gray-900">{title}</h1>
         </header>
 
-        {/* Page Content */}
-        <main
+        {/* Page Content.
+            <div>, bukan <main>: SidebarInset di atasnya SUDAH merender <main>
+            (lihat data-slot="sidebar-inset" di components/ui/sidebar.tsx), jadi
+            elemen ini membuat dokumen punya dua landmark utama di setiap
+            halaman dashboard. Kelasnya tidak berubah — hanya tag-nya. */}
+        <div
           className={`flex-1 overflow-auto bg-white min-w-0 ${
             fullBleed ? "" : "p-4 md:p-6"
           }`}
         >
           {children}
-        </main>
+        </div>
       </SidebarInset>
     </SidebarProvider>
   );

@@ -92,3 +92,51 @@ export function bearingDari(dx: number, dy: number): number {
   const deg = (Math.atan2(dx, dy) * 180) / Math.PI;
   return (deg + 360) % 360;
 }
+
+/**
+ * Sudut dari RTS ke derajat desimal.
+ *
+ * Instrumen mengirim sudut sebagai "derajat,menit,detik" dengan koma sebagai
+ * pemisah medan — mis. "331,05,05" berarti 331° 05′ 05″, BUKAN 331,0505.
+ * Membacanya dengan Number() menghasilkan NaN, dan mengganti koma jadi titik
+ * menghasilkan angka yang salah tapi masuk akal — jenis kekeliruan yang paling
+ * sulit terlihat. Bentuk desimal biasa ikut diterima karena beberapa balasan
+ * (mis. `dari_ha` pada jog) memang sudah desimal.
+ */
+export function parseDms(v: unknown): number | null {
+  if (v === null || v === undefined || v === "") return null;
+  if (typeof v === "number") return Number.isFinite(v) ? v : null;
+
+  const s = String(v).trim();
+  if (s === "") return null;
+
+  const bagian = s.split(",");
+  if (bagian.length === 1) {
+    const n = Number(bagian[0]);
+    return Number.isFinite(n) ? n : null;
+  }
+
+  const [d, m, sec] = bagian.map((x) => Number(x.trim()));
+  if (!Number.isFinite(d)) return null;
+  const menit = Number.isFinite(m) ? m : 0;
+  const detik = Number.isFinite(sec) ? sec : 0;
+  // Tanda derajat berlaku untuk seluruh sudut: -1,30,00 berarti -1,5°.
+  const tanda = d < 0 || s.trimStart().startsWith("-") ? -1 : 1;
+  return tanda * (Math.abs(d) + menit / 60 + detik / 3600);
+}
+
+/** Sudut sebagai "331°05′05″"; "—" bila tidak terbaca. */
+export function fmtDms(v: unknown): string {
+  const deg = parseDms(v);
+  if (deg === null) return "—";
+  const abs = Math.abs(deg);
+  const d = Math.floor(abs);
+  const mFloat = (abs - d) * 60;
+  const m = Math.floor(mFloat);
+  const sec = Math.round((mFloat - m) * 60);
+  // Pembulatan detik bisa mendorongnya ke 60; naikkan ke menit berikutnya.
+  const detik = sec === 60 ? 0 : sec;
+  const menit = sec === 60 ? m + 1 : m;
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${deg < 0 ? "-" : ""}${d}°${pad(menit)}′${pad(detik)}″`;
+}

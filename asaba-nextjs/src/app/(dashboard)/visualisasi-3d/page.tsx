@@ -1,151 +1,128 @@
 "use client";
 
-import React, { useState, useEffect, useRef, useCallback } from "react";
-import { History, Target, Sliders, Crosshair, Play, ChevronDown, Loader2, Maximize, Database, MapPinned } from "lucide-react";
-import { Input } from "@/components/ui/input";
+import { useCallback, useEffect, useRef, useState } from "react";
+import {
+  AlertTriangle,
+  Boxes,
+  ChevronDown,
+  Crosshair,
+  Loader2,
+  Maximize,
+  Minimize,
+  PanelLeftClose,
+  PanelLeftOpen,
+  Play,
+  Sliders,
+} from "lucide-react";
+import { cn } from "@/lib/utils";
+import { fontDisplay } from "@/lib/fonts";
 import { useSites } from "@/hooks/use-sites";
-import { fontSans } from "@/lib/fonts";
+import { Eyebrow } from "@/components/monitoring/panel";
+import { fmtDate } from "@/components/monitoring/format";
+import {
+  extractPoints,
+  gambarScene,
+  getRTSFromPayload,
+} from "@/components/visualisasi-3d/deformasi-3d";
+import type {
+  BarisLog,
+  CachePayload,
+  PayloadDeformasi,
+  PlotlyGlobal,
+  RingkasRender,
+  Titik,
+} from "@/components/visualisasi-3d/types";
 
-// ─── Plotly loaded via CDN (same as legacy) ──────────────────────────────────
 declare global {
-  interface Window { Plotly: any }
+  interface Window {
+    Plotly?: PlotlyGlobal;
+  }
 }
 
-// ─── Cache key ───────────────────────────────────────────────────────────────
 const CACHE_KEY = "vis3d_cache_v1";
 
-interface CachePayload {
-  id_log: string;
-  rtsE: string;
-  rtsN: string;
-  rtsZ: string;
-  coneScale: string;
-  minLinear: string;
-  points: any[];
-  meta: any;
-  logLines: string[];
-}
-
 function saveCache(data: CachePayload) {
-  try { localStorage.setItem(CACHE_KEY, JSON.stringify(data)); } catch { /* quota */ }
+  try {
+    localStorage.setItem(CACHE_KEY, JSON.stringify(data));
+  } catch {
+    /* kuota penuh — cache memang opsional */
+  }
 }
 
 function loadCache(): CachePayload | null {
   try {
     const raw = localStorage.getItem(CACHE_KEY);
-    return raw ? JSON.parse(raw) : null;
-  } catch { return null; }
-}
-
-// ─── Helpers (ported 1:1 from deformasi.php) ────────────────────────────────
-function toNum(v: any): number {
-  if (v === null || v === undefined) return NaN;
-  if (typeof v === "number") return v;
-  const s = String(v).trim();
-  if (!s) return NaN;
-  const n = Number(s.replace(/,/g, ".").replace(/[^0-9.\-]/g, ""));
-  return Number.isFinite(n) ? n : NaN;
-}
-
-function isZeroish(a: number) {
-  return Number.isFinite(a) && Math.abs(a) < 1e-12;
-}
-
-function isTripletAllZero(a: number, b: number, c: number) {
-  return isZeroish(a) && isZeroish(b) && isZeroish(c);
-}
-
-function getRTSFromPayload(p: any) {
-  const r = p?.posisi_rts ?? null;
-  if (!r) return null;
-  const E = toNum(r.E);
-  const N = toNum(r.N);
-  const Z = Number.isFinite(toNum(r.Z)) ? toNum(r.Z) : 0;
-  if (Number.isFinite(E) && Number.isFinite(N)) return { e: E, n: N, z: Z };
-  const n = toNum(r.x), e = toNum(r.y);
-  if (!Number.isFinite(e) || !Number.isFinite(n)) return null;
-  return { e, n, z: 0 };
-}
-
-function extractPoints(p: any) {
-  const arr = p?.data_pengukuran ?? [];
-  const out: any[] = [];
-  for (const row of arr) {
-    const t = row?.temp_tembak ?? row;
-    if (!t) continue;
-    const id = String(row.id_prisma ?? row.nama_prisma ?? "");
-    const name = String(row.nama_prisma ?? t.nama_prisma ?? "");
-
-    const e0 = toNum(t.E0), n0 = toNum(t.N0), z0 = toNum(t.Z0);
-    if (![e0, n0, z0].every(Number.isFinite)) continue;
-
-    let e1 = toNum(t.E1), n1 = toNum(t.N1), z1 = toNum(t.Z1);
-    const has1 = [e1, n1, z1].every(Number.isFinite) && !isTripletAllZero(e1, n1, z1);
-
-    let de = toNum(t.DE), dn = toNum(t.DN), dz = toNum(t.DZ);
-    if (has1) {
-      if (!Number.isFinite(de)) de = e1 - e0;
-      if (!Number.isFinite(dn)) dn = n1 - n0;
-      if (!Number.isFinite(dz)) dz = z1 - z0;
-    } else {
-      e1 = NaN; n1 = NaN; z1 = NaN;
-      de = NaN; dn = NaN; dz = NaN;
-    }
-
-    let lin = toNum(t.linear);
-    if (has1 && !Number.isFinite(lin)) lin = Math.sqrt(de * de + dn * dn + dz * dz);
-    else if (!has1) lin = NaN;
-
-    const dirText = t.arah_pergeseran ? String(t.arah_pergeseran) : "";
-    out.push({ id, name, e0, n0, z0, e1, n1, z1, de, dn, dz, lin, dirText, ok: has1 });
+    return raw ? (JSON.parse(raw) as CachePayload) : null;
+  } catch {
+    return null;
   }
-  return out;
 }
 
-function finiteArr(a: number[]) { return a.filter(Number.isFinite); }
+/** Kelas bersama untuk kartu yang melayang di atas panggung. */
+const KACA =
+  "rounded-[14px] bg-white/92 shadow-[0_8px_28px_-12px_oklch(0_0_0/0.25)] ring-1 ring-(--line) backdrop-blur-md";
 
-// ─── Main Page ───────────────────────────────────────────────────────────────
+const TOMBOL =
+  "inline-flex h-9 cursor-pointer items-center justify-center gap-2 rounded-[9px] px-3 text-[13px] font-semibold outline-none transition-colors focus-visible:ring-2 focus-visible:ring-(--navy)/50 disabled:cursor-not-allowed disabled:opacity-50";
+
+const INPUT_ANGKA =
+  "h-8 w-full rounded-[8px] border border-(--line) bg-white px-2.5 font-mono text-[12.5px] tabular-nums text-(--ink) outline-none transition-colors focus:border-(--navy) focus:ring-2 focus:ring-(--navy)/25";
+
 export default function Visualisasi3DPage() {
-  const { sites: siteList, badge: siteBadge } = useSites();
+  const { sites, badge: siteBadge } = useSites();
 
-  // Form state
+  // ── Parameter render ──
   const [rtsE, setRtsE] = useState("");
   const [rtsN, setRtsN] = useState("");
   const [rtsZ, setRtsZ] = useState("");
   const [coneScale, setConeScale] = useState("0.2");
   const [minLinear, setMinLinear] = useState("0");
 
-  // Log list
-  const [logs, setLogs] = useState<any[]>([]);
+  // ── Pemilih sesi ──
+  const [logs, setLogs] = useState<BarisLog[]>([]);
   const [logsLoading, setLogsLoading] = useState(true);
   const [selectedLogId, setSelectedLogId] = useState("");
   /** "" = semua site. */
   const [siteFilter, setSiteFilter] = useState("");
 
-  // Render state
+  // ── Keadaan panggung ──
   const [loading, setLoading] = useState(false);
-  const [logLines, setLogLines] = useState<string[]>([]);
-  const logRef = useRef<HTMLDivElement>(null);
-  const plotRef = useRef<HTMLDivElement>(null);
-  const fsTargetRef = useRef<HTMLDivElement>(null);
+  const [galat, setGalat] = useState("");
   const [plotlyReady, setPlotlyReady] = useState(false);
   const [isFullscreen, setIsFullscreen] = useState(false);
+  const [panelTampil, setPanelTampil] = useState(true);
+  /** Plot sudah tergambar. State, bukan turunan dari ref — lihat catatan di bawah. */
+  const [sudahRender, setSudahRender] = useState(false);
+  const [ringkas, setRingkas] = useState<RingkasRender | null>(null);
 
-  // Cache state: menyimpan data yang sudah di-fetch agar bisa re-render tanpa fetch ulang
-  const cachedPointsRef = useRef<any[] | null>(null);
-  const cachedMetaRef = useRef<any | null>(null);
+  const plotRef = useRef<HTMLDivElement>(null);
+  const fsTargetRef = useRef<HTMLDivElement>(null);
+
+  /**
+   * Titik hasil parsing terakhir.
+   *
+   * Disimpan di ref karena hanya dipakai untuk MENGGAMBAR ULANG, bukan untuk
+   * dibaca saat render React. Angka yang ditampilkan panel diambil dari
+   * `ringkas` — versi sebelumnya membaca `cachedPointsRef.current` langsung di
+   * dalam JSX, yang berarti panel bisa menampilkan hitungan lama tanpa memicu
+   * render ulang.
+   */
+  const titikRef = useRef<Titik[] | null>(null);
   const [restoredFromCache, setRestoredFromCache] = useState(false);
 
-  // Load Plotly (Local)
+  // ── Muat Plotly (berkas lokal, bukan CDN) ──
   useEffect(() => {
-    if (window.Plotly) { setPlotlyReady(true); return; }
+    if (window.Plotly) {
+      setPlotlyReady(true);
+      return;
+    }
     const s = document.createElement("script");
     s.src = "/plotly-2.33.0.min.js";
     s.onload = () => setPlotlyReady(true);
     document.head.appendChild(s);
   }, []);
 
-  // Fetch log list — setelah dapat, cek cache.
+  // ── Daftar sesi; setelah dapat, cek cache ──
   // `siteFilter` kosong = semua site (perilaku lama). Tiap opsi punya label
   // site-nya, jadi filter ini menambah kemampuan tanpa mengubah bawaan.
   useEffect(() => {
@@ -153,230 +130,85 @@ export default function Visualisasi3DPage() {
     const params = new URLSearchParams({ limit: "200", with_prisma: "false" });
     if (siteFilter) params.set("site", siteFilter);
     fetch(`/api/log-kontrol?${params}`)
-      .then(r => r.json())
-      .then(json => {
-        if (json.success) {
-          setLogs(json.data);
-          if (json.data.length === 0) {
-            setSelectedLogId("");
-            return;
-          }
-          {
-            const cache = loadCache();
-            // Cek apakah cache ada dan log-nya masih valid
-            const cachedLog = cache && json.data.find((l: any) => String(l.id_log) === String(cache.id_log));
-            if (cache && cachedLog) {
-              // Restore form state dari cache
-              setSelectedLogId(cache.id_log);
-              setRtsE(cache.rtsE);
-              setRtsN(cache.rtsN);
-              setRtsZ(cache.rtsZ);
-              setConeScale(cache.coneScale);
-              setMinLinear(cache.minLinear);
-              setLogLines(cache.logLines);
-              // Simpan points & meta ke ref untuk di-render setelah Plotly siap
-              cachedPointsRef.current = cache.points;
-              cachedMetaRef.current = cache.meta;
-              setRestoredFromCache(true);
-            } else {
-              // Tidak ada cache valid → pakai log pertama seperti biasa
-              setSelectedLogId(json.data[0].id_log);
-            }
-          }
+      .then((r) => r.json())
+      .then((json) => {
+        if (!json.success) return;
+        const data = json.data as BarisLog[];
+        setLogs(data);
+        if (data.length === 0) {
+          setSelectedLogId("");
+          return;
+        }
+        const cache = loadCache();
+        const cachedLog =
+          cache && data.find((l) => String(l.id_log) === String(cache.id_log));
+        if (cache && cachedLog) {
+          setSelectedLogId(cache.id_log);
+          setRtsE(cache.rtsE);
+          setRtsN(cache.rtsN);
+          setRtsZ(cache.rtsZ);
+          setConeScale(cache.coneScale);
+          setMinLinear(cache.minLinear);
+          setRingkas(cache.ringkas);
+          titikRef.current = cache.points;
+          setRestoredFromCache(true);
+        } else {
+          setSelectedLogId(data[0].id_log);
         }
       })
-      .catch(() => {})
+      .catch(() => setGalat("Daftar sesi tidak bisa dimuat."))
       .finally(() => setLogsLoading(false));
   }, [siteFilter]);
 
-  // Fullscreen listener
+  // ── Fullscreen ──
   useEffect(() => {
     const handler = () => {
-      const fs = !!document.fullscreenElement;
-      setIsFullscreen(fs);
+      setIsFullscreen(!!document.fullscreenElement);
       if (window.Plotly && plotRef.current) window.Plotly.Plots.resize(plotRef.current);
     };
     document.addEventListener("fullscreenchange", handler);
     return () => document.removeEventListener("fullscreenchange", handler);
   }, []);
 
-  function addLog(msg: string) {
-    setLogLines(prev => [...prev, msg]);
-    setTimeout(() => { if (logRef.current) logRef.current.scrollTop = logRef.current.scrollHeight; }, 50);
-  }
-
-  const render = useCallback((points: any[], meta: any, overrideE?: string, overrideN?: string, overrideZ?: string, overrideScale?: string, overrideLin?: string) => {
-    if (!window.Plotly || !plotRef.current) return;
-
-    const E = Number(overrideE ?? rtsE);
-    const N = Number(overrideN ?? rtsN);
-    const Z = Number(overrideZ ?? rtsZ);
-    const scale = parseFloat((overrideScale ?? coneScale).replace(",", ".")) || 0.2;
-    const minLin = parseFloat((overrideLin ?? minLinear).replace(",", ".")) || 0;
-
-    const baseline = points;
-    const moved = points.filter((p: any) => p.ok && Number.isFinite(p.lin) && p.lin >= minLin);
-
-    const x0 = baseline.map((p: any) => p.e0);
-    const y0 = baseline.map((p: any) => p.n0);
-    const z0 = baseline.map((p: any) => p.z0);
-
-    const x1 = moved.map((p: any) => p.e1);
-    const y1 = moved.map((p: any) => p.n1);
-    const z1 = moved.map((p: any) => p.z1);
-
-    const u = moved.map((p: any) => p.de);
-    const v = moved.map((p: any) => p.dn);
-    const w = moved.map((p: any) => p.dz);
-    const lin = moved.map((p: any) => p.lin);
-    const maxLin = Math.max(...finiteArr(lin), 0);
-
-    const lineX: (number|null)[] = [], lineY: (number|null)[] = [], lineZ: (number|null)[] = [];
-    for (const p of moved) { lineX.push(p.e0, p.e1, null); lineY.push(p.n0, p.n1, null); lineZ.push(p.z0, p.z1, null); }
-
-    const hover0 = baseline.map((p: any) =>
-      `${p.name}<br>E0=${p.e0.toFixed(4)} N0=${p.n0.toFixed(4)} Z0=${p.z0.toFixed(4)}<br>${p.ok ? "Status=OK" : "Status=GAGAL"}`
-    );
-    const hover1 = moved.map((p: any) =>
-      `${p.name}<br>` +
-      `E0=${p.e0.toFixed(4)} N0=${p.n0.toFixed(4)} Z0=${p.z0.toFixed(4)}<br>` +
-      `E1=${p.e1.toFixed(4)} N1=${p.n1.toFixed(4)} Z1=${p.z1.toFixed(4)}<br>` +
-      `DE=${p.de.toFixed(6)} DN=${p.dn.toFixed(6)} DZ=${p.dz.toFixed(6)}<br>` +
-      `Linear=${p.lin.toFixed(6)}${p.dirText ? `<br>Arah=${p.dirText}` : ""}`
-    );
-
-    const traceBaseline = {
-      type: "scatter3d", mode: "markers", name: "Baseline",
-      x: x0, y: y0, z: z0,
-      marker: { size: 4, color: "rgba(15,23,42,.55)" },
-      text: hover0, hoverinfo: "text",
-    };
-
-    const traces: any[] = [traceBaseline];
-
-    if (moved.length > 0) {
-      traces.push(
-        { type: "scatter3d", mode: "lines", name: "Displacement",
-          x: lineX, y: lineY, z: lineZ,
-          line: { width: 3 }, opacity: 0.75, hoverinfo: "skip" },
-        { type: "scatter3d", mode: "markers", name: "Hasil",
-          x: x1, y: y1, z: z1,
-          marker: { size: 6, color: lin, colorscale: "Turbo", colorbar: { title: "Linear" } },
-          text: hover1, hoverinfo: "text" },
-        { type: "cone", name: "Vector",
-          x: moved.map((p: any) => p.e0), y: moved.map((p: any) => p.n0), z: moved.map((p: any) => p.z0),
-          u, v, w,
-          anchor: "tail", sizemode: "absolute",
-          sizeref: Math.max(maxLin * scale, 0.01),
-          showscale: false, opacity: 0.85, hoverinfo: "skip" }
-      );
-    }
-
-    traces.push({
-      type: "scatter3d", mode: "markers+text", name: "RTS",
-      x: [E], y: [N], z: [Z],
-      marker: { size: 9, symbol: "diamond", color: "rgba(239,68,68,.95)" },
-      text: ["RTS"], textposition: "top center", hoverinfo: "skip",
-    });
-
-    const allX = finiteArr(x0.concat(x1)), allY = finiteArr(y0.concat(y1)), allZ = finiteArr(z0.concat(z1));
-    const cx = (Math.min(...allX) + Math.max(...allX)) / 2;
-    const cy = (Math.min(...allY) + Math.max(...allY)) / 2;
-    const cz = (Math.min(...allZ) + Math.max(...allZ)) / 2;
-    const diag = Math.sqrt((Math.max(...allX) - Math.min(...allX)) ** 2 + (Math.max(...allY) - Math.min(...allY)) ** 2 + (Math.max(...allZ) - Math.min(...allZ)) ** 2);
-    const L = Math.max(diag * 0.10, 1.0);
-
-    for (const [dx, dy, col] of [[0, L, "#B30000"], [L, 0, "#000"], [0, -L, "#000"], [-L, 0, "#000"]] as [number,number,string][]) {
-      traces.push({ type: "scatter3d", mode: "lines", showlegend: false,
-        x: [cx, cx + dx], y: [cy, cy + dy], z: [cz, cz],
-        line: { width: 5, color: col }, hoverinfo: "skip" });
-    }
-    traces.push({
-      type: "scatter3d", mode: "text", showlegend: false,
-      x: [cx + L * 1.12, cx, cx - L * 1.12, cx],
-      y: [cy, cy + L * 1.12, cy, cy - L * 1.12],
-      z: [cz, cz, cz, cz],
-      text: ["E", "N", "W", "S"],
-      textfont: { size: 16, color: "#0f172a", family: fontSans.style.fontFamily }, hoverinfo: "skip",
-    });
-
-    const title = meta?.tanggal ? `RTS Deformasi 3D — ${meta.tanggal}` : "RTS Deformasi 3D";
-
-    window.Plotly.newPlot(plotRef.current, traces, {
-      // Plotly mengukur teks sendiri, jadi nama family harus berupa string —
-      // bukan var(--font-sans). Judul, sumbu, dan legenda mewarisi dari sini,
-      // makanya masing-masing hanya perlu menyebut ukuran dan warna.
-      // Tanpa ini Plotly memakai default-nya sendiri (Open Sans).
-      font: { family: fontSans.style.fontFamily, color: "#0f172a" },
-      title: { text: title, font: { size: 16, color: "#0f172a" } },
-      paper_bgcolor: "rgba(255,255,255,1)",
-      plot_bgcolor: "rgba(255,255,255,1)",
-      scene: {
-        xaxis: { title: "Easting (E)", titlefont: { color: "#0f172a" }, tickfont: { color: "#0f172a" } },
-        yaxis: { title: "Northing (N/Y)", titlefont: { color: "#0f172a" }, tickfont: { color: "#0f172a" } },
-        zaxis: { title: "Elevation (Z)", titlefont: { color: "#0f172a" }, tickfont: { color: "#0f172a" } },
-        aspectmode: "data",
-        bgcolor: "rgba(255,255,255,1)",
-      },
-      margin: { l: 0, r: 0, t: 40, b: 0 },
-      legend: { orientation: "h", font: { color: "#0f172a" } },
-    }, { responsive: true, displayModeBar: false });
-
-    window.Plotly.Plots.resize(plotRef.current);
-  }, [rtsE, rtsN, rtsZ, coneScale, minLinear]);
-
-  // ── Restore dari cache setelah Plotly siap ──────────────────────────────────
-  const hasRestoredRef = useRef(false);
-  useEffect(() => {
-    if (
-      plotlyReady &&
-      restoredFromCache &&
-      cachedPointsRef.current &&
-      cachedMetaRef.current &&
-      !hasRestoredRef.current
-    ) {
-      hasRestoredRef.current = true;
-      // Re-render plot dari cache — tidak perlu fetch ulang
-      render(
-        cachedPointsRef.current,
-        cachedMetaRef.current,
-        rtsE, rtsN, rtsZ, coneScale, minLinear
-      );
-    }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [plotlyReady, restoredFromCache]);
-
-  // ── Auto-load dari server (jika tidak ada cache yang valid) ─────────────────
-  const hasAutoLoaded = useRef(false);
-  useEffect(() => {
-    if (
-      plotlyReady &&
-      selectedLogId &&
-      logs.length > 0 &&
-      !restoredFromCache &&
-      !hasAutoLoaded.current
-    ) {
-      hasAutoLoaded.current = true;
-      handleLoad();
-    }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [plotlyReady, selectedLogId, logs.length, restoredFromCache]);
+  const render = useCallback(
+    (
+      points: Titik[],
+      o?: { E?: string; N?: string; Z?: string; scale?: string; lin?: string }
+    ) => {
+      if (!window.Plotly || !plotRef.current) return;
+      gambarScene(window.Plotly, plotRef.current, points, {
+        E: Number(o?.E ?? rtsE),
+        N: Number(o?.N ?? rtsN),
+        Z: Number(o?.Z ?? rtsZ),
+        scale: parseFloat((o?.scale ?? coneScale).replace(",", ".")) || 0.2,
+        minLin: parseFloat((o?.lin ?? minLinear).replace(",", ".")) || 0,
+      });
+      setSudahRender(true);
+    },
+    [rtsE, rtsN, rtsZ, coneScale, minLinear]
+  );
 
   const handleLoad = useCallback(async () => {
     if (!selectedLogId || !plotlyReady) return;
     setLoading(true);
-    setLogLines([]);
+    setGalat("");
+    // Ringkasan lama dibuang lebih dulu: kalau fetch-nya gagal, angka sesi
+    // sebelumnya tidak boleh tertinggal di panel seolah milik sesi ini.
+    setRingkas(null);
 
     try {
-      addLog("Loading...");
       const res = await fetch(`/api/deformasi?id_log=${selectedLogId}`);
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      if (!res.ok) throw new Error(`Server menjawab HTTP ${res.status}`);
       const payload = await res.json();
-      if (!payload.success) throw new Error(payload.error || "Gagal memuat");
+      if (!payload.success) throw new Error(payload.error || "Gagal memuat data");
 
-      // Auto-fill RTS from posisi_rts
-      const rts = getRTSFromPayload(payload.data);
-      let finalE = rtsE, finalN = rtsN, finalZ = rtsZ;
+      const data = payload.data as PayloadDeformasi;
+
+      // Koordinat RTS diisi otomatis dari payload bila tersedia.
+      const rts = getRTSFromPayload(data);
+      let finalE = rtsE,
+        finalN = rtsN,
+        finalZ = rtsZ;
       if (rts) {
         finalE = String(rts.e);
         finalN = String(rts.n);
@@ -386,31 +218,23 @@ export default function Visualisasi3DPage() {
         setRtsZ(finalZ);
       }
 
-      const n = payload.data?.data_pengukuran?.length ?? 0;
-      addLog("Loaded JSON from server");
-      addLog(`tanggal: ${payload.data?.tanggal ?? "-"}`);
-      addLog(`rows: ${n}`);
+      const pts = extractPoints(data);
+      const hitung: RingkasRender = {
+        tanggal: data?.tanggal ?? null,
+        prisma: pts.length,
+        valid: pts.filter((x) => x.ok).length,
+        gagal: pts.filter((x) => !x.ok).length,
+      };
+      setRingkas(hitung);
 
-      const pts = extractPoints(payload.data);
-      addLog(`parsed prisms: ${pts.length}`);
-      addLog(`valid shots: ${pts.filter((x: any) => x.ok).length}`);
-      addLog(`failed shots: ${pts.filter((x: any) => !x.ok).length}`);
+      if (pts.length === 0) {
+        titikRef.current = null;
+        setSudahRender(false);
+        setGalat("Tidak ada prisma yang terbaca untuk sesi ini.");
+        return;
+      }
 
-      if (pts.length === 0) { addLog("Tidak ada prisma yang kebaca untuk id_log ini."); return; }
-
-      // Simpan ke ref dan cache
-      cachedPointsRef.current = pts;
-      cachedMetaRef.current = payload.data;
-
-      const logSnapshot = [
-        "Loaded JSON from server",
-        `tanggal: ${payload.data?.tanggal ?? "-"}`,
-        `rows: ${n}`,
-        `parsed prisms: ${pts.length}`,
-        `valid shots: ${pts.filter((x: any) => x.ok).length}`,
-        `failed shots: ${pts.filter((x: any) => !x.ok).length}`,
-      ];
-
+      titikRef.current = pts;
       saveCache({
         id_log: selectedLogId,
         rtsE: finalE,
@@ -419,17 +243,50 @@ export default function Visualisasi3DPage() {
         coneScale,
         minLinear,
         points: pts,
-        meta: payload.data,
-        logLines: logSnapshot,
+        ringkas: hitung,
       });
 
-      render(pts, payload.data, finalE, finalN, finalZ, coneScale, minLinear);
-    } catch (e: any) {
-      addLog(String(e?.message ?? e));
+      render(pts, { E: finalE, N: finalN, Z: finalZ, scale: coneScale, lin: minLinear });
+    } catch (e: unknown) {
+      // Galat SEKARANG terlihat. Versi sebelumnya mendorongnya ke daftar log
+      // yang wadahnya ber-`className="hidden"`, jadi kegagalan fetch berakhir
+      // sebagai placeholder "Mempersiapkan tampilan…" yang menggantung selamanya.
+      setGalat(e instanceof Error ? e.message : "Terjadi kesalahan");
     } finally {
       setLoading(false);
     }
   }, [selectedLogId, plotlyReady, rtsE, rtsN, rtsZ, coneScale, minLinear, render]);
+
+  /**
+   * Muat sesi yang terpilih.
+   *
+   * Versi sebelumnya memuat SEKALI saja (dijaga `hasAutoLoaded`), jadi memilih
+   * sesi lain di dropdown tidak mengubah apa pun sampai tombol Load ditekan —
+   * dan selama itu panel ringkasan masih memperlihatkan angka sesi yang LAMA di
+   * bawah nama sesi yang baru. Untuk sebuah penampil, memilih sesi harus berarti
+   * menampilkannya.
+   *
+   * `idTerakhirRef` mencegah pemuatan berulang: handleLoad menulis rtsE/N/Z, dan
+   * kalau effect ini ikut bergantung padanya ia akan memicu dirinya sendiri.
+   */
+  const idTerakhirRef = useRef<string | null>(null);
+  const cacheDipakaiRef = useRef(false);
+  useEffect(() => {
+    if (!plotlyReady || !selectedLogId) return;
+    if (idTerakhirRef.current === selectedLogId) return;
+
+    const pakaiCache = restoredFromCache && !cacheDipakaiRef.current && titikRef.current;
+    idTerakhirRef.current = selectedLogId;
+
+    if (pakaiCache && titikRef.current) {
+      // Sesi pertama datang dari cache — tidak perlu menembak server lagi.
+      cacheDipakaiRef.current = true;
+      render(titikRef.current, { E: rtsE, N: rtsN, Z: rtsZ, scale: coneScale, lin: minLinear });
+      return;
+    }
+    handleLoad();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [plotlyReady, selectedLogId, restoredFromCache]);
 
   const toggleFullscreen = () => {
     if (!fsTargetRef.current) return;
@@ -437,232 +294,289 @@ export default function Visualisasi3DPage() {
     else document.exitFullscreen?.();
   };
 
-  function formatLogDate(d: string) {
-    const dt = new Date(d);
-    return dt.toLocaleString("id-ID", { day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit", second: "2-digit" });
-  }
+  const sesiAktif = logs.find((l) => l.id_log === selectedLogId) ?? null;
 
-  const isRendered = cachedPointsRef.current !== null && logLines.length > 0;
+  /** Satu keadaan hamparan; null berarti panggung siap ditonton. */
+  const hamparan = (() => {
+    if (galat) return { jenis: "galat" as const, teks: galat };
+    if (!plotlyReady) return { jenis: "sibuk" as const, teks: "Menyiapkan renderer 3D…" };
+    if (loading) return { jenis: "sibuk" as const, teks: "Memuat data pengukuran…" };
+    if (!logsLoading && logs.length === 0)
+      return { jenis: "kosong" as const, teks: "Belum ada sesi running untuk ditampilkan." };
+    if (!sudahRender) return { jenis: "sibuk" as const, teks: "Menyiapkan tampilan…" };
+    return null;
+  })();
 
   return (
-    <div className="flex flex-col gap-6 w-full pb-10">
-      <div className="grid grid-cols-1 xl:grid-cols-[340px_1fr] gap-6 items-start">
+    // Panggung memiliki halaman: tinggi dipatok setinggi viewport dikurangi
+    // header, dan seluruh kontrol MELAYANG di atasnya. Empat halaman lain di
+    // aplikasi ini berbentuk "bar kontrol lalu grid panel"; di sini isinya satu
+    // kanvas, jadi bentuk itu justru memakan ruang gambar dan membuat kelima
+    // halaman terasa seragam tanpa alasan.
+    <div
+      className={cn(
+        "tema-monitoring relative isolate h-[calc(100vh-4rem)] overflow-hidden bg-white text-(--ink)",
+        fontDisplay.variable
+      )}
+    >
+      {/* ─── Panggung 3D ─── */}
+      <div ref={fsTargetRef} className="absolute inset-0 bg-white">
+        {/* Plotly MENGUASAI elemen ini sepenuhnya — tidak boleh ada anak React
+            di dalamnya. Versi sebelumnya menaruh placeholder sebagai anaknya,
+            lalu Plotly.newPlot() menghapus isi elemen itu; React dan Plotly
+            memperebutkan node yang sama. Hamparan sekarang jadi SAUDARA. */}
+        <div ref={plotRef} className="size-full" />
 
-        {/* ─── LEFT PANEL ─── */}
-        <div className="flex flex-col gap-5">
-          
-          {/* Main Controls Card */}
-          <div className="bg-white border border-[#EAEAEA] rounded-[8px] p-5 flex flex-col gap-6 shadow-sm">
-            
-            {/* SITE */}
-            <div className="flex flex-col gap-3">
-              <div className="flex items-center gap-2 text-[#303481]">
-                <MapPinned className="w-[14px] h-[14px]" strokeWidth={2.5} />
-                <span className="text-[11px] font-bold tracking-[0.5px] uppercase">Site</span>
-              </div>
-              <div className="relative">
-                <select
-                  value={siteFilter}
-                  onChange={e => setSiteFilter(e.target.value)}
-                  className="w-full appearance-none bg-white border border-gray-200 text-[#0f172a] text-[13px] rounded-md px-3 py-2.5 font-medium outline-none focus:border-[#303481] cursor-pointer pr-8"
-                >
-                  <option value="">Semua site</option>
-                  {siteList.map(s => (
-                    <option key={s.slug} value={s.slug}>
-                      {s.nama}
-                      {!s.terkalibrasi ? " (belum dikalibrasi)" : s.data_dummy ? " (data contoh)" : ""}
-                    </option>
-                  ))}
-                </select>
-                <ChevronDown className="w-4 h-4 text-gray-400 absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none" />
-              </div>
-            </div>
-
-            {/* WAKTU PENGUKURAN */}
-            <div className="flex flex-col gap-3">
-              <div className="flex items-center gap-2 text-[#303481]">
-                <History className="w-[14px] h-[14px]" strokeWidth={2.5} />
-                <span className="text-[11px] font-bold tracking-[0.5px] uppercase">Waktu Pengukuran</span>
-              </div>
-              <div className="relative">
-                {logsLoading ? (
-                  <div className="w-full flex items-center justify-between text-[13px] text-gray-400 py-2.5 px-3 bg-white rounded-md border border-gray-200">
-                    <span className="flex items-center gap-2"><Loader2 className="w-4 h-4 animate-spin" /> Memuat...</span>
-                  </div>
-                ) : (
-                  <>
-                    <select
-                      value={selectedLogId}
-                      onChange={e => setSelectedLogId(e.target.value)}
-                      className="w-full appearance-none bg-white border border-gray-200 text-[#0f172a] text-[13px] rounded-md px-3 py-2.5 font-medium outline-none focus:border-[#303481] cursor-pointer pr-8"
-                    >
-                      {logs.map(log => (
-                        <option key={log.id_log} value={log.id_log}>
-                          {formatLogDate(log.datetime)} ({siteBadge(log.site).label})
-                          {log.r0 === 1 ? " [R0]" : ""}
-                        </option>
-                      ))}
-                    </select>
-                    <ChevronDown className="w-4 h-4 text-gray-400 absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none" />
-                  </>
+        {hamparan && (
+          <div className="pointer-events-none absolute inset-0 grid place-items-center bg-white/88 px-6 backdrop-blur-[1px]">
+            <div className="max-w-sm text-center">
+              {hamparan.jenis === "sibuk" && (
+                <Loader2 className="mx-auto size-8 animate-spin text-(--ink-3)" />
+              )}
+              {hamparan.jenis === "kosong" && (
+                <Boxes className="mx-auto size-9 text-(--ink-3)" strokeWidth={1.5} />
+              )}
+              {hamparan.jenis === "galat" && (
+                <AlertTriangle className="mx-auto size-8 text-amber-600" />
+              )}
+              <p
+                className={cn(
+                  "mt-3 text-[13.5px] leading-relaxed",
+                  hamparan.jenis === "galat" ? "text-(--ink)" : "text-(--ink-2)"
                 )}
-              </div>
-            </div>
-
-            {/* REFERENSI RTS */}
-            <div className="flex flex-col gap-3">
-              <div className="flex items-center gap-2 text-[#303481]">
-                <Crosshair className="w-[14px] h-[14px]" strokeWidth={2.5} />
-                <span className="text-[11px] font-bold tracking-[0.5px] uppercase">Referensi RTS</span>
-              </div>
-              <div className="flex flex-col gap-3">
-                {[["Easting (E)", rtsE, setRtsE], ["Northing (N)", rtsN, setRtsN], ["Elevation (Z)", rtsZ, setRtsZ]].map(([label, val, setter]: any) => (
-                  <div key={label} className="flex flex-col gap-1.5">
-                    <label className="text-[10px] font-bold text-black">{label}</label>
-                    <Input type="number" step="0.001" value={val} onChange={e => setter(e.target.value)}
-                      className="h-[38px] text-[13px] font-medium border-gray-200 focus:border-[#303481]" />
-                  </div>
-                ))}
-              </div>
-            </div>
-
-            {/* PENGATURAN VISUALISASI */}
-            <div className="flex flex-col gap-3">
-              <div className="flex items-center gap-2 text-[#303481]">
-                <Sliders className="w-[14px] h-[14px]" strokeWidth={2.5} />
-                <span className="text-[11px] font-bold tracking-[0.5px] uppercase">Pengaturan Visualisasi</span>
-              </div>
-              <div className="grid grid-cols-2 gap-3">
-                <div className="flex flex-col gap-1.5">
-                  <label className="text-[10px] font-bold text-black">Cone Scale</label>
-                  <Input type="number" step="0.1" value={coneScale} onChange={e => setConeScale(e.target.value)}
-                    className="h-[38px] text-[13px] font-medium border-gray-200 focus:border-[#303481]" />
-                </div>
-                <div className="flex flex-col gap-1.5">
-                  <label className="text-[10px] font-bold text-black">Threshold Linear</label>
-                  <Input type="number" step="0.0001" value={minLinear} onChange={e => setMinLinear(e.target.value)}
-                    className="h-[38px] text-[13px] font-medium border-gray-200 focus:border-[#303481]" />
-                </div>
-              </div>
-            </div>
-
-            {/* Load Button */}
-            <button
-              onClick={handleLoad}
-              disabled={loading || !plotlyReady || !selectedLogId}
-              className="mt-1 w-full h-[42px] bg-[#303481] hover:bg-[#1f2259] disabled:opacity-60 text-white font-medium tracking-wide text-[13px] rounded-lg flex items-center justify-center gap-2 transition-colors cursor-pointer"
-            >
-              {loading ? <><Loader2 className="w-4 h-4 animate-spin" /> Loading...</> : <><Play className="w-3.5 h-3.5 fill-white" /> Load &amp; Render 3D</>}
-            </button>
-            <div ref={logRef} className="hidden" /> {/* Hidden log ref to prevent errors */}
-          </div>
-
-          {/* Status Render Card */}
-          <div className="bg-white border border-[#EAEAEA] rounded-[8px] shadow-sm flex flex-col">
-            <div className="px-5 py-4 border-b border-[#EAEAEA] flex items-center gap-2 text-[#303481]">
-              <Crosshair className="w-[14px] h-[14px]" strokeWidth={2.5} />
-              <span className="text-[11px] font-bold tracking-[0.5px] uppercase">Status Render</span>
-            </div>
-            
-            {(() => {
-              const pts = cachedPointsRef.current || [];
-              const nPrisma = pts.length;
-              const nValid = pts.filter((x: any) => x.ok).length;
-              const nGagal = pts.filter((x: any) => !x.ok).length;
-              const meta = cachedMetaRef.current;
-              
-              const isRenderedNow = isRendered && !loading;
-              
-              return (
-                <div className="p-5 flex flex-col gap-4">
-                  <div className="flex justify-between items-center text-[12px]">
-                    <span className="text-[#333]">Waktu Data</span>
-                    <span className="font-medium text-[#222]">{isRenderedNow && meta?.tanggal ? meta.tanggal : "-"}</span>
-                  </div>
-                  <div className="flex justify-between items-center text-[12px]">
-                    <span className="text-[#333]">Prisma Terbaca</span>
-                    <span className="font-medium text-[#222]">{isRenderedNow ? nPrisma : "-"}</span>
-                  </div>
-                  <div className="flex justify-between items-center text-[12px]">
-                    <span className="text-[#333]">Shot Valid</span>
-                    <span className="font-medium text-[#222]">
-                      {isRenderedNow ? <><span className="text-green-500 font-bold">{nValid}</span> / {nPrisma}</> : "-"}
-                    </span>
-                  </div>
-                  <div className="flex justify-between items-center text-[12px]">
-                    <span className="text-[#333]">Shot Gagal</span>
-                    <span className="font-medium text-[#222]">{isRenderedNow ? nGagal : "-"}</span>
-                  </div>
-                  <div className="flex justify-between items-center text-[12px] mt-1 pt-4 border-t border-[#EAEAEA]">
-                    <span className="text-[#333]">Status Render</span>
-                    {loading ? (
-                      <span className="font-semibold text-gray-500 flex items-center gap-1.5"><Loader2 className="w-3.5 h-3.5 animate-spin" /> Menunggu...</span>
-                    ) : isRenderedNow ? (
-                      <span className="font-semibold text-green-500 flex items-center gap-1.5"><div className="w-2 h-2 rounded-full bg-green-500"></div> Berhasil</span>
-                    ) : (
-                      <span className="font-semibold text-gray-400">-</span>
-                    )}
-                  </div>
-                </div>
-              );
-            })()}
-          </div>
-        </div>
-
-        {/* ─── RIGHT PANEL: 3D Plot ─── */}
-        <div className="bg-white border border-[#EAEAEA] rounded-[8px] shadow-sm overflow-hidden">
-          <div ref={fsTargetRef} className="relative bg-white" style={{ minHeight: 560 }}>
-            {/* Fullscreen button */}
-            <div className="absolute top-3 left-3 z-10">
-              <button
-                onClick={toggleFullscreen}
-                className="bg-white/90 backdrop-blur-sm border border-gray-200 text-[#0f172a] text-[12px] font-semibold px-3 py-1.5 rounded-md hover:bg-gray-50 transition-colors flex items-center gap-1.5 cursor-pointer shadow-sm"
               >
-                <Maximize className="w-3.5 h-3.5" />
-                {isFullscreen ? "Exit Fullscreen" : "Fullscreen"}
-              </button>
-            </div>
-
-            {/* Plot container */}
-            <div
-              ref={plotRef}
-              style={{ width: "100%", height: isFullscreen ? "100vh" : "78vh", minHeight: 520 }}
-            >
-              {/* Placeholder: sedang loading */}
-              {!isRendered && loading && (
-                <div className="w-full h-full flex flex-col items-center justify-center gap-3 text-gray-400" style={{ minHeight: 520 }}>
-                  <Loader2 className="w-10 h-10 animate-spin opacity-40" />
-                  <p className="font-semibold text-[14px]">Memuat visualisasi 3D...</p>
-                </div>
-              )}
-              {/* Placeholder: Plotly belum siap */}
-              {!isRendered && !loading && !plotlyReady && (
-                <div className="w-full h-full flex flex-col items-center justify-center gap-3 text-gray-400" style={{ minHeight: 520 }}>
-                  <Loader2 className="w-10 h-10 animate-spin opacity-40" />
-                  <p className="font-semibold text-[14px]">Menyiapkan renderer...</p>
-                </div>
-              )}
-              {/* Placeholder: tidak ada data log */}
-              {!isRendered && !loading && plotlyReady && logs.length === 0 && !logsLoading && (
-                <div className="w-full h-full flex flex-col items-center justify-center gap-3 text-gray-400" style={{ minHeight: 520 }}>
-                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" className="w-12 h-12 opacity-30">
-                    <path d="M12 2L2 7l10 5 10-5-10-5z"/><path d="M2 17l10 5 10-5"/><path d="M2 12l10 5 10-5"/>
-                  </svg>
-                  <p className="font-semibold text-[14px]">Tidak ada data log tersedia</p>
-                </div>
-              )}
-              {/* Placeholder: menunggu restore cache */}
-              {!isRendered && !loading && plotlyReady && logs.length > 0 && (
-                <div className="w-full h-full flex flex-col items-center justify-center gap-3 text-gray-400" style={{ minHeight: 520 }}>
-                  <Loader2 className="w-10 h-10 animate-spin opacity-40" />
-                  <p className="font-semibold text-[14px]">Mempersiapkan tampilan...</p>
-                </div>
+                {hamparan.teks}
+              </p>
+              {hamparan.jenis === "galat" && (
+                <p className="mt-1.5 text-[12px] text-(--ink-3)">
+                  Pilih sesi lain, atau tekan Render ulang.
+                </p>
               )}
             </div>
           </div>
-        </div>
-
+        )}
       </div>
+
+      {/* ─── Bar melayang: sesi & aksi ─── */}
+      <div className="absolute inset-x-0 top-0 z-20 p-3 md:p-4">
+        <div className={cn(KACA, "flex flex-wrap items-center gap-x-2 gap-y-2 px-2.5 py-2")}>
+          <button
+            type="button"
+            onClick={() => setPanelTampil((v) => !v)}
+            aria-label={panelTampil ? "Sembunyikan panel parameter" : "Tampilkan panel parameter"}
+            title={panelTampil ? "Sembunyikan panel parameter" : "Tampilkan panel parameter"}
+            className={cn(TOMBOL, "w-9 px-0 text-(--ink-2) hover:bg-(--paper) hover:text-(--ink)")}
+          >
+            {panelTampil ? (
+              <PanelLeftClose className="size-4" />
+            ) : (
+              <PanelLeftOpen className="size-4" />
+            )}
+          </button>
+
+          <span aria-hidden="true" className="h-6 w-px bg-(--line)" />
+
+          <div
+            role="tablist"
+            aria-label="Saring berdasarkan site"
+            className="flex max-w-full gap-1 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+          >
+            {[{ slug: "", nama: "Semua site" }, ...sites].map((s) => {
+              const aktif = s.slug === siteFilter;
+              return (
+                <button
+                  key={s.slug || "semua"}
+                  type="button"
+                  role="tab"
+                  aria-selected={aktif}
+                  onClick={() => setSiteFilter(s.slug)}
+                  className={cn(
+                    "inline-flex h-9 shrink-0 cursor-pointer items-center gap-1.5 rounded-[9px] px-3 text-[12.5px] font-medium outline-none transition-colors focus-visible:ring-2 focus-visible:ring-(--navy)/40",
+                    aktif
+                      ? "bg-(--navy) text-white"
+                      : "text-(--ink-2) hover:bg-(--paper) hover:text-(--ink)"
+                  )}
+                >
+                  {s.slug && (
+                    <span
+                      aria-hidden="true"
+                      className="size-2 rounded-full"
+                      style={{ background: siteBadge(s.slug).color }}
+                    />
+                  )}
+                  {s.nama}
+                </button>
+              );
+            })}
+          </div>
+
+          <span aria-hidden="true" className="h-6 w-px bg-(--line)" />
+
+          <div className="relative min-w-0 flex-1 sm:max-w-[288px]">
+            <label htmlFor="pilih-sesi" className="sr-only">
+              Sesi running
+            </label>
+            <select
+              id="pilih-sesi"
+              value={selectedLogId}
+              onChange={(e) => setSelectedLogId(e.target.value)}
+              disabled={logsLoading || logs.length === 0}
+              className="h-9 w-full cursor-pointer appearance-none rounded-[9px] bg-(--paper) pr-8 pl-3 font-mono text-[12.5px] tabular-nums text-(--ink) ring-1 ring-(--line) outline-none transition-colors focus:ring-2 focus:ring-(--navy)/40 disabled:cursor-not-allowed disabled:text-(--ink-3)"
+            >
+              {logsLoading && <option value="">Memuat sesi…</option>}
+              {!logsLoading && logs.length === 0 && <option value="">Tidak ada sesi</option>}
+              {logs.map((log) => (
+                <option key={log.id_log} value={log.id_log}>
+                  {fmtDate(log.datetime, { detik: true })} · {siteBadge(log.site).label}
+                  {Number(log.r0) === 1 ? " · R0" : ""}
+                </option>
+              ))}
+            </select>
+            <ChevronDown className="pointer-events-none absolute top-1/2 right-2.5 size-4 -translate-y-1/2 text-(--ink-3)" />
+          </div>
+
+          <button
+            type="button"
+            onClick={handleLoad}
+            disabled={loading || !plotlyReady || !selectedLogId}
+            className={cn(TOMBOL, "bg-(--navy) text-white hover:bg-(--navy-deep)")}
+          >
+            {loading ? (
+              <Loader2 className="size-4 animate-spin" />
+            ) : (
+              <Play className="size-3.5 fill-current" />
+            )}
+            {sudahRender ? "Render ulang" : "Render"}
+          </button>
+
+          <button
+            type="button"
+            onClick={toggleFullscreen}
+            className={cn(
+              TOMBOL,
+              "ml-auto text-(--ink-2) hover:bg-(--paper) hover:text-(--ink)"
+            )}
+          >
+            {isFullscreen ? <Minimize className="size-4" /> : <Maximize className="size-4" />}
+            {isFullscreen ? "Keluar" : "Layar penuh"}
+          </button>
+        </div>
+      </div>
+
+      {/* ─── Inspektor melayang: parameter & ringkasan ─── */}
+      {panelTampil && (
+        <div
+          className={cn(
+            KACA,
+            "absolute top-[84px] left-3 z-20 w-[244px] overflow-hidden md:left-4"
+          )}
+        >
+          <div className="border-b border-(--line) px-4 py-3">
+            <Eyebrow className="flex items-center gap-1.5">
+              <Crosshair className="size-3.5" /> Acuan RTS
+            </Eyebrow>
+            <div className="mt-2 space-y-2">
+              {(
+                [
+                  ["Easting", rtsE, setRtsE],
+                  ["Northing", rtsN, setRtsN],
+                  ["Elevasi", rtsZ, setRtsZ],
+                ] as const
+              ).map(([label, nilai, set]) => (
+                <div key={label} className="grid grid-cols-[64px_minmax(0,1fr)] items-center gap-2">
+                  <label
+                    htmlFor={`rts-${label}`}
+                    className="text-[11.5px] text-(--ink-2)"
+                  >
+                    {label}
+                  </label>
+                  <input
+                    id={`rts-${label}`}
+                    type="number"
+                    step="0.001"
+                    value={nilai}
+                    onChange={(e) => set(e.target.value)}
+                    className={INPUT_ANGKA}
+                  />
+                </div>
+              ))}
+            </div>
+            <p className="mt-2 text-[11px] leading-relaxed text-(--ink-3)">
+              Terisi otomatis dari data sesi. Satuan meter UTM.
+            </p>
+          </div>
+
+          <div className="border-b border-(--line) px-4 py-3">
+            <Eyebrow className="flex items-center gap-1.5">
+              <Sliders className="size-3.5" /> Tampilan
+            </Eyebrow>
+            <div className="mt-2 space-y-2">
+              <div className="grid grid-cols-[64px_minmax(0,1fr)] items-center gap-2">
+                <label htmlFor="cone" className="text-[11.5px] text-(--ink-2)">
+                  Panah
+                </label>
+                <input
+                  id="cone"
+                  type="number"
+                  step="0.1"
+                  value={coneScale}
+                  onChange={(e) => setConeScale(e.target.value)}
+                  className={INPUT_ANGKA}
+                />
+              </div>
+              <div className="grid grid-cols-[64px_minmax(0,1fr)] items-center gap-2">
+                <label htmlFor="ambang" className="text-[11.5px] text-(--ink-2)">
+                  Ambang
+                </label>
+                <input
+                  id="ambang"
+                  type="number"
+                  step="0.0001"
+                  value={minLinear}
+                  onChange={(e) => setMinLinear(e.target.value)}
+                  className={INPUT_ANGKA}
+                />
+              </div>
+            </div>
+            {/* Satuan ambang WAJIB disebut: nilai `linear` dari server dalam
+                METER, sedangkan seluruh halaman lain di aplikasi ini memakai
+                milimeter. Mengetik "1" di sini menyembunyikan semua pergeseran
+                di bawah satu meter — praktis seluruhnya. */}
+            <p className="mt-2 text-[11px] leading-relaxed text-(--ink-3)">
+              Panah = pengali panjang kerucut. Ambang dalam <strong>meter</strong>; pergeseran
+              di bawahnya tidak digambar.
+            </p>
+          </div>
+
+          <dl className="px-4 py-3">
+            <Eyebrow>Hasil render</Eyebrow>
+            <div className="mt-2 space-y-1.5">
+              {(
+                [
+                  ["Waktu data", ringkas?.tanggal ? fmtDate(ringkas.tanggal) : "—"],
+                  ["Prisma terbaca", ringkas ? String(ringkas.prisma) : "—"],
+                  [
+                    "Tembakan sah",
+                    ringkas ? `${ringkas.valid} / ${ringkas.prisma}` : "—",
+                  ],
+                  ["Gagal", ringkas ? String(ringkas.gagal) : "—"],
+                ] as const
+              ).map(([label, nilai]) => (
+                <div key={label} className="flex items-baseline justify-between gap-2">
+                  <dt className="text-[11.5px] text-(--ink-2)">{label}</dt>
+                  <dd className="font-mono text-[12px] tabular-nums text-(--ink)">{nilai}</dd>
+                </div>
+              ))}
+            </div>
+            {sesiAktif && (
+              <p className="mt-2.5 border-t border-(--line) pt-2 text-[11px] text-(--ink-3)">
+                Sesi <span className="font-mono">{sesiAktif.id_log}</span>
+                {Number(sesiAktif.r0) === 1 && " · ini sesi acuan R0"}
+              </p>
+            )}
+          </dl>
+        </div>
+      )}
     </div>
   );
 }
