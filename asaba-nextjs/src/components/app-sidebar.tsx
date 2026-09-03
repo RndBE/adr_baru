@@ -100,26 +100,23 @@ const DashboardIcon = ({ className, isActive }: SidebarIconProps) => (
 );
 
 /**
- * Monogram "be" untuk header di mode ringkas.
+ * Tanda merek Asaba saja — simbol tanpa teks — untuk header di mode ringkas.
  *
- * Tidak ada aset tanda merek tersendiri: logo_beacon hanya tersedia sebagai
- * lockup lebar (rasio 3,4:1) yang di rail 48px akan tinggal ±10px tinggi dan
- * tak terbaca. Monogram ini meniru dua huruf logonya — "b" merah, "e" putih —
- * di atas ubin indigo yang satu keluarga dengan pill menu aktif.
+ * Dipotong dari berkas lockup yang sama lalu diputihkan bersamanya, jadi
+ * keduanya tak bisa lepas sinkron. Rasionya nyaris persegi (141×131), sehingga
+ * di rail 48px ia masih terbaca utuh; lockup penuhnya 4,1:1 dan di lebar yang
+ * sama akan tinggal ±10px tinggi.
  */
-const BrandMonogram = ({ className }: { className?: string }) => (
-  <span
+const BrandMark = ({ className }: { className?: string }) => (
+  <Image
+    src="/logo_asaba_mark_dark.png"
+    alt=""
     aria-hidden="true"
-    className={cn(
-      "size-9 items-center justify-center rounded-[10px] text-[15px] leading-none font-bold tracking-[-0.02em] select-none",
-      "bg-[image:linear-gradient(145deg,oklch(0.36_0.1_278),oklch(0.25_0.06_278))] ring-1 ring-white/10",
-      "shadow-[inset_0_1px_0_oklch(1_0_0/0.12),0_8px_18px_-10px_oklch(0.3_0.1_278)]",
-      className
-    )}
-  >
-    <span className="text-[#E83A3A]">b</span>
-    <span className="text-white">e</span>
-  </span>
+    width={141}
+    height={131}
+    className={cn("h-(--app-logo-height) w-auto object-contain", className)}
+    draggable={false}
+  />
 );
 
 type NavItem = {
@@ -268,30 +265,31 @@ export function AppSidebar() {
 
       {/* h-16 menyamai tinggi header konten (h-16 di (dashboard)/layout.tsx)
           supaya garis bawah keduanya sejajar. Blok ini tetap tampil saat
-          sidebar diringkas — logonya berganti monogram — supaya garis atasnya
-          tidak berhenti di rail. */}
+          sidebar diringkas — logonya berganti tanda merek saja — supaya garis
+          atasnya tidak berhenti di rail. */}
       <SidebarHeader className="relative h-16 flex-row items-center justify-center border-b border-sidebar-border px-4 py-0 group-data-[collapsible=icon]:px-0">
         <Link
           href="/beranda"
-          aria-label="Beacon Engineering — ke Dashboard"
+          aria-label="PT Asaba Surveying Solutions — ke Dashboard"
           className="flex items-center rounded-md outline-hidden focus-visible:ring-2 focus-visible:ring-sidebar-ring"
         >
-          {/* logo_beacon_dark.png diturunkan dari logo_beacon.png: piksel navy
-              (#33345x) dijadikan putih dan merahnya dinaikkan dari #B30303 ke
-              #E83A3A. Logo aslinya navy di atas transparan — di sidebar yang
-              juga navy, huruf "e" dan tulisan BEACON ENGINEERING-nya lenyap.
-              Tingginya dari --app-logo-height di globals.css, satu tempat
-              dengan lebar sidebar, jadi keduanya mengecil bersamaan. */}
+          {/* logo_asaba_dark.png diturunkan dari image/logo_asaba.png milik app
+              lama: SELURUH piksel dijadikan putih, hanya alpha-nya yang dijaga.
+              Logo aslinya navy #372D7F dengan busur kuning #E5BC38 — navy-nya
+              di atas sidebar yang juga navy praktis lenyap, jadi dibuat versi
+              putih penuh (knockout) supaya kontrasnya rata. Tingginya dari
+              --app-logo-height di globals.css, satu tempat dengan lebar
+              sidebar, jadi keduanya mengecil bersamaan. */}
           <Image
-            src="/logo_beacon_dark.png"
-            alt="Beacon Engineering"
-            width={499}
-            height={148}
+            src="/logo_asaba_dark.png"
+            alt="PT Asaba Surveying Solutions"
+            width={540}
+            height={131}
             preload
             className="h-(--app-logo-height) w-auto object-contain group-data-[collapsible=icon]:hidden"
             draggable={false}
           />
-          <BrandMonogram className="hidden group-data-[collapsible=icon]:flex" />
+          <BrandMark className="hidden group-data-[collapsible=icon]:block" />
         </Link>
       </SidebarHeader>
 
