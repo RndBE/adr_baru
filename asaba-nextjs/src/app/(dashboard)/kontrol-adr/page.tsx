@@ -1942,7 +1942,27 @@ export default function KontrolAdrPage() {
               buta terhadap itu — pelajaran yang sama sudah tercatat di kartu
               metrik versi sebelumnya. */}
           <Panel className="@container rise-in">
-            <PanelHeader title="Sikap instrumen">
+            <PanelHeader
+              title="Sikap instrumen"
+              actions={
+                /* Kemiringan dibaca dari sini karena angkanya masuk ke daftar
+                   di bawah, bukan ke kotak sendiri: panel ini sudah dua kolom
+                   (dial + daftar), dan kolom ketiga membuat ketiganya sempit. */
+                <button
+                  type="button"
+                  onClick={handleBacaTilt}
+                  disabled={tiltLoading}
+                  className="inline-flex cursor-pointer items-center gap-1.5 rounded-md text-[11.5px] font-semibold text-(--navy) outline-none hover:underline focus-visible:ring-2 focus-visible:ring-(--navy)/40 disabled:cursor-not-allowed disabled:text-(--ink-3) disabled:no-underline"
+                >
+                  {tiltLoading ? (
+                    <Loader2 className="size-3 animate-spin" />
+                  ) : (
+                    <RefreshCcw className="size-3" />
+                  )}
+                  Baca kemiringan
+                </button>
+              }
+            >
               <span>{namaPos(selectedSite)}</span>
             </PanelHeader>
             <div className="flex flex-1 flex-col px-5 pb-4 @lg:flex-row @lg:items-start @lg:gap-5">
@@ -1962,51 +1982,33 @@ export default function KontrolAdrPage() {
                     {lastUpdate ? fmtWaktu(lastUpdate) : "—"}
                   </dd>
                 </div>
-              </dl>
+                {/* Kemiringan (`getTilt` → `data_tilt`). Nilainya yang terakhir
+                    tersimpan di logger, disegarkan sendiri tiap menit — jadi
+                    membacanya tidak menyentuh instrumen dan aman kapan saja,
+                    termasuk saat RTS mati.
 
-              {/* Kemiringan instrumen (`getTilt` → `data_tilt`).
-                  Nilainya yang terakhir tersimpan di logger, disegarkan sendiri
-                  tiap menit — jadi tombol ini tidak menyentuh instrumen dan
-                  aman ditekan kapan saja, termasuk saat RTS mati.
-
-                  Ditaruh tepat di atas blok diagnostik dengan sengaja: kalau
-                  pesan `Tilt` gagal muncul di bawahnya, angka di sini BUKAN
-                  hasil ukur, dan dua hal itu harus terbaca sekaligus. */}
-              <div className="mt-3 rounded-[10px] bg-(--paper) px-3.5 py-2.5">
-                <div className="flex items-center justify-between gap-2">
-                  <Eyebrow>Kemiringan instrumen</Eyebrow>
-                  <button
-                    type="button"
-                    onClick={handleBacaTilt}
-                    disabled={tiltLoading}
-                    className="inline-flex cursor-pointer items-center gap-1.5 rounded-md text-[11.5px] font-semibold text-(--navy) outline-none hover:underline focus-visible:ring-2 focus-visible:ring-(--navy)/40 disabled:cursor-not-allowed disabled:text-(--ink-3) disabled:no-underline"
-                  >
-                    {tiltLoading ? (
-                      <Loader2 className="size-3 animate-spin" />
+                    Kalau pesan `Tilt` gagal muncul di blok diagnostik, angka di
+                    sini BUKAN hasil ukur — itulah yang diperingatkan di bawah. */}
+                <div>
+                  <dt className="text-[11.5px] text-(--ink-2)">Kemiringan</dt>
+                  <dd className="font-mono text-[13px] tabular-nums text-(--ink)">
+                    {tilt ? (
+                      <>
+                        {tilt.tilt1 || "—"}
+                        <span className="mx-1 text-(--ink-3)">/</span>
+                        {tilt.tilt2 || "—"}
+                      </>
                     ) : (
-                      <RefreshCcw className="size-3" />
+                      <span className="font-sans text-[12px] text-(--ink-3)">Belum dibaca</span>
                     )}
-                    Baca
-                  </button>
+                  </dd>
+                  {tilt && diagnostik?.nama === "Tilt" && !diagnostik.ok && (
+                    <p className="mt-0.5 text-[11px] leading-snug text-amber-900">
+                      Pembacaan terakhir gagal — bukan hasil ukur.
+                    </p>
+                  )}
                 </div>
-                {tilt ? (
-                  <div className="mt-1.5 grid grid-cols-2 gap-2 font-mono text-[13px] tabular-nums text-(--ink)">
-                    <span>
-                      <span className="text-(--ink-3)">tilt 1</span> {tilt.tilt1 || "—"}
-                    </span>
-                    <span>
-                      <span className="text-(--ink-3)">tilt 2</span> {tilt.tilt2 || "—"}
-                    </span>
-                  </div>
-                ) : (
-                  <p className="mt-1.5 text-[12px] text-(--ink-3)">Belum dibaca</p>
-                )}
-                {tilt && diagnostik?.nama === "Tilt" && !diagnostik.ok && (
-                  <p className="mt-1.5 text-[11.5px] leading-relaxed text-amber-900">
-                    Pembacaan kemiringan terakhir gagal — angka di atas bukan hasil ukur.
-                  </p>
-                )}
-              </div>
+              </dl>
 
               {/* Diagnostik instrumen terakhir.
                   Rotate datang dari SETIAP jalur rotasi — jog, turning_target,
