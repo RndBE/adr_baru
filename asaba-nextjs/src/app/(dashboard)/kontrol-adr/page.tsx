@@ -8,10 +8,6 @@ import {
   CalendarDays,
   Check,
   CheckCircle2,
-  ChevronDown,
-  ChevronLeft,
-  ChevronRight,
-  ChevronUp,
   Clock,
   Database,
   Crosshair,
@@ -20,10 +16,8 @@ import {
   FileText,
   Home,
   Loader2,
-  Move,
   Power,
   RefreshCcw,
-  Ruler,
   Scan,
   Send,
   Timer,
@@ -81,12 +75,6 @@ import {
   validasiCycleTime,
   validasiRetries,
   validasiSearchArea,
-  bacaBalasanJog,
-  bacaManualHaVa,
-  SEBAB_TOLAK_JOG,
-  LANGKAH_JOG,
-  bacaBalasanUkur,
-  JENIS_UKUR,
   bacaDiagnostik,
   NAMA_DIAGNOSTIK,
   OPERASI_DIAGNOSTIK,
@@ -94,11 +82,7 @@ import {
   ARTI_ALASAN_DIAGNOSTIK,
   type Diagnostik,
   type NamaDiagnostik,
-  type BalasanJog,
-  type BacaanHaVa,
   type BalasanSearchArea,
-  type BalasanUkur,
-  type KodeUkur,
 } from "@/lib/protokol-rts";
 
 // ── Pemberitahuan perintah ────────────────────────────────────────────────────
@@ -448,15 +432,6 @@ export default function KontrolAdrPage() {
   // Balasannya kosong. Karena itu statusnya bisa ditunggu, bukan sekadar
   // "terkirim". `jawaban` menyimpan string mentah dari instrumen apa adanya —
   // formatnya tidak terdokumentasi, jadi ditampilkan tanpa ditafsirkan.
-  // ── Remote kontrol arah (jog) ──
-  const [showJog, setShowJog] = useState(false);
-  const [langkahJog, setLangkahJog] = useState(LANGKAH_JOG[1].derajat); // 1' sebagai awal
-  const [jogStatus, setJogStatus] = useState<"idle" | "waiting" | "done" | "gagal">("idle");
-  const [jogPesan, setJogPesan] = useState("");
-  const [jogTarget, setJogTarget] = useState<BalasanJog | null>(null);
-  const [haVa, setHaVa] = useState<BacaanHaVa | null>(null);
-  const [haVaLoading, setHaVaLoading] = useState(false);
-
   /**
    * Kemiringan instrumen dari `getTilt` → balasan `data_tilt`.
    *
@@ -486,11 +461,6 @@ export default function KontrolAdrPage() {
   /** Baris mentah yang sudah terkumpul lintas permintaan bertahap. */
   const [replayRows, setReplayRows] = useState<string[]>([]);
   const [replayInfo, setReplayInfo] = useState<BalasanReplay | null>(null);
-
-  // ── Ukur backsight / foresight ──
-  const [ukurJalan, setUkurJalan] = useState<KodeUkur | null>(null);
-  const [ukurHasil, setUkurHasil] = useState<Record<KodeUkur, BalasanUkur | null>>({ bs: null, fs: null });
-  const [ukurGagal, setUkurGagal] = useState<KodeUkur | null>(null);
 
   /**
    * Diagnostik instrumen terakhir (Rotate / Idle / Tilt).
@@ -622,67 +592,6 @@ export default function KontrolAdrPage() {
    * yang berbeda.
    */
   /**
-   * Geser arah teleskop.
-   *
-   * `va` adalah sudut ZENIT: 0° menghadap lurus ke atas, 90° mendatar, 180°
-   * lurus ke bawah. Jadi MENAMBAH va berarti MENUNDUK — tombol "atas" harus
-   * mengirim nilai negatif. Pemetaan itu dikunci di sini, di satu tempat, biar
-   * tidak ada yang menebaknya lagi di tempat lain.
-   */
-  const handleJog = async (arah: "atas" | "bawah" | "kiri" | "kanan") => {
-    const n = langkahJog;
-    const delta =
-      arah === "kiri" ? { ha: -n, va: 0 }
-      : arah === "kanan" ? { ha: n, va: 0 }
-      : arah === "atas" ? { ha: 0, va: -n }   // zenit mengecil = mendongak
-      : { ha: 0, va: n };                      // zenit membesar = menunduk
-
-    setJogStatus("waiting");
-    setJogPesan("");
-    setJogTarget(null);
-    try {
-      const res = await fetch("/api/kontrol/jog", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ site: selectedSite, ...delta }),
-      });
-      const json = await res.json();
-      if (!json.success) {
-        setJogStatus("gagal");
-        setJogPesan(json.error || "Gagal mengirim perintah");
-      }
-      // Sukses tidak diumumkan di sini: yang selesai baru pengiriman ke broker.
-      // Tahapan dan hasilnya datang lewat MQTT sebagai balasan bernama `Jog`.
-    } catch (err) {
-      console.error("[handleJog]", err);
-      setJogStatus("gagal");
-      setJogPesan("Terjadi kesalahan jaringan");
-    }
-  };
-
-  /** Baca sudut instrumen sekarang. Tidak menggerakkan apa pun. */
-  const handleBacaHaVa = async () => {
-    setHaVaLoading(true);
-    try {
-      const res = await fetch("/api/kontrol/manual-hava", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ site: selectedSite }),
-      });
-      const json = await res.json();
-      if (!json.success) {
-        setHaVaLoading(false);
-        setPowerAlert({ type: "error", title: "Baca sudut", message: json.error || "Gagal" });
-      }
-      // Hasilnya ditangkap handler MQTT (ManualHAVA); loading dimatikan di sana.
-    } catch (err) {
-      console.error("[handleBacaHaVa]", err);
-      setHaVaLoading(false);
-      setPowerAlert({ type: "error", title: "Baca sudut", message: "Terjadi kesalahan jaringan" });
-    }
-  };
-
-  /**
    * Baca kemiringan instrumen. Tidak menggerakkan apa pun dan tidak memaksa
    * pembacaan baru — logger menyegarkan nilainya sendiri tiap menit.
    */
@@ -797,32 +706,6 @@ export default function KontrolAdrPage() {
       console.error("[mintaReplay]", err);
       setReplayLoading(false);
       setReplayGalat("Terjadi kesalahan jaringan");
-    }
-  };
-
-  /** Ukur backsight atau foresight. Tidak menggerakkan teleskop. */
-  const handleUkur = async (jenis: KodeUkur) => {
-    setUkurJalan(jenis);
-    setUkurGagal(null);
-    setUkurHasil((p) => ({ ...p, [jenis]: null }));
-    try {
-      const res = await fetch("/api/kontrol/measure", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ site: selectedSite, jenis }),
-      });
-      const json = await res.json();
-      if (!json.success) {
-        setUkurJalan(null);
-        setUkurGagal(jenis);
-        setPowerAlert({ type: "error", title: "Ukur", message: json.error || "Gagal" });
-      }
-      // Hasilnya ditangkap handler MQTT (MeasureBS/MeasureFS).
-    } catch (err) {
-      console.error("[handleUkur]", err);
-      setUkurJalan(null);
-      setUkurGagal(jenis);
-      setPowerAlert({ type: "error", title: "Ukur", message: "Terjadi kesalahan jaringan" });
     }
   };
 
@@ -1125,33 +1008,6 @@ export default function KontrolAdrPage() {
           // dokumen untuk medan `raw` di Bagian E.5. Menebak artinya lebih
           // berbahaya daripada tidak menerjemahkannya: ini titik acuan pulang
           // teleskop, dan tafsir yang salah tidak akan terkoreksi sendiri.
-          // {"Jog":{"value":"start"|"check"|"read"|"rotate"|"done"}}
-          // {"Jog":{"value":"target","dari_HA":…,"ke_HA":…}}
-          // {"Jog":{"value":"RTS Off"|"read failed"|"bad base"|"failed"}}
-          const bJog = bacaBalasanJog(data.Jog);
-          if (bJog.jenis !== "bukan") {
-            console.log("[KontrolADR] Jog:", bJog.jenis, bJog.nilai);
-            if (bJog.jenis === "ditolak") {
-              setJogStatus("gagal");
-              setJogPesan(
-                SEBAB_TOLAK_JOG[bJog.nilai] ??
-                  `Geseran ditolak (${bJog.nilai}).`
-              );
-              // Pada "bad base", sudut awal yang dianggap tidak sah ikut
-              // dikirim — ditampilkan supaya kelihatan APA yang ngawur.
-              if (bJog.HA || bJog.VA) {
-                setJogTarget(bJog);
-              }
-            } else if (bJog.jenis === "target") {
-              // Titik awal dan tujuan sekaligus: kalau hasilnya meleset,
-              // langsung kelihatan salahnya di pembacaan atau di perhitungan.
-              setJogTarget(bJog);
-            } else if (bJog.jenis === "selesai") {
-              setJogStatus("done");
-              setJogPesan("");
-            }
-            // "tahap" (start/check/read/rotate) dibiarkan menunggu.
-          }
 
           // {"Rotate":{"value":"ok","ms":1840}}
           // {"Rotate":{"value":"failed","reason":"no_response","ms":3001,"raw":""}}
@@ -1162,41 +1018,6 @@ export default function KontrolAdrPage() {
               console.log(`[KontrolADR] ${nd}:`, d.ok ? "ok" : d.alasan, d.ms, d.raw);
               setDiagnostik(d);
             }
-          }
-
-          // {"MeasureBS":…} / {"MeasureFS":…}
-          //
-          // Dipilah lewat NAMA KUNCI, bukan dari perintah yang barusan dikirim.
-          // Sebelum revisi protokol ini `measure_fs` salah dibalas `MeasureBS`;
-          // kalau masih ada unit lama, hasilnya tampil di kolom yang salah —
-          // dan itu lebih jujur daripada menerka mana yang dimaksud.
-          for (const kode of ["bs", "fs"] as const) {
-            const bUkur = bacaBalasanUkur(data[JENIS_UKUR[kode].balasan]);
-            if (bUkur.jenis === "bukan") continue;
-            console.log(`[KontrolADR] ${JENIS_UKUR[kode].balasan}:`, bUkur.jenis, bUkur.nilai);
-
-            if (bUkur.jenis === "hasil") {
-              // Baris berisi medan kosong mendahului "failed" — JANGAN
-              // ditampilkan sebagai bacaan. Di revisi lama `SDis` tetap terisi
-              // saat gagal, jadi membaca angka apa adanya menampilkan jarak
-              // yang tidak pernah terukur.
-              if (!bUkur.kosong) setUkurHasil((p) => ({ ...p, [kode]: bUkur }));
-            } else if (bUkur.jenis === "gagal") {
-              setUkurJalan(null);
-              setUkurGagal(kode);
-              setUkurHasil((p) => ({ ...p, [kode]: null }));
-            } else if (bUkur.jenis === "selesai") {
-              setUkurJalan(null);
-            }
-            // "tahap" (start/measure) dibiarkan menunggu.
-          }
-
-          // {"ManualHAVA":{"HA":"151,38,71","VA":"206,04,62"}}
-          const bHaVa = bacaManualHaVa(data.ManualHAVA);
-          if (bHaVa.ada) {
-            console.log("[KontrolADR] ManualHAVA:", bHaVa.HA, bHaVa.VA, "gagal:", bHaVa.gagal);
-            setHaVa(bHaVa);
-            setHaVaLoading(false);
           }
 
           // {"data_tilt":{"tilt1":"-0.00732","tilt2":"0.0198"}}
@@ -2156,16 +1977,7 @@ export default function KontrolAdrPage() {
 
               <div className="mt-auto pt-4">
                 <Eyebrow>Arah teleskop</Eyebrow>
-                <div className="mt-2 grid grid-cols-2 gap-2">
-                  <button
-                    type="button"
-                    onClick={() => setShowJog(true)}
-                    disabled={!!alasanTerkunci}
-                    title={alasanTerkunci ?? "Geser arah teleskop sedikit demi sedikit"}
-                    className={cn(tombol, "bg-(--navy) text-white hover:bg-(--navy-deep)")}
-                  >
-                    <Move className="size-4" /> Arahkan
-                  </button>
+                <div className="mt-2 grid grid-cols-1 gap-2">
                   {/* Set Home SENGAJA tidak ditempel ke grup daya: bentuknya
                       mirip perintah daya padahal akibatnya jauh berbeda, dan
                       salah pencet baru ketahuan saat teleskop pulang ke arah
@@ -3315,272 +3127,6 @@ export default function KontrolAdrPage() {
                 </table>
               </div>
             )}
-          </div>
-        </ModalShell>
-      )}
-
-      {/* ─── Arahkan RTS ───
-          Menggeser teleskop secara relatif lewat perintah `jog`. Sengaja dialog
-          terpisah, bukan tombol lepas di panel: setiap penekanan menggerakkan
-          instrumen sungguhan, jadi harus jelas sedang berada di mode ini. */}
-      {showJog && (
-        <ModalShell
-          judul="Arahkan RTS"
-          keterangan="Setiap penekanan memutar teleskop di lapangan."
-          ikon={<Move className="size-4.5" />}
-          lebar="max-w-[440px]"
-          onClose={() => setShowJog(false)}
-        >
-          <div className="flex flex-col gap-4">
-            {/* Sudut sekarang */}
-            <div className="rounded-[10px] bg-(--paper) px-3.5 py-3">
-              <div className="flex items-center justify-between gap-2">
-                <Eyebrow>Sudut instrumen sekarang</Eyebrow>
-                <button
-                  type="button"
-                  onClick={handleBacaHaVa}
-                  disabled={haVaLoading || !isConnected}
-                  className="inline-flex cursor-pointer items-center gap-1.5 rounded-md text-[11.5px] font-semibold text-(--navy) outline-none hover:underline focus-visible:ring-2 focus-visible:ring-(--navy)/40 disabled:cursor-not-allowed disabled:text-(--ink-3) disabled:no-underline"
-                >
-                  {haVaLoading ? (
-                    <Loader2 className="size-3 animate-spin" />
-                  ) : (
-                    <RefreshCcw className="size-3" />
-                  )}
-                  Baca
-                </button>
-              </div>
-              {haVa?.gagal ? (
-                // Kedua nilai "000,00,00" adalah penanda gagal, bukan sudut
-                // sungguhan — kalau ditampilkan apa adanya akan terbaca sebagai
-                // instrumen menghadap titik nol.
-                <p className="mt-1.5 inline-flex items-center gap-1.5 text-[12.5px] font-semibold text-(--ink)">
-                  <span
-                    aria-hidden="true"
-                    className="size-2 rounded-full"
-                    style={{ background: "var(--st-awas)" }}
-                  />
-                  Instrumen tidak menjawab (000,00,00)
-                </p>
-              ) : haVa ? (
-                <div className="mt-1.5 grid grid-cols-2 gap-2 font-mono text-[13px] tabular-nums text-(--ink)">
-                  <span>
-                    <span className="text-(--ink-3)">HA</span> {haVa.HA}
-                  </span>
-                  <span>
-                    <span className="text-(--ink-3)">VA</span> {haVa.VA}
-                  </span>
-                </div>
-              ) : (
-                <p className="mt-1.5 text-[12px] text-(--ink-3)">Belum dibaca</p>
-              )}
-            </div>
-
-            {/* Pemilih langkah */}
-            <div>
-              <p className={LABEL}>Besar langkah</p>
-              <div className="grid grid-cols-4 gap-2">
-                {LANGKAH_JOG.map((l) => (
-                  <button
-                    key={l.label}
-                    type="button"
-                    onClick={() => setLangkahJog(l.derajat)}
-                    title={`${l.keterangan} — dikirim sebagai ${String(l.derajat).replace(".", ",")}°`}
-                    className={cn(
-                      "h-9 cursor-pointer rounded-[9px] text-[12.5px] font-semibold outline-none transition-colors focus-visible:ring-2 focus-visible:ring-(--navy)/40",
-                      langkahJog === l.derajat
-                        ? "bg-(--navy) text-white"
-                        : "bg-white text-(--ink-2) ring-1 ring-(--line) hover:text-(--ink)"
-                    )}
-                  >
-                    {l.label}
-                  </button>
-                ))}
-              </div>
-            </div>
-
-            {/* Tombol arah */}
-            <div className="flex flex-col items-center gap-2">
-              {(() => {
-                const sibuk = jogStatus === "waiting";
-                const mati = sibuk || !isConnected || !selectedSite;
-                const kelas = cn(
-                  "flex size-11 items-center justify-center rounded-[10px] outline-none transition-colors focus-visible:ring-2 focus-visible:ring-(--navy)/40",
-                  mati
-                    ? "cursor-not-allowed bg-(--paper) text-(--ink-3)/50"
-                    : "cursor-pointer bg-white text-(--navy) ring-1 ring-(--navy)/30 hover:bg-(--navy) hover:text-white"
-                );
-                const Tombol = ({
-                  arah,
-                  children,
-                }: {
-                  arah: "atas" | "bawah" | "kiri" | "kanan";
-                  children: React.ReactNode;
-                }) => (
-                  <button
-                    type="button"
-                    onClick={() => handleJog(arah)}
-                    disabled={mati}
-                    className={kelas}
-                    aria-label={`Geser ${arah}`}
-                  >
-                    {children}
-                  </button>
-                );
-                return (
-                  <>
-                    <Tombol arah="atas">
-                      <ChevronUp className="size-5" />
-                    </Tombol>
-                    <div className="flex items-center gap-2">
-                      <Tombol arah="kiri">
-                        <ChevronLeft className="size-5" />
-                      </Tombol>
-                      <div className="flex size-11 items-center justify-center rounded-[10px] bg-(--paper) font-mono text-[11px] font-semibold tabular-nums text-(--ink-2)">
-                        {sibuk ? (
-                          <Loader2 className="size-4 animate-spin" />
-                        ) : (
-                          LANGKAH_JOG.find((l) => l.derajat === langkahJog)?.label
-                        )}
-                      </div>
-                      <Tombol arah="kanan">
-                        <ChevronRight className="size-5" />
-                      </Tombol>
-                    </div>
-                    <Tombol arah="bawah">
-                      <ChevronDown className="size-5" />
-                    </Tombol>
-                  </>
-                );
-              })()}
-            </div>
-
-            {/* VA adalah sudut zenit, bukan elevasi. Disebut supaya operator
-                tahu kenapa angkanya mengecil saat mendongak.
-
-                Batas ZA 30°–150° tidak dijaga aplikasi maupun firmware — di luar
-                itu instrumen menolak DIAM-DIAM, dan satu-satunya jejaknya adalah
-                `Rotate` gagal dengan alasan `no_response` setelah menunggu.
-                Disebutkan supaya kegagalan itu tidak terbaca sebagai alat rusak. */}
-            <p className="text-center text-[11px] leading-relaxed text-(--ink-3)">
-              Atas/bawah mengubah VA (sudut zenit — mendongak membuat angkanya mengecil),
-              kiri/kanan mengubah HA. Teropong hanya bisa dipakai sekitar VA 30°–150°.
-            </p>
-
-            {/* Titik awal → tujuan dari balasan `target` */}
-            {jogTarget && (jogTarget.keHA || jogTarget.HA) && (
-              <div
-                className={cn(
-                  "rounded-[10px] px-3.5 py-3 text-[11.5px] leading-relaxed",
-                  jogTarget.jenis === "ditolak"
-                    ? "border border-red-200 bg-red-50 text-red-900"
-                    : "bg-(--paper) text-(--ink-2)"
-                )}
-              >
-                {jogTarget.jenis === "ditolak" ? (
-                  <>
-                    <p className="font-semibold">Sudut awal yang ditolak</p>
-                    <p className="mt-0.5 font-mono tabular-nums">
-                      HA {jogTarget.HA} · VA {jogTarget.VA}
-                    </p>
-                  </>
-                ) : (
-                  <>
-                    {/* Dua satuan berbeda dalam satu balasan: `dari_*` desimal
-                        derajat, `ke_*` DMS. Diberi label karena tanpa itu
-                        bentuknya terlihat seperti data rusak. */}
-                    <p className="font-semibold text-(--ink)">Perpindahan</p>
-                    <p className="mt-0.5 font-mono tabular-nums">
-                      dari HA {jogTarget.dariHA} · VA {jogTarget.dariVA}
-                      <span className="ml-1.5 font-sans text-[10.5px] text-(--ink-3)">
-                        desimal
-                      </span>
-                    </p>
-                    <p className="font-mono tabular-nums">
-                      ke&nbsp;&nbsp; HA {jogTarget.keHA} · VA {jogTarget.keVA}
-                      <span className="ml-1.5 font-sans text-[10.5px] text-(--ink-3)">d,m,d</span>
-                    </p>
-                  </>
-                )}
-              </div>
-            )}
-
-            {jogStatus === "gagal" && jogPesan && (
-              <div className="flex gap-2.5 rounded-[10px] border border-amber-200 bg-amber-50 px-3.5 py-2.5 text-[12.5px] leading-relaxed text-amber-900">
-                <AlertTriangle className="mt-px size-4 shrink-0 text-amber-600" />
-                <span>{jogPesan}</span>
-              </div>
-            )}
-
-            {/* Ukur — melengkapi alurnya: arahkan, baca sudut, lalu ukur.
-                Tidak menggerakkan teleskop, hanya membaca. */}
-            <div className="border-t border-(--line) pt-4">
-              <p className={LABEL}>Ukur dari arah sekarang</p>
-              <div className="grid grid-cols-2 gap-2">
-                {(["bs", "fs"] as const).map((kode) => {
-                  const mati = ukurJalan !== null || !isConnected || !selectedSite;
-                  return (
-                    <button
-                      key={kode}
-                      type="button"
-                      onClick={() => handleUkur(kode)}
-                      disabled={mati}
-                      className={cn(
-                        tombol,
-                        "bg-white text-(--ink-2) ring-1 ring-(--line) hover:text-(--ink)"
-                      )}
-                    >
-                      {ukurJalan === kode ? (
-                        <Loader2 className="size-4 animate-spin" />
-                      ) : (
-                        <Ruler className="size-4" />
-                      )}
-                      {JENIS_UKUR[kode].label}
-                    </button>
-                  );
-                })}
-              </div>
-
-              {(["bs", "fs"] as const).map((kode) => {
-                const h = ukurHasil[kode];
-                if (!h) return null;
-                return (
-                  <div key={kode} className="mt-2 rounded-[10px] bg-(--paper) px-3.5 py-2.5">
-                    <Eyebrow>{JENIS_UKUR[kode].label}</Eyebrow>
-                    <dl className="mt-1.5 grid grid-cols-2 gap-x-4 gap-y-1 font-mono text-[11.5px] tabular-nums text-(--ink)">
-                      <div className="flex justify-between gap-2">
-                        <dt className="text-(--ink-3)">HA</dt>
-                        <dd>{h.HADMS}</dd>
-                      </div>
-                      <div className="flex justify-between gap-2">
-                        <dt className="text-(--ink-3)">VA</dt>
-                        <dd>{h.VADMS}</dd>
-                      </div>
-                      <div className="flex justify-between gap-2">
-                        <dt className="text-(--ink-3)">SD</dt>
-                        <dd>{h.SDis}</dd>
-                      </div>
-                      {/* HD hanya ada di balasan ini — payload data berkala
-                          tidak memuat jarak horizontal sama sekali. */}
-                      <div className="flex justify-between gap-2">
-                        <dt className="text-(--ink-3)">HD</dt>
-                        <dd>{h.HD}</dd>
-                      </div>
-                    </dl>
-                  </div>
-                );
-              })}
-
-              {ukurGagal && (
-                <div className="mt-2 flex gap-2.5 rounded-[10px] border border-amber-200 bg-amber-50 px-3.5 py-2.5 text-[12.5px] leading-relaxed text-amber-900">
-                  <AlertTriangle className="mt-px size-4 shrink-0 text-amber-600" />
-                  <span>
-                    Pengukuran {JENIS_UKUR[ukurGagal].label} gagal. Instrumen tidak mendapat
-                    pantulan — periksa bidikan dan halangan di lintasan.
-                  </span>
-                </div>
-              )}
-            </div>
           </div>
         </ModalShell>
       )}

@@ -377,19 +377,31 @@ export function bacaManualHaVa(paket: unknown): BacaanHaVa {
 
 // ── Langkah jog ──────────────────────────────────────────────────────────────
 //
-// Satuan DERAJAT DESIMAL. Disediakan sebagai preset supaya operator tidak
-// perlu menghitung sendiri — geseran halus jatuh di angka seperti 0,00278 yang
-// mustahil diketik benar berulang kali.
+// Satuan DERAJAT DESIMAL, dan seluruh presetnya memang derajat — bukan campuran
+// detik/menit/derajat seperti sebelumnya.
 //
-// Nilainya memakai pembulatan yang sama dengan tabel dokumen, bukan pecahan
-// penuh: dikirim sebagai JSON, dan `10/3600` menjadi 0.002777777777777778 yang
-// panjangnya tidak berguna. Firmware membulatkan ke DMS bulat, jadi 0,00278
-// dan 10/3600 sama-sama mendarat di 10 detik busur.
+// Set lama (10", 1', 10', 1°) menuntut operator berpindah satuan di tengah
+// pekerjaan: tiga label pertama satuannya berbeda-beda padahal yang dikirim
+// selalu derajat desimal, jadi hubungan antara label dan angka yang terkirim
+// tidak kelihatan. Sekarang semuanya satu satuan dan naik berlipat, sehingga
+// besar langkahnya bisa dibandingkan sekali lihat.
+//
+// Rentangnya juga digeser ke atas: langkah terhalus lama 0,00278° praktis tidak
+// terlihat menggerakkan teleskop pada jarak kerja biasa.
+//
+// Berhenti di 10°. Pernah dicoba sampai 15° dan secara teknis jalan, tapi
+// dibatalkan: teropong hanya bisa dipakai kira-kira di ZA 30°–150°, dan langkah
+// sebesar itu di sumbu vertikal menabrak batas tersebut dalam dua pencetan.
+// Firmware TIDAK memeriksanya — di luar rentang, instrumen menolak diam-diam
+// dan satu-satunya jejaknya `Rotate` gagal dengan alasan `no_response`.
+//
+// ⚠ Preset terkasar HARUS <= MAKS_JOG_DERAJAT, kalau tidak tombolnya ditolak
+// validasiJog di route dan tidak pernah menggerakkan apa pun. Keduanya sekarang
+// sama-sama 10° — menaikkan preset di sini berarti menaikkan batas itu juga.
 export const LANGKAH_JOG = [
-  { label: '10"', derajat: 0.00278, keterangan: "sangat halus" },
-  { label: "1'", derajat: 0.01667, keterangan: "halus" },
-  { label: "10'", derajat: 0.16667, keterangan: "sedang" },
-  { label: "1°", derajat: 1, keterangan: "kasar" },
+  { label: "1°", derajat: 1, keterangan: "halus" },
+  { label: "5°", derajat: 5, keterangan: "sedang" },
+  { label: "10°", derajat: 10, keterangan: "kasar" },
 ];
 
 /**
@@ -405,9 +417,14 @@ export const RESOLUSI_JOG_DERAJAT = 1 / 3600;
 /**
  * Batas satu kali geser.
  *
- * TIDAK ada di protokol — dipilih sendiri sebagai pagar salah ketik. Jog
- * dimaksudkan untuk koreksi kecil; 10° sudah jauh lebih besar dari preset
- * terkasar, dan geseran raksasa akibat typo hanya membuang waktu memutar balik.
+ * TIDAK ada di protokol — dipilih sendiri sebagai pagar salah ketik terhadap
+ * pemanggil API mana pun; geseran raksasa akibat typo hanya membuang waktu
+ * memutar balik.
+ *
+ * Nilainya DIIKATKAN ke preset terkasar di LANGKAH_JOG, bukan dipilih bebas:
+ * batas yang lebih kecil dari preset membuat tombol terkasar ditolak di route
+ * dan tidak pernah menggerakkan apa pun — gagal yang tidak kelihatan sebagai
+ * bug UI. Naikkan keduanya bersamaan.
  *
  * Bukan pengganti batas sumbu vertikal. Teropong hanya bisa dipakai kira-kira
  * di ZA 30°–150°, firmware TIDAK memeriksanya, dan di luar itu instrumen

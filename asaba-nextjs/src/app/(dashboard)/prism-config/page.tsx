@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { AlertTriangle, Search, X } from "lucide-react";
+import { AlertTriangle, Move, Search, X } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { fontDisplay } from "@/lib/fonts";
 import { useRtsConnectionStatus } from "@/hooks/use-api";
@@ -13,6 +13,7 @@ import { SlotTable } from "@/components/prism-config/slot-table";
 import { PrismaModal } from "@/components/prism-config/prisma-modal";
 import { HapusPrismaModal } from "@/components/prism-config/hapus-modal";
 import { AccessCodeModal } from "@/components/prism-config/access-code-modal";
+import { ArahkanModal } from "@/components/prism-config/arahkan-modal";
 import type { PrismaSlot, PrismConfigResponse } from "@/components/prism-config/types";
 
 export default function PrismConfigPage() {
@@ -40,6 +41,10 @@ export default function PrismConfigPage() {
   const [hapusSlot, setHapusSlot] = useState<PrismaSlot | null>(null);
   const [kodeTerbuka, setKodeTerbuka] = useState(false);
   const [terbuka, setTerbuka] = useState(false);
+  // Arahkan RTS sengaja TIDAK di balik kunci kode akses. Kuncinya menjaga
+  // perubahan konfigurasi slot; mengarahkan teleskop adalah tindakan operasi,
+  // bukan perubahan data, dan sebelum dipindah ke sini pun tidak berkunci.
+  const [arahkanTerbuka, setArahkanTerbuka] = useState(false);
 
   const muat = useCallback(async () => {
     if (!site) return;
@@ -147,8 +152,30 @@ export default function PrismConfigPage() {
             })}
           </div>
 
+          {/* Arahkan RTS — dipindah dari Kontrol ADR.
+              Tempatnya di sini karena target pengukurannya adalah slot di
+              daftar bawah: `measure_bs`/`measure_fs` tidak punya parameter
+              target, jadi teleskop harus diputar ke slot itu lebih dulu. */}
+          <button
+            type="button"
+            onClick={() => setArahkanTerbuka(true)}
+            disabled={!site || !idLogger || !isConnected}
+            className={cn(
+              tombol,
+              "ml-auto bg-(--navy) text-white hover:bg-(--navy-deep) disabled:cursor-not-allowed disabled:opacity-50"
+            )}
+            title={
+              !isConnected
+                ? "RTS terputus — perintahnya tidak akan sampai"
+                : "Geser arah teleskop, lalu ukur backsight/foresight"
+            }
+          >
+            <Move className="size-4" />
+            Arahkan RTS
+          </button>
+
           <span
-            className="ml-auto inline-flex h-9 items-center gap-2 rounded-full bg-white px-3 text-[12px] font-medium text-(--ink-2) ring-1 ring-(--line)"
+            className="inline-flex h-9 items-center gap-2 rounded-full bg-white px-3 text-[12px] font-medium text-(--ink-2) ring-1 ring-(--line)"
             title={
               lastUpdate
                 ? `Data terakhir ${fmtDate(lastUpdate, { detik: true })}`
@@ -321,6 +348,17 @@ export default function PrismConfigPage() {
             setHapusSlot(null);
             muat();
           }}
+        />
+      )}
+
+      {arahkanTerbuka && (
+        <ArahkanModal
+          site={site}
+          idLogger={idLogger}
+          slots={data}
+          slotAwal={terpilih}
+          namaPos={namaPos(site)}
+          onClose={() => setArahkanTerbuka(false)}
         />
       )}
 
