@@ -90,6 +90,7 @@ import {
   bacaDiagnostik,
   NAMA_DIAGNOSTIK,
   OPERASI_DIAGNOSTIK,
+  OPERASI_DIAGNOSTIK_RINGKAS,
   ARTI_ALASAN_DIAGNOSTIK,
   type Diagnostik,
   type NamaDiagnostik,
@@ -1896,6 +1897,56 @@ export default function KontrolAdrPage() {
               />
               Logger {isConnected ? "terhubung" : "terputus"}
             </span>
+
+            {/* Diagnostik instrumen terakhir (Rotate / Idle / Tilt).
+                Tempatnya di sini, bukan di dalam panel Sikap instrumen: pesan ini
+                muncul dan hilang sendiri mengikuti perintah yang lewat, dan di
+                dalam panel ia menambah 70–120px tinggi tiap kali muncul. Panel itu
+                seleret dengan dua panel lain yang ikut meregang, jadi satu
+                kegagalan menggeser tata letak tiga kartu sekaligus. Bar ini
+                tingginya tetap.
+
+                Rotate datang dari SETIAP jalur rotasi — jog, turning_target,
+                pulang ke home, dan tiap target AutoTracking — jadi ini memang
+                sinyal milik halaman, bukan milik satu panel.
+
+                Sebab dan `raw` masuk ke `title`, mengikuti chip Logger di
+                sebelahnya. `raw` itu yang membedakan instrumen yang diam sama
+                sekali dari yang menjawab tapi isinya lain — ditampilkan apa
+                adanya, tidak ditafsirkan. */}
+            {diagnostik && (
+              <span
+                className={cn(
+                  "inline-flex h-9 items-center gap-2 rounded-full px-3 text-[12px] font-medium ring-1",
+                  diagnostik.ok
+                    ? "bg-white text-(--ink-2) ring-(--line)"
+                    : "bg-red-50 text-red-800 ring-red-200"
+                )}
+                title={[
+                  `${OPERASI_DIAGNOSTIK[diagnostik.nama as NamaDiagnostik] ?? diagnostik.nama} ${
+                    diagnostik.ok ? "berhasil" : "gagal"
+                  }`,
+                  diagnostik.ms !== null ? `${diagnostik.ms} ms` : "",
+                  !diagnostik.ok && diagnostik.alasan
+                    ? ARTI_ALASAN_DIAGNOSTIK[diagnostik.alasan] ?? diagnostik.alasan
+                    : "",
+                  !diagnostik.ok && diagnostik.raw ? `Balasan mentah: ${diagnostik.raw}` : "",
+                ]
+                  .filter(Boolean)
+                  .join("\n")}
+              >
+                <span
+                  aria-hidden="true"
+                  className="size-2 rounded-full"
+                  style={{ background: diagnostik.ok ? "var(--st-normal)" : "var(--st-awas)" }}
+                />
+                {OPERASI_DIAGNOSTIK_RINGKAS[diagnostik.nama as NamaDiagnostik] ?? diagnostik.nama}{" "}
+                {diagnostik.ok ? "berhasil" : "gagal"}
+                {diagnostik.ms !== null && (
+                  <span className="font-mono tabular-nums opacity-70">{diagnostik.ms} ms</span>
+                )}
+              </span>
+            )}
             {/* Pengaturan — tidak menggerakkan apa pun, jadi tempatnya di bar
                 kontrol, bukan bersama perintah instrumen di bawah. */}
             <button
@@ -2010,54 +2061,6 @@ export default function KontrolAdrPage() {
                 </div>
               </dl>
 
-              {/* Diagnostik instrumen terakhir.
-                  Rotate datang dari SETIAP jalur rotasi — jog, turning_target,
-                  pulang ke home, dan tiap target AutoTracking — jadi ini sinyal
-                  milik instrumen, bukan milik satu tombol. Tempatnya di panel
-                  keadaan, bukan di dalam modal yang harus dibuka dulu.
-
-                  `raw` ditampilkan APA ADANYA: itulah yang membedakan instrumen
-                  yang diam sama sekali dari yang menjawab tapi isinya lain — dua
-                  masalah dengan penanganan yang sangat berbeda. */}
-              {diagnostik && (
-                <div
-                  className={cn(
-                    "mt-3 rounded-[10px] border px-3.5 py-2.5",
-                    diagnostik.ok
-                      ? "border-(--line) bg-(--paper)"
-                      : "border-red-200 bg-red-50"
-                  )}
-                >
-                  <div className="flex items-center justify-between gap-2">
-                    <span className="inline-flex items-center gap-1.5 text-[12px] font-semibold text-(--ink)">
-                      <span
-                        aria-hidden="true"
-                        className="size-2 rounded-full"
-                        style={{
-                          background: diagnostik.ok ? "var(--st-normal)" : "var(--st-awas)",
-                        }}
-                      />
-                      {OPERASI_DIAGNOSTIK[diagnostik.nama as NamaDiagnostik] ?? diagnostik.nama}
-                      {diagnostik.ok ? " berhasil" : " gagal"}
-                    </span>
-                    {diagnostik.ms !== null && (
-                      <span className="font-mono text-[11.5px] tabular-nums text-(--ink-3)">
-                        {diagnostik.ms} ms
-                      </span>
-                    )}
-                  </div>
-                  {!diagnostik.ok && diagnostik.alasan && (
-                    <p className="mt-1 text-[11.5px] leading-relaxed text-red-800">
-                      {ARTI_ALASAN_DIAGNOSTIK[diagnostik.alasan] ?? diagnostik.alasan}
-                    </p>
-                  )}
-                  {!diagnostik.ok && diagnostik.raw && (
-                    <p className="mt-1 break-all font-mono text-[10.5px] text-red-900">
-                      {diagnostik.raw}
-                    </p>
-                  )}
-                </div>
-              )}
             </div>
           </Panel>
 

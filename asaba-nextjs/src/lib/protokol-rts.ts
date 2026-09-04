@@ -635,6 +635,16 @@ export const ARTI_ALASAN_DIAGNOSTIK: Record<string, string> = {
   timeout: "Instrumen menjawab bertahap tapi tak pernah selesai.",
 };
 
+/**
+ * Nama pendek untuk chip di bar kontrol, tempat lebarnya cuma cukup beberapa
+ * kata. Kalimat panjangnya tetap dipakai di `title` chip itu.
+ */
+export const OPERASI_DIAGNOSTIK_RINGKAS: Record<NamaDiagnostik, string> = {
+  Rotate: "Putar motor",
+  Idle: "Status instrumen",
+  Tilt: "Baca kemiringan",
+};
+
 export const OPERASI_DIAGNOSTIK: Record<NamaDiagnostik, string> = {
   Rotate: "Perintah putar motor",
   Idle: "Pemeriksaan status instrumen",
