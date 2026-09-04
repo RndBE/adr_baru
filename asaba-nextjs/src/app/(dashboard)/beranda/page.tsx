@@ -14,7 +14,7 @@ import {
   Panel,
   PanelFooter,
   PanelHeader,
-  StatTile,
+  StatBaris,
   StatusDot,
 } from "@/components/monitoring/panel";
 import { RtsConsole } from "@/components/monitoring/rts-console";
@@ -314,26 +314,37 @@ function RtsDashboard({
 
       {/* ── Ringkasan, denah, profil elevasi ── */}
       <div className="grid grid-cols-1 gap-4 md:grid-cols-2 md:gap-5 xl:grid-cols-12">
-        <Panel className="rise-in md:col-span-2 xl:col-span-4" style={{ animationDelay: "240ms" }}>
+        {/* self-start: kartu ini setinggi isinya, tidak ikut diregangkan
+            setinggi denah & elevasi yang punya SVG + footer. Sebelumnya tinggi
+            sisa itu dibagi rata ke sela antar baris lewat `justify-between`,
+            dan pada layar xl selanya jadi puluhan piksel — kartu terbaca lebih
+            banyak kosong daripada angka. */}
+        <Panel
+          className="rise-in self-start md:col-span-2 xl:col-span-4"
+          style={{ animationDelay: "240ms" }}
+        >
           <PanelHeader title="Ringkasan">
             <span>site ini · running terpilih</span>
           </PanelHeader>
-          <div className="grid flex-1 grid-cols-2 gap-x-5 gap-y-5 px-5 pb-5 sm:grid-cols-4 xl:grid-cols-2">
-            <StatTile label="Total running" value={jumlahSesi} unit="running" />
-            <StatTile
+          {/* Daftar baris ber-pemisah, bukan grid 2×2. */}
+          <div className="flex flex-col divide-y divide-(--line) px-5 pb-4">
+            <StatBaris label="Total running" value={jumlahSesi} />
+            {/* Tanggal di baris nilai, jam di sub — sama seperti Acuan R0 di
+                bawah. Terbalik antar keduanya membuat kolom angka besar berisi
+                jam di satu baris dan tanggal di baris lain. */}
+            <StatBaris
               label="Running terakhir"
-              value={typedLogs[0] ? fmtJam(typedLogs[0].datetime) : "—"}
-              sub={typedLogs[0] ? fmtTanggal(typedLogs[0].datetime) : "belum ada running"}
+              value={typedLogs[0] ? fmtTanggal(typedLogs[0].datetime) : "—"}
+              sub={typedLogs[0] ? `pukul ${fmtJam(typedLogs[0].datetime)}` : "belum ada running"}
             />
-            <StatTile
-              label="Kecepatan maks. harian"
+            <StatBaris
+              label="Kecepatan maks. harian (mm/hari)"
               value={fmt(lajuPuncak?.lajuMmd ?? null)}
-              unit="mm/hari"
               sub={
                 lajuPuncak ? (
                   <>
                     <StatusDot status={lajuPuncak.statusLaju} />
-                    <span>
+                    <span className="truncate">
                       {lajuPuncak.statusLaju ?? "—"} · {lajuPuncak.nama.replace(/_/g, " ")}
                     </span>
                   </>
@@ -342,9 +353,8 @@ function RtsDashboard({
                 )
               }
             />
-            <StatTile
+            <StatBaris
               label="Acuan R0"
-              compact
               value={r0Log ? fmtTanggal(r0Log.datetime) : "—"}
               sub={r0Log ? `pukul ${fmtJam(r0Log.datetime)}` : "belum ada sesi acuan"}
             />

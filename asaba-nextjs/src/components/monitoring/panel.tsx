@@ -164,39 +164,57 @@ export function StatusChip({
   );
 }
 
-export function StatTile({
+/**
+ * Satu baris angka ringkasan: keterangan di kiri, nilainya di kanan.
+ *
+ * Bentuk baris, bukan kartu bertumpuk (label di atas nilai di atas sub).
+ * Versi bertumpuk memakai tiga baris teks per angka, jadi empat angka butuh
+ * dua kolom × dua baris — dan begitu panelnya ikut setinggi tetangganya di
+ * grid, dua baris grid itu meregang dan menyisakan lubang ~110px di tengah
+ * kartu. Bentuk baris memakai dua baris teks, cukup satu kolom untuk keempat
+ * angka, dan tingginya terpakai oleh isi bukan oleh jarak.
+ *
+ * Dipakai di dalam wadah ber-`divide-y`: pemisahnya milik wadah, bukan baris.
+ */
+export function StatBaris({
   label,
   value,
-  unit,
   sub,
-  compact,
   className,
 }: {
   label: ReactNode;
   value: ReactNode;
-  unit?: ReactNode;
   sub?: ReactNode;
-  /** Untuk nilai berupa tanggal/teks panjang, bukan angka. */
-  compact?: boolean;
   className?: string;
 }) {
   return (
-    <div className={cn("min-w-0", className)}>
-      <p className="text-[12px] text-(--ink-2)">{label}</p>
-      <p className="mt-1 flex items-baseline gap-1 text-(--ink)">
-        <span
-          className={cn(
-            "font-bold leading-none tracking-[-0.02em]",
-            compact ? "text-[20px]" : "text-[26px]"
-          )}
-        >
-          {value}
-        </span>
-        {unit && <span className="text-[12px] font-medium text-(--ink-3)">{unit}</span>}
-      </p>
-      {sub && (
-        <div className="mt-1.5 flex items-center gap-1.5 text-[11.5px] text-(--ink-3)">{sub}</div>
+    <div
+      className={cn(
+        "flex min-w-0 items-baseline justify-between gap-4 py-3 first:pt-0 last:pb-0",
+        className
       )}
+    >
+      <p className="min-w-0 text-[12px] text-(--ink-2)">{label}</p>
+      {/* Sub menerangkan nilainya (jam dari tanggal di atasnya, prisma dari
+          laju di atasnya), jadi tempatnya di bawah nilai — bukan di bawah
+          label di seberangnya.
+
+          shrink-0: nilainya tidak boleh dipotong atau dibungkus — label di
+          kiri yang mengalah (min-w-0) kalau barisnya sempit.
+
+          Baris nilai hanya berisi angka, tanpa satuan. Satuan yang ikut di
+          belakang angka membuat tepi kanan angka berpindah-pindah mengikuti
+          panjang satuannya, dan kolom angka jadi tidak rata; satuan yang
+          dipesankan lebar tetap justru menyisakan lubang di baris yang tidak
+          punya satuan. Satuannya ditulis di label. */}
+      <div className="flex shrink-0 flex-col items-end">
+        <p className="text-[20px] font-bold leading-none tracking-[-0.02em] text-(--ink)">
+          {value}
+        </p>
+        {sub && (
+          <div className="mt-1.5 flex items-center gap-1.5 text-[11.5px] text-(--ink-3)">{sub}</div>
+        )}
+      </div>
     </div>
   );
 }
