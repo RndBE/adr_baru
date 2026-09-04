@@ -85,7 +85,10 @@ export function klasifikasiPower(aksi: AksiPower, nilai: string): KelasBalasan {
 }
 
 /**
- * AutoTracking: "RTS Off" (ditolak), start, target, homing, finished.
+ * AutoTracking: "RTS Off" (ditolak), start, scheduled, homing, finished.
+ *
+ * "scheduled" mendahului siklus yang dijalankan `trackEvery`, bukan yang
+ * diminta operator — jatuh ke "kemajuan" seperti "start".
  *
  * Perintahnya bernama `AutoTrackingStart` tapi SEMUA balasannya bernama
  * `AutoTracking` — satu-satunya perintah yang nama balasannya berbeda dari nama
@@ -97,8 +100,79 @@ export function klasifikasiTracking(nilai: string): KelasBalasan {
   return "kemajuan";
 }
 
-/** Nilai `status` yang sah pada balasan {"value":"target"}. */
+/** Nilai `status` yang sah pada pesan kemajuan per target. */
 export const STATUS_TARGET_SAH = ["search", "measure", "done", "failed"] as const;
+
+/**
+ * Baca satu balasan AutoTracking, dua bentuk sekaligus.
+ *
+ * Bentuk sekarang — kemajuan per target TIDAK punya `value` sama sekali, dan
+ * nomor targetnya bernama `ke`/`dari`:
+ *
+ *   {"AutoTracking":{"value":"start"}}
+ *   {"AutoTracking":{"ke":1,"dari":50,"status":"search"}}
+ *   {"AutoTracking":{"value":"homing"}}
+ *   {"AutoTracking":{"value":"finished"}}
+ *
+ * Bentuk sebelumnya membungkus semuanya di `value`, dengan `current`/`total`:
+ *
+ *   {"AutoTracking":{"value":"start","total":50,"retries":1}}
+ *   {"AutoTracking":{"value":"target","current":1,"total":50,"status":"search"}}
+ *
+ * Keduanya dinormalkan ke satu bentuk, dan pesan per target diberi `nilai`
+ * "target" walau paketnya tidak menyebutkannya. Tanpa itu pembaca yang mencari
+ * `value` akan MENJATUHKAN seluruh kemajuan per target diam-diam: indikatornya
+ * berhenti di "start" sampai `finished` datang berpuluh menit kemudian, dan
+ * tidak ada galat apa pun yang menunjukkan sebabnya.
+ *
+ * `dari` hanya ikut di pesan per target, jadi pemanggil perlu mempertahankan
+ * nilai sebelumnya saat pesan berikutnya tidak membawanya.
+ */
+export type BalasanTracking = {
+  ada: boolean;
+  nilai: string;
+  kelas: KelasBalasan;
+  /** Nomor target yang sedang dikerjakan; null kalau paketnya tidak membawa. */
+  ke: number | null;
+  /** Jumlah target satu siklus; null kalau paketnya tidak membawa. */
+  dari: number | null;
+  status: string;
+  retries: number | null;
+};
+
+export function bacaBalasanTracking(paket: unknown): BalasanTracking {
+  const kosong: BalasanTracking = {
+    ada: false, nilai: "", kelas: "kemajuan", ke: null, dari: null, status: "", retries: null,
+  };
+  if (paket === null || typeof paket !== "object") return kosong;
+  const o = paket as Record<string, unknown>;
+
+  const n = (...kunci: string[]) => {
+    for (const k of kunci) {
+      if (o[k] === undefined || o[k] === null || o[k] === "") continue;
+      const x = Number(o[k]);
+      if (Number.isFinite(x)) return x;
+    }
+    return null;
+  };
+
+  const ke = n("ke", "current");
+  const dari = n("dari", "total");
+  const status = o.status === undefined || o.status === null ? "" : String(o.status);
+  const retries = n("retries");
+
+  const v = o.value ?? o.stage;
+  if (v !== undefined && v !== null) {
+    const nilai = String(v);
+    return { ada: true, nilai, kelas: klasifikasiTracking(nilai), ke, dari, status, retries };
+  }
+
+  // Tanpa `value`: kemajuan per target. Dikenali dari `ke`/`dari`/`status`,
+  // bukan dari "objeknya tidak kosong" — paket asing tidak boleh ikut terbaca
+  // sebagai kemajuan tracking.
+  if (ke === null && dari === null && status === "") return kosong;
+  return { ada: true, nilai: "target", kelas: "kemajuan", ke, dari, status, retries };
+}
 
 // ── setHome (Bagian C.6) ─────────────────────────────────────────────────────
 //
@@ -454,21 +528,65 @@ export type KodeUkur = keyof typeof JENIS_UKUR;
 export const RENTANG_SETELAH_POWERON_DERAJAT = 7;
 
 /**
- * Rentang sudut yang sah.
+ * Bawaan firmware untuk SearchArea: 15×15 derajat.
  *
- * Angka 0–180 dibawa dari revisi protokol SEBELUMNYA, yang menyebut SearchArea
- * bertipe number dengan rentang itu. Revisi sekarang mengubah bentuknya jadi
- * objek dan TIDAK menyebutkan ulang rentangnya. Dipertahankan karena masih
- * masuk akal secara fisik; kalau dokumen kelak menyebut angka resmi yang
- * berbeda, angka itu yang menang.
+ * Dipakai sebagai isi awal kolom, bukan angka 7 yang dipasang PowerOn — 7
+ * BUKAN kelipatan 1,5, jadi memakainya sebagai isi awal membuat formulir
+ * gagal pada nilainya sendiri. Angka 7 tetap disebut di keterangan karena itu
+ * memang keadaan instrumen setelah PowerOn.
  */
-export const RENTANG_SEARCH_AREA = { min: 0, maks: 180 };
+export const BAWAAN_SEARCH_AREA_DERAJAT = 15;
+
+/**
+ * Rentang sudut yang sah — BERBEDA antara horizontal dan vertikal.
+ *
+ * Revisi sebelumnya hanya menyebut satu rentang 0–180 untuk SearchArea yang
+ * waktu itu masih bertipe number. Sekarang bentuknya objek dan batasnya
+ * dipisah: `Hor` 0–180°, `Ver` 0–90°. Memakai 180 untuk keduanya membiarkan
+ * nilai vertikal yang tidak akan pernah berlaku lolos ke alat.
+ *
+ * Firmware TIDAK memeriksa apa pun di jalur ini — nilainya ditulis ke EEPROM
+ * dan diteruskan ke instrumen apa adanya. Batasnya baru ditegakkan saat alat
+ * menyala berikutnya, dan yang ditolak di situ direset ke 15, bukan
+ * dikembalikan ke nilai lama. Jadi pemeriksaan di sini satu-satunya yang ada.
+ */
+export const RENTANG_SEARCH_AREA = {
+  hor: { min: 0, maks: 180 },
+  ver: { min: 0, maks: 90 },
+};
+
+/**
+ * Instrumen hanya menerima kelipatan 1,5 derajat: 1.5, 3, 4.5, 6, 7.5, …
+ *
+ * Pecahannya bermakna — jangan dibulatkan ke bilangan bulat sebelum dikirim.
+ * Nilai di antaranya tidak menghasilkan galat, cuma tidak berlaku seperti yang
+ * diminta.
+ */
+export const KELIPATAN_SEARCH_AREA = 1.5;
+
+/** Kelipatan 1,5 terdekat di atas dan di bawah `n`, untuk pesan kesalahan. */
+function kelipatanTerdekat(n: number): [number, number] {
+  const bawah = Math.floor(n / KELIPATAN_SEARCH_AREA) * KELIPATAN_SEARCH_AREA;
+  return [bawah, bawah + KELIPATAN_SEARCH_AREA];
+}
 
 export function validasiSearchArea(hor: unknown, ver: unknown): string | null {
-  for (const [nama, v] of [["Horizontal", hor], ["Vertikal", ver]] as const) {
+  const medan = [
+    ["Horizontal", hor, RENTANG_SEARCH_AREA.hor],
+    ["Vertikal", ver, RENTANG_SEARCH_AREA.ver],
+  ] as const;
+
+  for (const [nama, v, rentang] of medan) {
     const n = Number(v);
-    if (!Number.isFinite(n) || n < RENTANG_SEARCH_AREA.min || n > RENTANG_SEARCH_AREA.maks) {
-      return `${nama} harus antara ${RENTANG_SEARCH_AREA.min} dan ${RENTANG_SEARCH_AREA.maks} derajat`;
+    if (!Number.isFinite(n) || n < rentang.min || n > rentang.maks) {
+      return `${nama} harus antara ${rentang.min} dan ${rentang.maks} derajat`;
+    }
+    // Perbandingan lewat perkalian, bukan sisa bagi: 4.5 % 1.5 tidak nol di
+    // aritmetika pecahan biner.
+    const kelipatan = Math.round(n / KELIPATAN_SEARCH_AREA);
+    if (Math.abs(kelipatan * KELIPATAN_SEARCH_AREA - n) > 1e-9) {
+      const [bawah, atas] = kelipatanTerdekat(n);
+      return `${nama} harus kelipatan ${KELIPATAN_SEARCH_AREA} derajat — pakai ${bawah} atau ${atas}, bukan ${n}`;
     }
   }
   return null;
@@ -550,6 +668,192 @@ export function bacaDiagnostik(nama: NamaDiagnostik, paket: unknown): Diagnostik
     ms: o.ms === undefined || o.ms === null ? null : Number(o.ms),
     raw: o.raw === undefined || o.raw === null ? "" : String(o.raw),
   };
+}
+
+// ── getTilt → balasan data_tilt (Bagian C) ───────────────────────────────────
+//
+//   {"set_30002":{"command":"set_rts","getTilt":true}}
+//   → {"data_tilt":{"tilt1":"-0.00732","tilt2":"0.0198"}}
+//
+// Nama balasannya `data_tilt`, BUKAN `getTilt` maupun `Tilt` — salah satu dari
+// beberapa perintah yang nama balasannya berbeda dari nama perintahnya.
+//
+// `Tilt` adalah hal LAIN: itu pesan diagnostik kegagalan komunikasi, sebentuk
+// dengan `Rotate` dan `Idle`, dan dibaca bacaDiagnostik(). Kalau siklus itu
+// mengeluarkan `Tilt` gagal, angka kemiringan yang tersimpan bukan hasil ukur.
+//
+// Nilainya dibiarkan STRING. Instrumen mengirimkannya begitu, dan mengubahnya
+// jadi number membuat "0" hasil pembacaan tidak bisa dibedakan dari 0 bawaan.
+
+export type BacaanTilt = { ada: boolean; tilt1: string; tilt2: string };
+
+export function bacaBalasanTilt(paket: unknown): BacaanTilt {
+  const kosong: BacaanTilt = { ada: false, tilt1: "", tilt2: "" };
+  if (paket === null || typeof paket !== "object") return kosong;
+  const o = paket as Record<string, unknown>;
+  if (o.tilt1 === undefined && o.tilt2 === undefined) return kosong;
+
+  const s = (k: string) => (o[k] === undefined || o[k] === null ? "" : String(o[k]));
+  return { ada: true, tilt1: s("tilt1"), tilt2: s("tilt2") };
+}
+
+// ── trackEvery — jadwal AutoTracking (Bagian D, `_timeScheduled`) ────────────
+//
+//   {"set_30002":{"command":"set_rts","trackEvery":10}}
+//
+// Hanya ada di varian firmware `_timeScheduled`. Di unit lain perintahnya
+// tidak dikenali dan TIDAK membalas apa pun — jadi ketiadaan balasan bukan
+// bukti kegagalan jaringan.
+//
+// Konfirmasinya ikut ack kolektif setelan (`updated` memuat "trackEvery");
+// penolakan datang sebagai `error_trackEvery`.
+
+/** Interval yang diterima firmware. `0` mematikan jadwal. */
+export const NILAI_TRACK_EVERY = [0, 5, 10, 15, 20, 30, 60] as const;
+
+export function validasiTrackEvery(v: unknown): string | null {
+  const n = Number(v);
+  if (!Number.isInteger(n) || !NILAI_TRACK_EVERY.includes(n as (typeof NILAI_TRACK_EVERY)[number])) {
+    return `Jadwal hanya menerima ${NILAI_TRACK_EVERY.join(", ")} menit (0 = mati)`;
+  }
+  return null;
+}
+
+/**
+ * Perkiraan lama satu siklus, untuk memperingatkan jadwal yang terlewat.
+ *
+ * Siklus yang lebih lama dari intervalnya MELEWATKAN jadwal berikutnya, bukan
+ * menumpuknya — tidak ada utang jadwal yang dibayar belakangan. Dengan 50
+ * target satu siklus lewat 30 menit, jadi `trackEvery` 5 atau 10 praktis
+ * berarti "jalan hampir terus-menerus".
+ *
+ * Angkanya kasar dan memang cuma untuk peringatan: lama sebenarnya bergantung
+ * pada jarak antar target dan berapa kali prisma gagal ditemukan.
+ */
+export const PERKIRAAN_DETIK_PER_TARGET = 40;
+
+export function jadwalTerlewat(menit: number, jumlahTarget: number): boolean {
+  if (menit <= 0 || jumlahTarget <= 0) return false;
+  return (jumlahTarget * PERKIRAAN_DETIK_PER_TARGET) / 60 > menit;
+}
+
+// ── replay — tarik ulang rekaman SD (Bagian C.8, `_timeScheduled`) ───────────
+//
+//   {"set_30002":{"command":"set_rts","replay":{"tanggal":"20260903",
+//                                               "target":"P5","jam":"14:30"}}}
+//
+//   {"Replay":{"value":"data","tanggal":"20260903","rows":[…],
+//              "cocok":3,"terkirim":3,"sisa":0,"lewati":0}}
+//   {"Replay":{"value":"done"}}
+//
+// Selama `sisa` di atas nol, minta lagi dengan `lewati` dinaikkan sebanyak
+// yang sudah terkirim. Satu permintaan dibatasi 20 baris oleh firmware.
+//
+// Sama seperti trackEvery: hanya ada di varian `_timeScheduled`.
+
+export const BAWAAN_JUMLAH_REPLAY = 10;
+export const MAKS_JUMLAH_REPLAY = 20;
+
+/**
+ * Kolom berkas `<idAlat>-YYYYMMDD-RTS.csv`, urut sesuai isinya.
+ *
+ * HA dan VA di berkas ini DERAJAT DESIMAL dan bebas dari bug pembacaan sudut —
+ * diambil dari pembacaan mentah instrumen, bukan lewat `parseAndFormat()`.
+ * Jadi angka di sini tidak sebanding dengan "151,38,71" yang muncul di
+ * manual_hava maupun hasil ukur.
+ */
+export const KOLOM_REPLAY = [
+  "id_alat", "tanggal", "jam", "target", "HA", "VA", "SD", "HD",
+  "N", "E", "Z", "N0", "E0", "Z0",
+  "tinggi_alat", "tinggi_target", "prisma", "tilt1", "tilt2",
+] as const;
+
+export type JenisBalasanReplay = "data" | "selesai" | "ditolak" | "bukan";
+
+export type BalasanReplay = {
+  jenis: JenisBalasanReplay;
+  nilai: string;
+  tanggal: string;
+  rows: string[];
+  /** Baris yang cocok penyaring, terkirim di paket ini, dan yang masih sisa. */
+  cocok: number | null;
+  terkirim: number | null;
+  sisa: number | null;
+  lewati: number | null;
+};
+
+const NILAI_TOLAK_REPLAY = ["bad request", "no file", "empty"];
+
+export const SEBAB_TOLAK_REPLAY: Record<string, string> = {
+  "bad request": "Permintaan tidak dikenali — periksa tanggalnya.",
+  "no file": "Tidak ada berkas rekaman untuk tanggal itu di kartu SD.",
+  empty: "Berkasnya ada, tapi tidak ada baris yang cocok dengan penyaring.",
+};
+
+export function bacaBalasanReplay(paket: unknown): BalasanReplay {
+  const kosong: BalasanReplay = {
+    jenis: "bukan", nilai: "", tanggal: "", rows: [],
+    cocok: null, terkirim: null, sisa: null, lewati: null,
+  };
+  if (paket === null || typeof paket !== "object") return kosong;
+  const o = paket as Record<string, unknown>;
+  const v = o.value ?? o.stage;
+  if (v === undefined || v === null) return kosong;
+
+  const nilai = String(v);
+  const n = (k: string) => {
+    if (o[k] === undefined || o[k] === null || o[k] === "") return null;
+    const x = Number(o[k]);
+    return Number.isFinite(x) ? x : null;
+  };
+
+  if (NILAI_TOLAK_REPLAY.includes(nilai)) return { ...kosong, jenis: "ditolak", nilai };
+  if (nilai === "done") return { ...kosong, jenis: "selesai", nilai };
+  if (nilai !== "data") return kosong;
+
+  return {
+    jenis: "data",
+    nilai,
+    tanggal: o.tanggal === undefined || o.tanggal === null ? "" : String(o.tanggal),
+    rows: Array.isArray(o.rows) ? o.rows.map(String) : [],
+    cocok: n("cocok"),
+    terkirim: n("terkirim"),
+    sisa: n("sisa"),
+    lewati: n("lewati"),
+  };
+}
+
+/**
+ * Pecah satu baris CSV rekaman jadi kolom bernama.
+ *
+ * Baris dengan jumlah medan yang tidak pas dikembalikan null, bukan dipaksakan
+ * masuk: berkas sensor lama punya cacat persis itu — HA-nya berisi koma
+ * sehingga tiap baris punya lebih banyak medan daripada headernya, dan pengurai
+ * per kolom salah baca tanpa galat. Berkas `-RTS.csv` tidak punya masalah itu,
+ * dan pemeriksaan ini yang memastikannya tetap begitu.
+ */
+export function uraiBarisReplay(baris: string): Record<string, string> | null {
+  const medan = baris.split(",");
+  if (medan.length !== KOLOM_REPLAY.length) return null;
+  return Object.fromEntries(KOLOM_REPLAY.map((k, i) => [k, medan[i].trim()]));
+}
+
+/** Tanggal berkas rekaman: `YYYYMMDD`, dan itu yang memilih berkasnya. */
+export function validasiTanggalReplay(v: unknown): string | null {
+  const s = String(v ?? "").trim();
+  if (!/^\d{8}$/.test(s)) return "Tanggal harus 8 angka, bentuk YYYYMMDD";
+  const th = Number(s.slice(0, 4));
+  const bl = Number(s.slice(4, 6));
+  const tg = Number(s.slice(6, 8));
+  if (th < 2001 || th > 2090) return "Tahun di luar 2001-2090";
+  if (bl < 1 || bl > 12) return "Bulan di luar 1-12";
+  if (tg < 1 || tg > 31) return "Tanggal di luar 1-31";
+  return null;
+}
+
+/** `YYYY-MM-DD` dari input tanggal HTML → `YYYYMMDD` yang diminta protokol. */
+export function keTanggalReplay(iso: string): string {
+  return iso.replace(/-/g, "");
 }
 
 // ── Rentang setelan (Bagian D) ───────────────────────────────────────────────

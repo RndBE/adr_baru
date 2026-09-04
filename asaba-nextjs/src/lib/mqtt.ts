@@ -11,6 +11,25 @@ interface MqttConfig {
   password: string;
 }
 
+/**
+ * Topik per alat, sesuai PROTOKOL_MQTT_ADR bagian A.
+ *
+ * Sebelumnya satu topik tetap melayani semua logger, dan balasan harus ditebak
+ * miliknya siapa karena balasan tidak pernah memuat ID alat. Sekarang topiknya
+ * yang membedakan: perintah ke `sub_<idAlat>`, semua balasan DAN data berkala
+ * keluar di `pub_<idAlat>`.
+ *
+ * Pola namanya ter-hardcode di firmware — tidak ada env yang bisa mengubahnya,
+ * jadi sengaja tidak dibuat bisa disetel.
+ */
+export function topikPerintah(idAlat: string | number): string {
+  return `sub_${idAlat}`;
+}
+
+export function topikBalasan(idAlat: string | number): string {
+  return `pub_${idAlat}`;
+}
+
 function getConfig(): MqttConfig {
   return {
     host: process.env.MQTT_HOST || "mqtt.beacontelemetry.com",
@@ -86,7 +105,7 @@ export async function sendRtsStartCommand(loggerId: string): Promise<boolean> {
   };
 
   const r1 = await publishMqtt("kontrol-asaba", sendKontrol);
-  const topicTarget = process.env.MQTT_TOPIC || "ADR_Tambang_Kaltara";
+  const topicTarget = topikPerintah(loggerId);
   const r2 = await publishMqtt(topicTarget, dataMqtt);
 
   return r1 && r2;
@@ -107,7 +126,7 @@ export async function sendRtsConfig(
     cycleTime: number;
   }
 ): Promise<boolean> {
-  const topicTarget = process.env.MQTT_TOPIC || "ADR_Tambang_Kaltara";
+  const topicTarget = topikPerintah(loggerId);
   const payload = {
     [`set_${loggerId}`]: {
       command: "set_rts",
@@ -130,7 +149,7 @@ export async function sendRtsRecordTarget(
   loggerId: string,
   target: { slot: number; name: string; targetHigh: string; HA: string; VA: string }
 ): Promise<boolean> {
-  const topicTarget = process.env.MQTT_TOPIC || "ADR_Tambang_Kaltara";
+  const topicTarget = topikPerintah(loggerId);
   const payload = {
     [`set_${loggerId}`]: {
       command: "set_rts",

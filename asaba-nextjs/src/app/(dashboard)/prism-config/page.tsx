@@ -305,6 +305,7 @@ export default function PrismConfigPage() {
           mode={modal.mode}
           slot={modal.slot}
           site={site}
+          idLogger={idLogger}
           onClose={() => setModal(null)}
           onSuccess={setelahUbah}
         />

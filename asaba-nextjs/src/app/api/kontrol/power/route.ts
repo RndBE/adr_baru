@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import mqtt from "mqtt";
 import { getLoggerForCommand } from "@/lib/sites";
+import { topikPerintah } from "@/lib/mqtt";
 
 /**
  * POST /api/kontrol/power
@@ -38,7 +39,7 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const topicTarget = process.env.MQTT_TOPIC || "ADR_Tambang_Kaltara";
+    const topicTarget = topikPerintah(id_logger);
     const payload = {
       [`set_${id_logger}`]: {
         command: "set_rts",

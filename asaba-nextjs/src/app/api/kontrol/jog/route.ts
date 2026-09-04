@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { publishMqtt } from "@/lib/mqtt";
+import { publishMqtt, topikPerintah } from "@/lib/mqtt";
 import { getLoggerForSite } from "@/lib/sites";
 import { validasiJog } from "@/lib/protokol-rts";
 
@@ -49,7 +49,7 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const topicTarget = process.env.MQTT_TOPIC || "ADR_Tambang_Kaltara";
+    const topicTarget = topikPerintah(id_logger);
     const payload = {
       [`set_${id_logger}`]: {
         command: "set_rts",

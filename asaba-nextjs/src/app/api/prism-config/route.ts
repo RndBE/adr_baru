@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { publishMqtt } from "@/lib/mqtt";
+import { publishMqtt, topikPerintah } from "@/lib/mqtt";
 import { getLoggerForSite } from "@/lib/sites";
 
 /**
@@ -197,7 +197,7 @@ export async function POST(request: NextRequest) {
     // 4. Kirim recordTarget ke logger via MQTT
     //    Sengaja DI LUAR transaksi: perintah ke perangkat tidak bisa di-rollback,
     //    jadi jangan dikirim sebelum barisnya benar-benar commit.
-    const topic = process.env.MQTT_TOPIC || "ADR_Tambang_Kaltara";
+    const topic = topikPerintah(id_logger);
     const mqttPayload = {
       [`set_${id_logger}`]: {
         command: "set_rts",
@@ -285,7 +285,7 @@ export async function PUT(request: NextRequest) {
       );
     }
 
-    const topic = process.env.MQTT_TOPIC || "ADR_Tambang_Kaltara";
+    const topic = topikPerintah(id_logger);
     const mqttPayload = {
       [`set_${id_logger}`]: {
         command: "set_rts",

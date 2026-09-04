@@ -13,6 +13,7 @@ import {
   ChevronRight,
   ChevronUp,
   Clock,
+  Database,
   Crosshair,
   Eye,
   EyeOff,
@@ -25,6 +26,7 @@ import {
   Ruler,
   Scan,
   Send,
+  Timer,
   Settings2,
   SlidersHorizontal,
   X,
@@ -47,18 +49,35 @@ import { AttitudeDial } from "@/components/kontrol-adr/attitude-dial";
 import { PrismaGrid } from "@/components/kontrol-adr/prisma-grid";
 import { ProcessSteps, type LangkahProses } from "@/components/kontrol-adr/process-steps";
 import { mapStatus, type PrismaCard, type TempPrisma } from "@/components/kontrol-adr/prisma";
+import { topikBalasan } from "@/lib/mqtt";
 import {
   nilaiRts,
   nilaiRtsLama,
   klasifikasiPower,
-  klasifikasiTracking,
+  bacaBalasanTracking,
   bacaKonfirmasiConfig,
   bacaBalasanSearchArea,
+  bacaBalasanTilt,
+  bacaBalasanReplay,
+  uraiBarisReplay,
+  validasiTrackEvery,
+  validasiTanggalReplay,
+  keTanggalReplay,
+  jadwalTerlewat,
+  NILAI_TRACK_EVERY,
+  BAWAAN_JUMLAH_REPLAY,
+  MAKS_JUMLAH_REPLAY,
+  KOLOM_REPLAY,
+  SEBAB_TOLAK_REPLAY,
+  type BacaanTilt,
+  type BalasanReplay,
   bacaBalasanSetHome,
   RENTANG_CYCLE_TIME_MS,
   RENTANG_RETRIES,
   RENTANG_SEARCH_AREA,
+  KELIPATAN_SEARCH_AREA,
   RENTANG_SETELAH_POWERON_DERAJAT,
+  BAWAAN_SEARCH_AREA_DERAJAT,
   validasiCycleTime,
   validasiRetries,
   validasiSearchArea,
@@ -264,6 +283,7 @@ const NILAI_GAGAL_POWER: Record<"on" | "off", string[]> = {
 
 const LABEL_NILAI_TRACKING: Record<string, string> = {
   start: "Menyiapkan pengukuran",
+  scheduled: "Dijalankan oleh jadwal",
   target: "Mengukur target",
   homing: "Kembali ke posisi home",
   finished: "Selesai",
@@ -435,6 +455,36 @@ export default function KontrolAdrPage() {
   const [jogTarget, setJogTarget] = useState<BalasanJog | null>(null);
   const [haVa, setHaVa] = useState<BacaanHaVa | null>(null);
   const [haVaLoading, setHaVaLoading] = useState(false);
+
+  /**
+   * Kemiringan instrumen dari `getTilt` → balasan `data_tilt`.
+   *
+   * Terpisah dari pesan diagnostik `Tilt`: yang itu menandakan pembacaan
+   * kemiringan GAGAL, dan kalau ia muncul, angka di sini bukan hasil ukur.
+   */
+  const [tilt, setTilt] = useState<BacaanTilt | null>(null);
+  const [tiltLoading, setTiltLoading] = useState(false);
+
+  // ── Jadwal AutoTracking (trackEvery) ──────────────────────────────────────
+  //
+  // Hanya ada di varian firmware `_timeScheduled`. Unit lain mengabaikannya
+  // TANPA balasan, jadi tidak ada konfirmasi yang bisa ditunggu — statusnya
+  // berhenti di "terkirim", bukan "berlaku".
+  const [trackEvery, setTrackEvery] = useState("0");
+  const [trackEveryKirim, setTrackEveryKirim] = useState(false);
+  const [trackEveryPesan, setTrackEveryPesan] = useState("");
+
+  // ── Rekaman SD (replay) ───────────────────────────────────────────────────
+  const [showReplay, setShowReplay] = useState(false);
+  const [replayTanggal, setReplayTanggal] = useState("");
+  const [replayTarget, setReplayTarget] = useState("");
+  const [replayJam, setReplayJam] = useState("");
+  const [replayJumlah, setReplayJumlah] = useState(String(BAWAAN_JUMLAH_REPLAY));
+  const [replayLoading, setReplayLoading] = useState(false);
+  const [replayGalat, setReplayGalat] = useState("");
+  /** Baris mentah yang sudah terkumpul lintas permintaan bertahap. */
+  const [replayRows, setReplayRows] = useState<string[]>([]);
+  const [replayInfo, setReplayInfo] = useState<BalasanReplay | null>(null);
 
   // ── Ukur backsight / foresight ──
   const [ukurJalan, setUkurJalan] = useState<KodeUkur | null>(null);
@@ -631,6 +681,124 @@ export default function KontrolAdrPage() {
     }
   };
 
+  /**
+   * Baca kemiringan instrumen. Tidak menggerakkan apa pun dan tidak memaksa
+   * pembacaan baru — logger menyegarkan nilainya sendiri tiap menit.
+   */
+  const handleBacaTilt = async () => {
+    setTiltLoading(true);
+    try {
+      const res = await fetch("/api/kontrol/get-tilt", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ site: selectedSite }),
+      });
+      const json = await res.json();
+      if (!json.success) {
+        setTiltLoading(false);
+        setPowerAlert({ type: "error", title: "Baca kemiringan", message: json.error || "Gagal" });
+      }
+      // Hasilnya ditangkap handler MQTT (data_tilt); loading dimatikan di sana.
+    } catch (err) {
+      console.error("[handleBacaTilt]", err);
+      setTiltLoading(false);
+      setPowerAlert({ type: "error", title: "Baca kemiringan", message: "Terjadi kesalahan jaringan" });
+    }
+  };
+
+  /**
+   * Kirim jadwal AutoTracking.
+   *
+   * Tidak ada balasan yang bisa ditunggu: perintah ini hanya dikenali firmware
+   * `_timeScheduled`, dan konfirmasinya — kalau ada — menumpang ack kolektif
+   * setelan. Jadi statusnya berhenti di "terkirim" dengan sengaja, bukan
+   * berpura-pura tahu perintahnya berlaku.
+   */
+  const kirimTrackEvery = async () => {
+    if (!selectedSite) {
+      setTrackEveryPesan("Pilih site dulu sebelum mengirim jadwal.");
+      return;
+    }
+    const salah = validasiTrackEvery(Number(trackEvery));
+    if (salah) {
+      setTrackEveryPesan(salah);
+      return;
+    }
+    setTrackEveryKirim(true);
+    setTrackEveryPesan("");
+    try {
+      const res = await fetch("/api/kontrol/track-every", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ site: selectedSite, menit: Number(trackEvery) }),
+      });
+      const json = await res.json();
+      setTrackEveryPesan(
+        json.success
+          ? Number(trackEvery) === 0
+            ? "Perintah mematikan jadwal terkirim."
+            : `Perintah jadwal tiap ${trackEvery} menit terkirim.`
+          : json.error || "Gagal mengirim jadwal"
+      );
+    } catch (err) {
+      console.error("[kirimTrackEvery]", err);
+      setTrackEveryPesan("Terjadi kesalahan jaringan");
+    } finally {
+      setTrackEveryKirim(false);
+    }
+  };
+
+  /**
+   * Minta rekaman SD.
+   *
+   * `lewati` menentukan permintaan ini lanjutan atau bukan: nol berarti mulai
+   * dari awal dan daftar sebelumnya dibuang, selain itu hasilnya ditambahkan.
+   * Firmware membatasi satu permintaan 20 baris, jadi rentang yang panjang
+   * memang harus diminta bertahap.
+   */
+  const mintaReplay = async (lewati = 0) => {
+    if (!selectedSite) {
+      setReplayGalat("Pilih site dulu sebelum meminta rekaman.");
+      return;
+    }
+    const tanggal = keTanggalReplay(replayTanggal);
+    const salah = validasiTanggalReplay(tanggal);
+    if (salah) {
+      setReplayGalat(salah);
+      return;
+    }
+    setReplayLoading(true);
+    setReplayGalat("");
+    if (lewati === 0) {
+      setReplayRows([]);
+      setReplayInfo(null);
+    }
+    try {
+      const res = await fetch("/api/kontrol/replay", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          site: selectedSite,
+          tanggal,
+          target: replayTarget || undefined,
+          jam: replayJam || undefined,
+          jumlah: Number(replayJumlah) || BAWAAN_JUMLAH_REPLAY,
+          lewati,
+        }),
+      });
+      const json = await res.json();
+      if (!json.success) {
+        setReplayLoading(false);
+        setReplayGalat(json.error || "Gagal meminta rekaman");
+      }
+      // Hasilnya ditangkap handler MQTT (Replay); loading dimatikan di sana.
+    } catch (err) {
+      console.error("[mintaReplay]", err);
+      setReplayLoading(false);
+      setReplayGalat("Terjadi kesalahan jaringan");
+    }
+  };
+
   /** Ukur backsight atau foresight. Tidak menggerakkan teleskop. */
   const handleUkur = async (jenis: KodeUkur) => {
     setUkurJalan(jenis);
@@ -695,6 +863,9 @@ export default function KontrolAdrPage() {
 
   // --- MQTT WebSocket subscription (seperti Paho.js di PHP) ---
   const mqttRef = useRef<mqtt.MqttClient | null>(null);
+  // Topik mengikuti ID alat, jadi sambungannya dipasang ulang saat ID berubah —
+  // dulu topiknya tetap sehingga effect ini cukup jalan sekali.
+  const idAlatAktif = idLogger || "30002";
   useEffect(() => {
     const broker = process.env.NEXT_PUBLIC_MQTT_HOST || "mqtt.beacontelemetry.com";
     const wsPort = process.env.NEXT_PUBLIC_MQTT_WS_PORT || "8083";
@@ -710,22 +881,18 @@ export default function KontrolAdrPage() {
 
     client.on("connect", () => {
       console.log("[KontrolADR] MQTT connected");
-      // Subscribe ke 3 topic
-      const targetTopic = `Logger_${idLogger || "30002"}`;
-      const adrTopic = "ADR_Tambang_Kaltara"; // hardcode langsung untuk test
-      console.log("[KontrolADR] Subscribing to:", targetTopic, "kontrol-asaba", adrTopic);
-      client.subscribe(targetTopic, { qos: 0 }, (err) => {
-        if (err) console.error("[KontrolADR] Subscribe FAIL:", targetTopic, err);
-        else console.log("[KontrolADR] Subscribe OK:", targetTopic);
-      });
-      client.subscribe("kontrol-asaba", { qos: 0 }, (err) => {
-        if (err) console.error("[KontrolADR] Subscribe FAIL: kontrol-asaba", err);
-        else console.log("[KontrolADR] Subscribe OK: kontrol-asaba");
-      });
-      client.subscribe(adrTopic, { qos: 0 }, (err) => {
-        if (err) console.error("[KontrolADR] Subscribe FAIL:", adrTopic, err);
-        else console.log("[KontrolADR] Subscribe OK:", adrTopic);
-      });
+      // `pub_<idAlat>` — balasan perintah DAN data berkala logger, satu topik.
+      // `Logger_<idAlat>` dan `kontrol-asaba` bukan topik protokol: keduanya
+      // diterbitkan ulang oleh backend sendiri dari /api/datamasuk/adr.
+      const topikLogger = topikBalasan(idAlatAktif);
+      const topikPrisma = `Logger_${idAlatAktif}`;
+      console.log("[KontrolADR] Subscribing to:", topikLogger, topikPrisma, "kontrol-asaba");
+      for (const t of [topikLogger, topikPrisma, "kontrol-asaba"]) {
+        client.subscribe(t, { qos: 0 }, (err) => {
+          if (err) console.error("[KontrolADR] Subscribe FAIL:", t, err);
+          else console.log("[KontrolADR] Subscribe OK:", t);
+        });
+      }
     });
 
     client.on("message", (topic: string, message: Buffer) => {
@@ -741,7 +908,7 @@ export default function KontrolAdrPage() {
           // Pesan tanpa `status` diabaikan, bukan dianggap "selesai". Kode lama
           // memakai else polos, sehingga bentuk pesan apa pun yang tidak dikenal
           // di topic ini menghentikan running dan memicu refetch. Stage firmware
-          // dipastikan TIDAK dikirim ke sini (hanya ke ADR_Tambang_Kaltara),
+          // dipastikan TIDAK dikirim ke sini (hanya ke pub_<idAlat>),
           // jadi ini pengaman, bukan penambal masalah yang sedang terjadi.
           if (data.status === undefined) {
             console.log("[KontrolADR] kontrol-asaba: pesan tanpa status, diabaikan", data);
@@ -776,12 +943,22 @@ export default function KontrolAdrPage() {
             ));
           }
         } else {
-          // ADR_Tambang_Kaltara topic
-          // ── Balasan RTS ──────────────────────────────────────────────────
+          // ── topic pub_<idAlat> ───────────────────────────────────────────
           //
-          // Semuanya datang HANYA lewat topic ADR_Tambang_Kaltara — bukan lewat
-          // kontrol-asaba maupun Logger_*. Cabang else ini memang cabang topic
-          // itu, jadi tidak perlu pemeriksaan topic tambahan.
+          // Data pengukuran berkala keluar di topic yang SAMA dengan balasan
+          // perintah, jadi cabang ini harus memilahnya sendiri. Pembedanya
+          // kunci `id_alat` di tingkat teratas: balasan perintah tidak pernah
+          // punya itu — ia memakai nama perintah sebagai kunci luar.
+          //
+          // Datanya sendiri tidak dibaca di sini: backend sudah mengurainya
+          // lewat /api/datamasuk/adr dan menerbitkan ulang per prisma ke
+          // `Logger_<idAlat>`, yang ditangani cabang di atas.
+          if (data.id_alat !== undefined) {
+            console.log("[KontrolADR] data berkala, dilewati:", data.id_alat);
+            return;
+          }
+
+          // ── Balasan RTS ──────────────────────────────────────────────────
           //
           // {"PowerOn":{"value":"start"|"ping"|"Success"|"config"|"done"|"Failed"}}
           // {"PowerOff":{"value":"start"|"check"|"home"|"off"|"Success"|"done"|"RTS Off"}}
@@ -839,10 +1016,11 @@ export default function KontrolAdrPage() {
             }
           }
 
-          // {"AutoTracking":{"value":"start","total":50,"retries":1}}
-          // {"AutoTracking":{"value":"target","current":N,"total":50,"status":…}}
+          // {"AutoTracking":{"value":"start"}}
+          // {"AutoTracking":{"ke":N,"dari":50,"status":…}}  ← TANPA `value`
           // {"AutoTracking":{"value":"homing"}} → {"AutoTracking":{"value":"finished"}}
           // {"AutoTracking":{"value":"RTS Off"}} → DITOLAK, instrumen mati
+          // {"AutoTracking":{"value":"scheduled"}} → siklus dari jadwal trackEvery
           //
           // Perintahnya bernama AutoTrackingStart tapi SEMUA balasannya bernama
           // AutoTracking — satu-satunya perintah yang nama balasannya berbeda.
@@ -852,12 +1030,11 @@ export default function KontrolAdrPage() {
           // secara eksplisit. `current` di sini nomor urut target, dan
           // menyamakannya dengan slot berarti menebak — kalau tebakannya meleset,
           // kartu yang salah yang ditandai gagal.
-          const nilaiTracking = nilaiRts(data.AutoTracking);
-          if (nilaiTracking !== null) {
-            const nilai = nilaiTracking;
-            const kelas = klasifikasiTracking(nilai);
+          const bTrack = bacaBalasanTracking(data.AutoTracking);
+          if (bTrack.ada) {
+            const { nilai, kelas } = bTrack;
             urutanStage.current += 1;
-            console.log("[KontrolADR] AutoTracking value:", nilai, kelas, data.AutoTracking);
+            console.log("[KontrolADR] AutoTracking:", nilai, kelas, data.AutoTracking);
 
             if (kelas === "selesai") {
               // Perhatikan tingkatnya: "finished" = SELURUH siklus selesai.
@@ -879,15 +1056,18 @@ export default function KontrolAdrPage() {
                 message: "AutoTracking ditolak: RTS masih mati. Nyalakan lewat tombol ON dan tunggu sampai siap, baru jalankan lagi.",
               });
             } else {
-              if (nilai === "start") setIsControlRunning(true);
+              // "scheduled" ikut menyalakan indikator: siklusnya berjalan
+              // sungguhan, cuma dipicu jadwal trackEvery, bukan operator.
+              if (nilai === "start" || nilai === "scheduled") setIsControlRunning(true);
               setProgresTracking((prev) => ({
                 nilai,
-                // `total` hanya ikut di start/target; jangan sampai "homing"
-                // yang tidak membawanya mengosongkan angka yang sudah ada.
-                total: Number(data.AutoTracking.total ?? prev?.total ?? 0),
-                current: Number(data.AutoTracking.current ?? prev?.current ?? 0),
-                status: String(data.AutoTracking.status ?? ""),
-                retries: data.AutoTracking.retries ?? prev?.retries,
+                // `dari` hanya ikut di pesan per target — "homing" dan
+                // "finished" tidak membawanya, jadi angka yang sudah ada
+                // dipertahankan supaya penyebut tidak jatuh ke 0.
+                total: bTrack.dari ?? prev?.total ?? 0,
+                current: bTrack.ke ?? prev?.current ?? 0,
+                status: bTrack.status,
+                retries: bTrack.retries ?? prev?.retries,
                 urutan: urutanStage.current,
               }));
             }
@@ -1010,6 +1190,39 @@ export default function KontrolAdrPage() {
             setHaVaLoading(false);
           }
 
+          // {"data_tilt":{"tilt1":"-0.00732","tilt2":"0.0198"}}
+          //
+          // Nama balasan `getTilt` adalah `data_tilt`. Pesan `Tilt` yang
+          // ditangani blok diagnostik di atas adalah hal lain: itu penanda
+          // pembacaan kemiringan GAGAL.
+          const bTilt = bacaBalasanTilt(data.data_tilt);
+          if (bTilt.ada) {
+            console.log("[KontrolADR] data_tilt:", bTilt.tilt1, bTilt.tilt2);
+            setTilt(bTilt);
+            setTiltLoading(false);
+          }
+
+          // {"Replay":{"value":"data","rows":[…],"sisa":N}} → {"Replay":{"value":"done"}}
+          const bReplay = bacaBalasanReplay(data.Replay);
+          if (bReplay.jenis !== "bukan") {
+            console.log("[KontrolADR] Replay:", bReplay.jenis, bReplay.nilai, bReplay.rows.length);
+            if (bReplay.jenis === "ditolak") {
+              setReplayLoading(false);
+              setReplayGalat(
+                SEBAB_TOLAK_REPLAY[bReplay.nilai] ?? `Permintaan ditolak (${bReplay.nilai}).`
+              );
+            } else if (bReplay.jenis === "data") {
+              // Ditambahkan, bukan diganti: satu permintaan dibatasi 20 baris,
+              // jadi rentang panjang datang sebagai beberapa paket berurutan.
+              setReplayRows((prev) => [...prev, ...bReplay.rows]);
+              setReplayInfo(bReplay);
+            } else if (bReplay.jenis === "selesai") {
+              // "done" menutup SATU permintaan, bukan seluruh berkas — selama
+              // `sisa` di atas nol masih ada baris yang belum diminta.
+              setReplayLoading(false);
+            }
+          }
+
           const bSetHome = bacaBalasanSetHome(data.setHome);
           if (bSetHome.jenis !== "bukan") {
             console.log("[KontrolADR] setHome:", bSetHome.jenis, bSetHome.nilai || bSetHome.rekaman);
@@ -1069,7 +1282,7 @@ export default function KontrolAdrPage() {
       mqttRef.current = null;
     };
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [idAlatAktif]);
   const [showRtsConfig, setShowRtsConfig] = useState(false);
   // (state configId dihapus: PUT /api/config-adr sekarang dikunci berdasarkan
   //  `site`, bukan id baris, jadi id-nya tidak perlu disimpan di klien.)
@@ -1092,12 +1305,41 @@ export default function KontrolAdrPage() {
    * menunjukkan keadaan sebenarnya di instrumen, bukan angka karangan yang
    * belum pernah dikirim.
    */
-  const [saHor, setSaHor] = useState(String(RENTANG_SETELAH_POWERON_DERAJAT));
-  const [saVer, setSaVer] = useState(String(RENTANG_SETELAH_POWERON_DERAJAT));
+  const [saHor, setSaHor] = useState(String(BAWAAN_SEARCH_AREA_DERAJAT));
+  const [saVer, setSaVer] = useState(String(BAWAAN_SEARCH_AREA_DERAJAT));
   const [saLoading, setSaLoading] = useState(false);
   const [saGalat, setSaGalat] = useState("");
   /** Nilai yang DIKEMBALIKAN instrumen — bukan isi kolom di atas. */
   const [searchArea, setSearchArea] = useState<BalasanSearchArea | null>(null);
+
+  // Batas menunggu balasan `data_tilt`.
+  //
+  // Membaca kemiringan tidak menyentuh instrumen — nilainya sudah tersimpan di
+  // logger — jadi 10 detik sudah sangat longgar. Tanpa batas ini tombolnya
+  // berputar selamanya pada unit yang tidak menjawab.
+  useEffect(() => {
+    if (!tiltLoading) return;
+    const timer = setTimeout(() => setTiltLoading(false), 10_000);
+    return () => clearTimeout(timer);
+  }, [tiltLoading]);
+
+  // Batas menunggu balasan `Replay`.
+  //
+  // WAJIB ada di sini, bukan sekadar kenyamanan: perintah `replay` hanya
+  // dikenali firmware `_timeScheduled`. Unit lain mengabaikannya TANPA balasan
+  // apa pun, jadi diamnya adalah hasil yang paling mungkin — dan tanpa batas
+  // ini tampilannya menunggu sesuatu yang memang tidak akan pernah datang.
+  useEffect(() => {
+    if (!replayLoading) return;
+    const timer = setTimeout(() => {
+      setReplayLoading(false);
+      setReplayGalat(
+        "Tidak ada balasan dalam 20 detik. Perintahnya terkirim, tapi logger ini mungkin " +
+          "bukan varian _timeScheduled yang mengenal perintah replay."
+      );
+    }, 20_000);
+    return () => clearTimeout(timer);
+  }, [replayLoading]);
 
   // Batas menunggu balasan SearchArea.
   //
@@ -1722,6 +1964,50 @@ export default function KontrolAdrPage() {
                 </div>
               </dl>
 
+              {/* Kemiringan instrumen (`getTilt` → `data_tilt`).
+                  Nilainya yang terakhir tersimpan di logger, disegarkan sendiri
+                  tiap menit — jadi tombol ini tidak menyentuh instrumen dan
+                  aman ditekan kapan saja, termasuk saat RTS mati.
+
+                  Ditaruh tepat di atas blok diagnostik dengan sengaja: kalau
+                  pesan `Tilt` gagal muncul di bawahnya, angka di sini BUKAN
+                  hasil ukur, dan dua hal itu harus terbaca sekaligus. */}
+              <div className="mt-3 rounded-[10px] bg-(--paper) px-3.5 py-2.5">
+                <div className="flex items-center justify-between gap-2">
+                  <Eyebrow>Kemiringan instrumen</Eyebrow>
+                  <button
+                    type="button"
+                    onClick={handleBacaTilt}
+                    disabled={tiltLoading}
+                    className="inline-flex cursor-pointer items-center gap-1.5 rounded-md text-[11.5px] font-semibold text-(--navy) outline-none hover:underline focus-visible:ring-2 focus-visible:ring-(--navy)/40 disabled:cursor-not-allowed disabled:text-(--ink-3) disabled:no-underline"
+                  >
+                    {tiltLoading ? (
+                      <Loader2 className="size-3 animate-spin" />
+                    ) : (
+                      <RefreshCcw className="size-3" />
+                    )}
+                    Baca
+                  </button>
+                </div>
+                {tilt ? (
+                  <div className="mt-1.5 grid grid-cols-2 gap-2 font-mono text-[13px] tabular-nums text-(--ink)">
+                    <span>
+                      <span className="text-(--ink-3)">tilt 1</span> {tilt.tilt1 || "—"}
+                    </span>
+                    <span>
+                      <span className="text-(--ink-3)">tilt 2</span> {tilt.tilt2 || "—"}
+                    </span>
+                  </div>
+                ) : (
+                  <p className="mt-1.5 text-[12px] text-(--ink-3)">Belum dibaca</p>
+                )}
+                {tilt && diagnostik?.nama === "Tilt" && !diagnostik.ok && (
+                  <p className="mt-1.5 text-[11.5px] leading-relaxed text-amber-900">
+                    Pembacaan kemiringan terakhir gagal — angka di atas bukan hasil ukur.
+                  </p>
+                )}
+              </div>
+
               {/* Diagnostik instrumen terakhir.
                   Rotate datang dari SETIAP jalur rotasi — jog, turning_target,
                   pulang ke home, dan tiap target AutoTracking — jadi ini sinyal
@@ -1911,7 +2197,22 @@ export default function KontrolAdrPage() {
 
           {/* Sesi pengukuran. */}
           <Panel className="@container rise-in" style={{ animationDelay: "140ms" }}>
-            <PanelHeader title="Sesi pengukuran">
+            <PanelHeader
+              title="Sesi pengukuran"
+              actions={
+                /* Rekaman SD dibaca dari sini, bukan dari panel perintah:
+                   perintahnya tidak menggerakkan instrumen sama sekali, cuma
+                   membacakan ulang berkas yang sudah tersimpan. */
+                <button
+                  type="button"
+                  onClick={() => setShowReplay(true)}
+                  title="Tarik ulang hasil ukur yang tersimpan di kartu SD"
+                  className={cn(TOMBOL_SEKUNDER, "h-8 px-3 text-[12px]")}
+                >
+                  <Database className="size-3.5" /> Rekaman SD
+                </button>
+              }
+            >
               <Chip mono>{runningDate !== "-" ? fmtWaktu(runningDate) : "belum ada"}</Chip>
               {totalPrisma > 0 && (
                 <Chip>
@@ -2358,12 +2659,13 @@ export default function KontrolAdrPage() {
                       <label htmlFor="cfg-sa-hor" className={LABEL}>
                         Horizontal{" "}
                         <span className="font-normal text-(--ink-3)">
-                          {RENTANG_SEARCH_AREA.min}–{RENTANG_SEARCH_AREA.maks}°
+                          {RENTANG_SEARCH_AREA.hor.min}–{RENTANG_SEARCH_AREA.hor.maks}°
                         </span>
                       </label>
                       <input
                         id="cfg-sa-hor"
                         type="number"
+                        step={KELIPATAN_SEARCH_AREA}
                         value={saHor}
                         onChange={(e) => setSaHor(e.target.value)}
                         className={cn(INPUT, "font-mono tabular-nums")}
@@ -2373,12 +2675,13 @@ export default function KontrolAdrPage() {
                       <label htmlFor="cfg-sa-ver" className={LABEL}>
                         Vertikal{" "}
                         <span className="font-normal text-(--ink-3)">
-                          {RENTANG_SEARCH_AREA.min}–{RENTANG_SEARCH_AREA.maks}°
+                          {RENTANG_SEARCH_AREA.ver.min}–{RENTANG_SEARCH_AREA.ver.maks}°
                         </span>
                       </label>
                       <input
                         id="cfg-sa-ver"
                         type="number"
+                        step={KELIPATAN_SEARCH_AREA}
                         value={saVer}
                         onChange={(e) => setSaVer(e.target.value)}
                         className={cn(INPUT, "font-mono tabular-nums")}
@@ -2430,6 +2733,87 @@ export default function KontrolAdrPage() {
                       <span className="font-mono tabular-nums text-(--ink)">
                         {searchArea.horizontal}° × {searchArea.vertical}°
                       </span>
+                    </p>
+                  )}
+                </div>
+              </fieldset>
+
+              {/* ── Jadwal AutoTracking (trackEvery) ────────────────────────
+                  Sama seperti rentang sapuan: dikirim sendiri, tidak lewat
+                  Simpan, dan tidak disimpan aplikasi. Perangkat melaporkannya
+                  balik lewat snapshot ack konfigurasi, jadi menambah kolom
+                  database berarti membuat sumber kebenaran kedua.
+
+                  Perintah ini HANYA ada di varian firmware `_timeScheduled`.
+                  Unit lain mengabaikannya tanpa balasan apa pun, jadi tidak
+                  ada konfirmasi yang bisa ditunggu — statusnya berhenti di
+                  "terkirim" dengan sengaja. */}
+              <fieldset>
+                <legend className="mb-2 inline-flex items-center gap-2 font-display text-[12px] font-semibold uppercase tracking-[0.1em] text-(--ink-2)">
+                  <Timer className="size-3.5" /> Jadwal AutoTracking
+                </legend>
+                <div className="rounded-[10px] border border-dashed border-(--line) px-3.5 py-3">
+                  <p className="text-[12px] leading-relaxed text-(--ink-2)">
+                    Menjalankan siklus sendiri tiap selang waktu, tanpa ditekan operator.
+                    Hanya ada di firmware <span className="font-mono">_timeScheduled</span> —
+                    unit lain mengabaikannya tanpa balasan.
+                  </p>
+
+                  <div className="mt-3 grid grid-cols-2 items-end gap-3">
+                    <div>
+                      <label htmlFor="cfg-track-every" className={LABEL}>
+                        Setiap{" "}
+                        <span className="font-normal text-(--ink-3)">menit</span>
+                      </label>
+                      <select
+                        id="cfg-track-every"
+                        value={trackEvery}
+                        onChange={(e) => {
+                          setTrackEvery(e.target.value);
+                          setTrackEveryPesan("");
+                        }}
+                        className={cn(INPUT, "font-mono tabular-nums")}
+                      >
+                        {NILAI_TRACK_EVERY.map((n) => (
+                          <option key={n} value={String(n)}>
+                            {n === 0 ? "Mati" : `${n} menit`}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={kirimTrackEvery}
+                      disabled={trackEveryKirim}
+                      className={cn(TOMBOL_SEKUNDER, "w-full")}
+                    >
+                      {trackEveryKirim ? (
+                        <Loader2 className="size-4 animate-spin" />
+                      ) : (
+                        <Send className="size-4" />
+                      )}
+                      Kirim
+                    </button>
+                  </div>
+
+                  {/* Siklus yang lebih lama dari intervalnya MELEWATKAN jadwal
+                      berikutnya, bukan menumpuknya — tidak ada utang jadwal
+                      yang dibayar belakangan. Diperingatkan memakai jumlah
+                      target yang benar-benar terdaftar, bukan angka karangan. */}
+                  {jadwalTerlewat(Number(trackEvery), totalPrisma) && (
+                    <p className="mt-2.5 flex gap-2 text-[12px] leading-relaxed text-amber-900">
+                      <AlertTriangle className="mt-px size-4 shrink-0 text-amber-600" />
+                      <span>
+                        {totalPrisma} target perkiraannya lebih lama dari {trackEvery} menit.
+                        Jadwal yang jatuh saat siklus masih jalan DILEWATKAN, bukan diantre —
+                        praktisnya alat berjalan hampir terus-menerus.
+                      </span>
+                    </p>
+                  )}
+
+                  {trackEveryPesan && (
+                    <p className="mt-2.5 text-[12px] leading-relaxed text-(--ink-2)">
+                      {trackEveryPesan}
                     </p>
                   )}
                 </div>
@@ -2718,6 +3102,207 @@ export default function KontrolAdrPage() {
               )}
             </>
           )}
+        </ModalShell>
+      )}
+
+      {/* ─── Rekaman SD (replay) ───
+          Membaca ulang berkas `<idAlat>-YYYYMMDD-RTS.csv` di kartu SD. Tidak
+          menggerakkan instrumen sama sekali, jadi tidak ikut terkunci bersama
+          perintah yang menggerakkan alat. */}
+      {showReplay && (
+        <ModalShell
+          judul="Rekaman SD"
+          keterangan="Menarik ulang hasil ukur yang sudah tersimpan di kartu SD logger."
+          ikon={<Database className="size-4.5" />}
+          lebar="max-w-[720px]"
+          onClose={() => setShowReplay(false)}
+          footer={
+            <button
+              type="button"
+              onClick={() => setShowReplay(false)}
+              className={TOMBOL_SEKUNDER}
+            >
+              Tutup
+            </button>
+          }
+        >
+          <div className="flex flex-col gap-4">
+            <p className="rounded-[10px] border border-dashed border-(--line) px-3.5 py-2.5 text-[12px] leading-relaxed text-(--ink-2)">
+              Hanya ada di firmware <span className="font-mono">_timeScheduled</span>. Sudut di
+              berkas ini <strong>derajat desimal</strong> dan bebas dari bug pembacaan sudut —
+              angkanya tidak sebanding dengan bentuk <span className="font-mono">151,38,71</span>{" "}
+              yang muncul di hasil ukur langsung.
+            </p>
+
+            {/* Breakpoint viewport, bukan container: ModalShell tidak memasang
+                `@container`, jadi varian `@md:` di sini tidak akan pernah aktif. */}
+            <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+              <div>
+                <label htmlFor="rp-tanggal" className={LABEL}>
+                  Tanggal <span className="font-normal text-(--ink-3)">wajib</span>
+                </label>
+                <input
+                  id="rp-tanggal"
+                  type="date"
+                  value={replayTanggal}
+                  onChange={(e) => {
+                    setReplayTanggal(e.target.value);
+                    setReplayGalat("");
+                  }}
+                  className={cn(INPUT, "font-mono tabular-nums")}
+                />
+              </div>
+              <div>
+                <label htmlFor="rp-target" className={LABEL}>
+                  Target <span className="font-normal text-(--ink-3)">cocok persis</span>
+                </label>
+                <input
+                  id="rp-target"
+                  value={replayTarget}
+                  onChange={(e) => setReplayTarget(e.target.value)}
+                  placeholder="P5"
+                  className={cn(INPUT, "font-mono")}
+                />
+              </div>
+              <div>
+                <label htmlFor="rp-jam" className={LABEL}>
+                  Jam <span className="font-normal text-(--ink-3)">awalan HH:MM</span>
+                </label>
+                <input
+                  id="rp-jam"
+                  value={replayJam}
+                  onChange={(e) => setReplayJam(e.target.value)}
+                  placeholder="14:30"
+                  className={cn(INPUT, "font-mono tabular-nums")}
+                />
+              </div>
+              <div>
+                <label htmlFor="rp-jumlah" className={LABEL}>
+                  Baris{" "}
+                  <span className="font-normal text-(--ink-3)">maks {MAKS_JUMLAH_REPLAY}</span>
+                </label>
+                <input
+                  id="rp-jumlah"
+                  type="number"
+                  min={1}
+                  max={MAKS_JUMLAH_REPLAY}
+                  value={replayJumlah}
+                  onChange={(e) => setReplayJumlah(e.target.value)}
+                  className={cn(INPUT, "font-mono tabular-nums")}
+                />
+              </div>
+            </div>
+
+            <div className="flex flex-wrap items-center gap-2">
+              <button
+                type="button"
+                onClick={() => mintaReplay(0)}
+                disabled={replayLoading}
+                className={cn(TOMBOL_UTAMA)}
+              >
+                {replayLoading ? (
+                  <Loader2 className="size-4 animate-spin" />
+                ) : (
+                  <Send className="size-4" />
+                )}
+                Minta rekaman
+              </button>
+
+              {/* Satu permintaan dibatasi 20 baris oleh firmware, jadi sisanya
+                  diminta bertahap dengan `lewati` sebanyak yang sudah masuk. */}
+              {replayInfo && (replayInfo.sisa ?? 0) > 0 && (
+                <button
+                  type="button"
+                  onClick={() => mintaReplay(replayRows.length)}
+                  disabled={replayLoading}
+                  className={TOMBOL_SEKUNDER}
+                >
+                  Muat {replayInfo.sisa} baris sisanya
+                </button>
+              )}
+            </div>
+
+            {replayGalat && (
+              <p className="flex gap-2 text-[12px] leading-relaxed text-amber-900">
+                <AlertTriangle className="mt-px size-4 shrink-0 text-amber-600" />
+                <span>{replayGalat}</span>
+              </p>
+            )}
+
+            {replayInfo && (
+              <p className="text-[12px] text-(--ink-2)">
+                <span className="font-mono tabular-nums text-(--ink)">{replayRows.length}</span>{" "}
+                baris dimuat
+                {replayInfo.cocok !== null && (
+                  <>
+                    {" "}
+                    dari{" "}
+                    <span className="font-mono tabular-nums text-(--ink)">{replayInfo.cocok}</span>{" "}
+                    yang cocok
+                  </>
+                )}
+                {(replayInfo.sisa ?? 0) > 0 && (
+                  <>
+                    , sisa{" "}
+                    <span className="font-mono tabular-nums text-(--ink)">{replayInfo.sisa}</span>
+                  </>
+                )}
+                .
+              </p>
+            )}
+
+            {replayRows.length > 0 && (
+              <div className="overflow-x-auto rounded-[10px] ring-1 ring-(--line)">
+                <table className="w-full border-collapse text-[11.5px]">
+                  <thead>
+                    <tr className="bg-(--paper)">
+                      {KOLOM_REPLAY.map((k) => (
+                        <th
+                          key={k}
+                          className="whitespace-nowrap px-2.5 py-2 text-left font-semibold text-(--ink-2)"
+                        >
+                          {k}
+                        </th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {replayRows.map((baris, i) => {
+                      const kolom = uraiBarisReplay(baris);
+                      // Baris yang jumlah medannya tidak pas TIDAK dipaksa
+                      // masuk kolom: itu persis cacat berkas sensor lama, di
+                      // mana pengurai salah baca tanpa galat. Ditampilkan
+                      // mentah supaya kelihatan ada yang tidak beres.
+                      if (!kolom) {
+                        return (
+                          <tr key={i} className="border-t border-(--line)">
+                            <td
+                              colSpan={KOLOM_REPLAY.length}
+                              className="break-all px-2.5 py-2 font-mono text-[10.5px] text-amber-900"
+                            >
+                              Jumlah kolom tidak sesuai — ditampilkan mentah: {baris}
+                            </td>
+                          </tr>
+                        );
+                      }
+                      return (
+                        <tr key={i} className="border-t border-(--line)">
+                          {KOLOM_REPLAY.map((k) => (
+                            <td
+                              key={k}
+                              className="whitespace-nowrap px-2.5 py-2 font-mono tabular-nums text-(--ink)"
+                            >
+                              {kolom[k]}
+                            </td>
+                          ))}
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
         </ModalShell>
       )}
 

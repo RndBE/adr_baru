@@ -18,6 +18,7 @@ import {
   TOMBOL_UTAMA,
 } from "@/components/monitoring/modal-shell";
 import type { PrismaSlot } from "./types";
+import { topikBalasan } from "@/lib/mqtt";
 
 /**
  * Status satu perintah ke perangkat.
@@ -130,6 +131,7 @@ export function PrismaModal({
   mode,
   slot,
   site,
+  idLogger,
   onClose,
   onSuccess,
 }: {
@@ -137,6 +139,12 @@ export function PrismaModal({
   slot: PrismaSlot;
   /** Slot prisma hanya unik bersama site — lihat catatan di t_prisma.site. */
   site: string;
+  /**
+   * ID alat penerima perintah. Menentukan topiknya: balasan logger keluar di
+   * `pub_<idAlat>`, bukan lagi di satu topik bersama. Tanpa ini tidak ada
+   * topik yang bisa didengarkan, jadi sambungan MQTT-nya tidak dibuka.
+   */
+  idLogger: string | null;
   onClose: () => void;
   onSuccess: () => void;
 }) {
@@ -200,9 +208,10 @@ export function PrismaModal({
   // Sambungan MQTT lewat WebSocket dibuka selama modal terbuka: balasan
   // perangkat datang di topic, bukan sebagai respons HTTP.
   useEffect(() => {
+    if (!idLogger) return;
     const broker = process.env.NEXT_PUBLIC_MQTT_HOST || "mqtt.beacontelemetry.com";
     const wsPort = process.env.NEXT_PUBLIC_MQTT_WS_PORT || "8083";
-    const topic = process.env.NEXT_PUBLIC_MQTT_TOPIC || "ADR_Tambang_Kaltara";
+    const topic = topikBalasan(idLogger);
     const wsUrl = `wss://${broker}:${wsPort}/mqtt`;
 
     const client = mqtt.connect(wsUrl, {
@@ -314,7 +323,7 @@ export function PrismaModal({
     };
     // `site` ikut jadi dependency: handler MQTT mengirimnya ke prism-set,
     // jadi handler lama akan menyimpan HA/VA ke site yang sudah tidak dipilih.
-  }, [onSuccess, site]);
+  }, [onSuccess, site, idLogger]);
 
   const handleAutoSearch = async () => {
     setLoading(true);

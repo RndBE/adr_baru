@@ -31,10 +31,23 @@ import {
   bacaBalasanSearchArea,
   validasiSearchArea,
   RENTANG_SETELAH_POWERON_DERAJAT,
+  BAWAAN_SEARCH_AREA_DERAJAT,
+  bacaBalasanTracking,
   bacaDiagnostik,
   NAMA_DIAGNOSTIK,
   OPERASI_DIAGNOSTIK,
   ARTI_ALASAN_DIAGNOSTIK,
+  bacaBalasanTilt,
+  validasiTrackEvery,
+  NILAI_TRACK_EVERY,
+  jadwalTerlewat,
+  bacaBalasanReplay,
+  uraiBarisReplay,
+  validasiTanggalReplay,
+  keTanggalReplay,
+  KOLOM_REPLAY,
+  SEBAB_TOLAK_REPLAY,
+  MAKS_JUMLAH_REPLAY,
 } from "../src/lib/protokol-rts";
 
 let lulus = 0;
@@ -96,6 +109,44 @@ for (const n of ["start", "target", "homing"]) {
 // tingkat ini, satu target yang beres akan menghentikan seluruh siklus.
 periksa('AutoTracking "done" BUKAN selesai', klasifikasiTracking("done"), "kemajuan");
 periksa("STATUS_TARGET_SAH memuat done", STATUS_TARGET_SAH.includes("done"), true);
+periksa('"scheduled" → kemajuan', klasifikasiTracking("scheduled"), "kemajuan");
+
+// ── Bentuk balasan AutoTracking ─────────────────────────────────────────────
+//
+// Kemajuan per target TIDAK punya `value` dan memakai `ke`/`dari`. Pembaca
+// yang mencari `value` menjatuhkannya diam-diam: indikator berhenti di "start"
+// sampai "finished" datang berpuluh menit kemudian, tanpa galat apa pun.
+console.log("Bentuk balasan AutoTracking:");
+const TRK_TARGET = bacaBalasanTracking({ ke: 1, dari: 50, status: "search" });
+periksa("pesan per target terbaca tanpa value", TRK_TARGET.ada, true);
+periksa("nilainya disintesis jadi target", TRK_TARGET.nilai, "target");
+periksa("ke terbaca", TRK_TARGET.ke, 1);
+periksa("dari terbaca", TRK_TARGET.dari, 50);
+periksa("status terbaca", TRK_TARGET.status, "search");
+periksa("per target = kemajuan", TRK_TARGET.kelas, "kemajuan");
+
+const TRK_MULAI = bacaBalasanTracking({ value: "start" });
+periksa("start terbaca", TRK_MULAI.nilai, "start");
+periksa("start tanpa dari → null", TRK_MULAI.dari, null);
+
+const TRK_SELESAI = bacaBalasanTracking({ value: "finished" });
+periksa("finished → selesai", TRK_SELESAI.kelas, "selesai");
+periksa("RTS Off → gagal", bacaBalasanTracking({ value: "RTS Off" }).kelas, "gagal");
+
+// Bentuk sebelumnya harus tetap terbaca: unit yang belum di-flash masih
+// mengirim current/total di dalam value "target".
+const TRK_LAMA = bacaBalasanTracking({ value: "target", current: 3, total: 50, status: "measure" });
+periksa("bentuk lama: ke dari current", TRK_LAMA.ke, 3);
+periksa("bentuk lama: dari dari total", TRK_LAMA.dari, 50);
+periksa("bentuk lama: retries", bacaBalasanTracking({ value: "start", total: 50, retries: 2 }).retries, 2);
+
+// Paket asing tidak boleh ikut terbaca sebagai kemajuan tracking.
+periksa("objek kosong → tidak ada", bacaBalasanTracking({}).ada, false);
+periksa("undefined → tidak ada", bacaBalasanTracking(undefined).ada, false);
+periksa("paket tak dikenal → tidak ada", bacaBalasanTracking({ foo: 1 }).ada, false);
+// Target pertama bernomor 1, tapi nol tetap harus terbaca sebagai angka —
+// bukan dianggap kosong oleh pemeriksaan yang memakai falsy.
+periksa("ke 0 terbaca", bacaBalasanTracking({ ke: 0, dari: 50 }).ke, 0);
 
 // ── Pembacaan nilai: value / stage / nilai ─────────────────────────────────
 console.log("Pembacaan nilai:");
@@ -481,15 +532,129 @@ periksa("nilai 0 terbaca, bukan dianggap kosong", bacaBalasanSearchArea({ horizo
 console.log("Validasi SearchArea:");
 periksa("15/15 sah", validasiSearchArea(15, 15), null);
 periksa("batas 0 sah", validasiSearchArea(0, 0), null);
-periksa("batas 180 sah", validasiSearchArea(180, 180), null);
+periksa("Hor batas 180 sah", validasiSearchArea(180, 90), null);
 periksa("negatif ditolak", validasiSearchArea(-1, 15) !== null, true);
-periksa("lebih dari 180 ditolak", validasiSearchArea(15, 181) !== null, true);
+periksa("Hor lebih dari 180 ditolak", validasiSearchArea(181.5, 15) !== null, true);
 periksa("bukan angka ditolak", validasiSearchArea("abc", 15) !== null, true);
-// Nilai yang dipasang PowerOn harus lolos validasi — kalau tidak, kolomnya
-// terisi angka yang pasti ditolak route sejak modal dibuka.
+
+// Batas vertikal 90, BUKAN 180. Revisi sebelumnya memakai satu rentang untuk
+// keduanya, jadi nilai vertikal yang tidak akan pernah berlaku lolos ke alat.
+periksa("Ver 90 sah", validasiSearchArea(15, 90), null);
+periksa("Ver 91.5 ditolak", validasiSearchArea(15, 91.5) !== null, true);
+periksa("Ver 180 ditolak", validasiSearchArea(15, 180) !== null, true);
+
+// Kelipatan 1,5 derajat. Instrumen hanya menerima itu; nilai di antaranya
+// tidak menghasilkan galat, cuma tidak berlaku seperti yang diminta.
+for (const n of [1.5, 3, 4.5, 6, 7.5, 15]) {
+  periksa(`kelipatan ${n} sah`, validasiSearchArea(n, n), null);
+}
+periksa("7 ditolak (bukan kelipatan 1,5)", validasiSearchArea(7, 15) !== null, true);
+periksa("2 ditolak (bukan kelipatan 1,5)", validasiSearchArea(15, 2) !== null, true);
+// 4.5 / 1.5 tidak bulat di aritmetika pecahan biner — pemeriksaan lewat sisa
+// bagi akan menolaknya. Dikunci supaya tidak ada yang "menyederhanakannya".
+periksa("4.5 lolos meski 4.5 % 1.5 tidak nol", validasiSearchArea(4.5, 4.5), null);
+
+// Isi awal kolom harus lolos validasinya sendiri, kalau tidak formulir gagal
+// sejak dibuka. Angka PowerOn (7) BUKAN kelipatan 1,5, jadi yang dipakai
+// sebagai isi awal adalah bawaan firmware 15.
 periksa(
-  "rentang bawaan PowerOn lolos",
-  validasiSearchArea(RENTANG_SETELAH_POWERON_DERAJAT, RENTANG_SETELAH_POWERON_DERAJAT),
+  "isi awal SearchArea lolos",
+  validasiSearchArea(BAWAAN_SEARCH_AREA_DERAJAT, BAWAAN_SEARCH_AREA_DERAJAT),
+  null
+);
+periksa(
+  "rentang PowerOn bukan kelipatan sah",
+  validasiSearchArea(RENTANG_SETELAH_POWERON_DERAJAT, RENTANG_SETELAH_POWERON_DERAJAT) !== null,
+  true
+);
+
+// ── getTilt → data_tilt ─────────────────────────────────────────────────────
+console.log("getTilt (data_tilt):");
+const TILT = bacaBalasanTilt({ tilt1: "-0.00732", tilt2: "0.0198" });
+periksa("data_tilt terbaca", TILT.ada, true);
+periksa("tilt1 apa adanya", TILT.tilt1, "-0.00732");
+periksa("tilt2 apa adanya", TILT.tilt2, "0.0198");
+// Nilai "0" hasil pembacaan tidak boleh hilang dianggap kosong: yang
+// membedakannya dari 0 bawaan justru ada-tidaknya pesan Tilt gagal.
+periksa("nol terbaca sebagai bacaan", bacaBalasanTilt({ tilt1: "0", tilt2: "0" }).ada, true);
+periksa("paket kosong bukan bacaan", bacaBalasanTilt({}).ada, false);
+periksa("undefined bukan bacaan", bacaBalasanTilt(undefined).ada, false);
+// `Tilt` diagnostik BUKAN data_tilt — bentuknya beda dan artinya berlawanan.
+periksa("balasan diagnostik bukan bacaan", bacaBalasanTilt({ value: "failed" }).ada, false);
+
+// ── trackEvery ──────────────────────────────────────────────────────────────
+console.log("trackEvery:");
+for (const n of NILAI_TRACK_EVERY) {
+  periksa(`${n} sah`, validasiTrackEvery(n), null);
+}
+periksa("0 mematikan jadwal, tetap sah", validasiTrackEvery(0), null);
+periksa("7 ditolak", validasiTrackEvery(7) !== null, true);
+periksa("45 ditolak", validasiTrackEvery(45) !== null, true);
+periksa("pecahan ditolak", validasiTrackEvery(10.5) !== null, true);
+periksa("bukan angka ditolak", validasiTrackEvery("sepuluh") !== null, true);
+
+// Siklus yang lebih lama dari intervalnya MELEWATKAN jadwal, bukan menumpuknya.
+periksa("50 target / 5 menit → terlewat", jadwalTerlewat(5, 50), true);
+periksa("2 target / 60 menit → aman", jadwalTerlewat(60, 2), false);
+periksa("jadwal mati tidak pernah terlewat", jadwalTerlewat(0, 50), false);
+periksa("tanpa target tidak pernah terlewat", jadwalTerlewat(5, 0), false);
+
+// ── replay ──────────────────────────────────────────────────────────────────
+console.log("replay:");
+const RP = bacaBalasanReplay({
+  value: "data",
+  tanggal: "20260903",
+  rows: ["30002,2026-09-03,14:30:12,P5,151.63330"],
+  cocok: 3,
+  terkirim: 3,
+  sisa: 0,
+  lewati: 0,
+});
+periksa("paket data terbaca", RP.jenis, "data");
+periksa("rows terbaca", RP.rows.length, 1);
+periksa("cocok terbaca", RP.cocok, 3);
+// sisa 0 harus terbaca sebagai angka nol, bukan null: itu penanda selesai.
+periksa("sisa 0 terbaca", RP.sisa, 0);
+
+periksa("done → selesai", bacaBalasanReplay({ value: "done" }).jenis, "selesai");
+for (const n of ["bad request", "no file", "empty"]) {
+  periksa(`"${n}" → ditolak`, bacaBalasanReplay({ value: n }).jenis, "ditolak");
+  periksa(`"${n}" punya penjelasan`, typeof SEBAB_TOLAK_REPLAY[n], "string");
+}
+periksa("paket tanpa value → bukan", bacaBalasanReplay({ rows: [] }).jenis, "bukan");
+periksa("undefined → bukan", bacaBalasanReplay(undefined).jenis, "bukan");
+
+// Satu permintaan dibatasi firmware; UI memakai angka yang sama untuk
+// menghitung `lewati` berikutnya.
+periksa("batas jumlah 20", MAKS_JUMLAH_REPLAY, 20);
+
+// Baris CSV — jumlah medan harus PAS. Berkas sensor lama punya cacat persis
+// ini: HA-nya berisi koma, tiap baris jadi punya lebih banyak medan daripada
+// headernya, dan pengurai per kolom salah baca tanpa galat.
+const BARIS = "30002,2026-09-03,14:30:12,P5,151.63330,102.84806,3.2877,3.2058," +
+  "1000.1,2000.2,100.3,1000.0,2000.0,100.0,1.5,0.0,-30,-0.00732,0.0198";
+const URAI = uraiBarisReplay(BARIS);
+periksa("baris utuh terurai", URAI !== null, true);
+periksa("jumlah kolom 19", KOLOM_REPLAY.length, 19);
+periksa("target terbaca", URAI?.target, "P5");
+periksa("HA desimal apa adanya", URAI?.HA, "151.63330");
+periksa("tilt2 kolom terakhir", URAI?.tilt2, "0.0198");
+periksa("medan kurang → null", uraiBarisReplay("30002,2026-09-03"), null);
+periksa("medan lebih → null", uraiBarisReplay(BARIS + ",lebih"), null);
+
+console.log("Tanggal replay:");
+periksa("20260903 sah", validasiTanggalReplay("20260903"), null);
+periksa("bentuk ISO ditolak", validasiTanggalReplay("2026-09-03") !== null, true);
+periksa("7 angka ditolak", validasiTanggalReplay("2026903") !== null, true);
+periksa("bulan 13 ditolak", validasiTanggalReplay("20261303") !== null, true);
+periksa("tanggal 32 ditolak", validasiTanggalReplay("20260932") !== null, true);
+periksa("tahun 1999 ditolak", validasiTanggalReplay("19990903") !== null, true);
+periksa("kosong ditolak", validasiTanggalReplay("") !== null, true);
+// Input tanggal HTML memberi YYYY-MM-DD; protokol minta YYYYMMDD.
+periksa("konversi dari input tanggal", keTanggalReplay("2026-09-03"), "20260903");
+periksa(
+  "hasil konversi lolos validasi",
+  validasiTanggalReplay(keTanggalReplay("2026-09-03")),
   null
 );
 

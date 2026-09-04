@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { publishMqtt } from "@/lib/mqtt";
+import { publishMqtt, topikPerintah } from "@/lib/mqtt";
 import { getLoggerForCommand } from "@/lib/sites";
 
 /**
@@ -58,7 +58,7 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const topic = process.env.MQTT_TOPIC || "ADR_Tambang_Kaltara";
+    const topic = topikPerintah(id_logger);
     let mqttPayload: Record<string, unknown> = {};
 
     switch (command) {

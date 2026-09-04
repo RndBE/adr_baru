@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { publishMqtt } from "@/lib/mqtt";
+import { publishMqtt, topikPerintah } from "@/lib/mqtt";
 import { getLoggerForCommand } from "@/lib/sites";
 
 /**
@@ -93,7 +93,7 @@ export async function POST(request: NextRequest) {
     // hampir semua target di luar dua slot pertama site ccp.
     //
     // Kirim MQTT
-    const topicTarget = process.env.MQTT_TOPIC || "ADR_Tambang_Kaltara";
+    const topicTarget = topikPerintah(id_logger);
     const payload = {
       [`set_${id_logger}`]: {
         command: "set_rts",
