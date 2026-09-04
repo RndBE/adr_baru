@@ -882,9 +882,16 @@ export default function KontrolAdrPage() {
 
     client.on("connect", () => {
       console.log("[KontrolADR] MQTT connected");
-      // `pub_<idAlat>` — balasan perintah DAN data berkala logger, satu topik.
-      // `Logger_<idAlat>` dan `kontrol-asaba` bukan topik protokol: keduanya
-      // diterbitkan ulang oleh backend sendiri dari /api/datamasuk/adr.
+      // `pub_<idAlat>` — balasan perintah dari logger (bagian A).
+      //
+      // `Logger_<idAlat>` topik data berkala milik logger (bagian F), tapi yang
+      // dibaca halaman ini BUKAN data aslinya: backend menerbitkan ulang hasil
+      // per prisma ke topik yang sama dari /api/datamasuk/adr, dan cabang
+      // `Logger_*` di bawah cuma mengenali bentuk terbitan ulang itu — yang
+      // memakai kunci `id_prisma`. Data berkala asli dari logger dikonsumsi
+      // service bridge terpisah, bukan di sini.
+      //
+      // `kontrol-asaba` bukan topik protokol — juga terbitan backend sendiri.
       const topikLogger = topikBalasan(idAlatAktif);
       const topikPrisma = `Logger_${idAlatAktif}`;
       console.log("[KontrolADR] Subscribing to:", topikLogger, topikPrisma, "kontrol-asaba");
@@ -946,14 +953,15 @@ export default function KontrolAdrPage() {
         } else {
           // ── topic pub_<idAlat> ───────────────────────────────────────────
           //
-          // Data pengukuran berkala keluar di topic yang SAMA dengan balasan
-          // perintah, jadi cabang ini harus memilahnya sendiri. Pembedanya
-          // kunci `id_alat` di tingkat teratas: balasan perintah tidak pernah
-          // punya itu — ia memakai nama perintah sebagai kunci luar.
+          // Topic ini seharusnya hanya membawa balasan perintah — data berkala
+          // punya topic sendiri, `Logger_<idAlat>` (bagian F). Gerbang di bawah
+          // pengaman, bukan penambal masalah yang sedang terjadi: kalau nanti
+          // ada yang menyatukan keduanya, pembeda paling aman adalah kunci
+          // `id_alat` di tingkat teratas — balasan perintah tidak pernah punya
+          // itu, ia memakai nama perintah sebagai kunci luar.
           //
-          // Datanya sendiri tidak dibaca di sini: backend sudah mengurainya
-          // lewat /api/datamasuk/adr dan menerbitkan ulang per prisma ke
-          // `Logger_<idAlat>`, yang ditangani cabang di atas.
+          // Datanya sendiri memang tidak dibaca di sini: kartu prisma diisi
+          // dari terbitan ulang backend di `Logger_<idAlat>` (cabang di atas).
           if (data.id_alat !== undefined) {
             console.log("[KontrolADR] data berkala, dilewati:", data.id_alat);
             return;

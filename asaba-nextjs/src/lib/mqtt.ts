@@ -16,8 +16,13 @@ interface MqttConfig {
  *
  * Sebelumnya satu topik tetap melayani semua logger, dan balasan harus ditebak
  * miliknya siapa karena balasan tidak pernah memuat ID alat. Sekarang topiknya
- * yang membedakan: perintah ke `sub_<idAlat>`, semua balasan DAN data berkala
- * keluar di `pub_<idAlat>`.
+ * yang membedakan: perintah ke `sub_<idAlat>`, balasan perintah di
+ * `pub_<idAlat>`.
+ *
+ * Data pengukuran berkala TIDAK keluar di `pub_<idAlat>` — ia punya topik
+ * sendiri, `Logger_<idAlat>` (bagian F). Yang berlangganan di situ adalah
+ * service bridge terpisah, yang meneruskan isinya ke POST /api/datamasuk/adr;
+ * aplikasi ini tidak subscribe topik itu untuk menerima data.
  *
  * Pola namanya ter-hardcode di firmware — tidak ada env yang bisa mengubahnya,
  * jadi sengaja tidak dibuat bisa disetel.
