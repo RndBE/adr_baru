@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import Image from "next/image";
-import { LogOut, Database, Settings2 } from "lucide-react";
+import { LogOut, Settings2 } from "lucide-react";
 import {
   Sidebar,
   SidebarContent,
@@ -186,7 +186,13 @@ const navGroups: { label: string; items: NavItem[] }[] = [
       // `MapPinned` ke import lucide-react di atas — ikonnya ikut dilepas dari
       // import supaya tidak tertinggal sebagai import tak terpakai.
       // { title: "Peta Tambang", href: "/peta-jaringan-tambang", icon: () => <MapPinned className={ICON_CLASS} strokeWidth={1.6} /> },
-      { title: "Rekap Data", href: "/rekap-data", icon: () => <Database className={ICON_CLASS} strokeWidth={1.6} /> },
+      //
+      // Rekap Data dinonaktifkan dengan alasan dan cara yang sama: rute
+      // /rekap-data masih ada dan tetap terbuka lewat URL langsung, judulnya
+      // masih terdaftar di pageTitles pada (dashboard)/layout.tsx. Untuk
+      // mengembalikannya, buka komentar baris di bawah DAN tambahkan lagi
+      // `Database` ke import lucide-react di atas.
+      // { title: "Rekap Data", href: "/rekap-data", icon: () => <Database className={ICON_CLASS} strokeWidth={1.6} /> },
     ],
   },
   {
