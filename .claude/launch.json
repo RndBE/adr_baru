@@ -3,8 +3,11 @@
   "configurations": [
     {
       "name": "asaba-dev",
-      "runtimeExecutable": "npm",
-      "runtimeArgs": ["--prefix", "asaba-nextjs", "run", "dev"],
+      "runtimeExecutable": "/bin/sh",
+      "runtimeArgs": [
+        "-c",
+        "cd /Users/tessa/Documents/demo-adr/asaba-nextjs && exec /opt/homebrew/bin/node node_modules/next/dist/bin/next dev"
+      ],
       "port": 3000
     }
   ]
