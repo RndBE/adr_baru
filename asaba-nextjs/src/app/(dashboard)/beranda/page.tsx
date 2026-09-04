@@ -423,7 +423,7 @@ function BerandaContent() {
         fontDisplay.variable
       )}
     >
-      <div className="mx-auto max-w-[1600px] space-y-4 md:space-y-5">
+      <div className="space-y-4 md:space-y-5">
         {isLoading || sitesLoading ? (
           <KerangkaMemuat />
         ) : isError ? (

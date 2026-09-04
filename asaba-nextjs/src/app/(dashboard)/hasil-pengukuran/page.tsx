@@ -257,7 +257,7 @@ function HasilPengukuranContent() {
         fontDisplay.variable
       )}
     >
-      <div className="mx-auto max-w-[1600px] space-y-4 md:space-y-5">
+      <div className="space-y-4 md:space-y-5">
         {/* ── Bar kontrol ── */}
         <div className="flex flex-wrap items-center gap-x-4 gap-y-3">
           <Eyebrow>Site</Eyebrow>

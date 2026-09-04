@@ -453,7 +453,7 @@ function DetailPrismaContent() {
         fontDisplay.variable
       )}
     >
-      <div className="mx-auto max-w-[1600px] space-y-4 md:space-y-5">
+      <div className="space-y-4 md:space-y-5">
         {/* ── Bar atas: kembali · pindah prisma · koneksi ── */}
         <div className="flex flex-wrap items-center gap-x-4 gap-y-3">
           <Link
