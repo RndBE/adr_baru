@@ -108,10 +108,13 @@ export async function GET(request: NextRequest) {
           FROM rts
           WHERE id_kontrol = ${idLog}
         `;
+        // sensor8/9/10 = N, E, Z target (PROTOKOL_MQTT_ADR bagian F). Sempat
+        // tertukar di sini: sensor8 dialiaskan ke E dan sensor9 ke N, jadi
+        // kolom N dan E di keluaran saling tukar.
         const data_kirim = (rtsData as Array<Record<string, unknown>>).map((v) => ({
           id_prisma: v.sensor1,
-          E: v.sensor8,
-          N: v.sensor9,
+          N: v.sensor8,
+          E: v.sensor9,
           Z: v.sensor10,
           status:
             v.sensor8 !== 0 && v.sensor9 !== 0 && v.sensor10 !== 0

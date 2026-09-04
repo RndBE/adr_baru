@@ -49,8 +49,11 @@ export async function GET(request: NextRequest) {
           // dengan sensor1 = '0' — jumlahnya bisa ratusan kali lipat (sesi
           // 101109: 1183 baris heartbeat vs 10 prisma sungguhan), sehingga
           // ikut terhitung membuat "Prisma Count" jadi ngawur.
+          //
+          // sensor8/9/10 = N, E, Z target (PROTOKOL_MQTT_ADR bagian F). Alias
+          // di SELECT ini sempat terbalik, sehingga N dan E tertukar.
           const rtsData = await prisma.$queryRaw<Array<Record<string, unknown>>>`
-            SELECT sensor1 as id_prisma, sensor8 as E, sensor9 as N, sensor10 as Z,
+            SELECT sensor1 as id_prisma, sensor8 as N, sensor9 as E, sensor10 as Z,
               sensor3 as nama_prisma, waktu
             FROM rts
             WHERE id_kontrol = ${idLog}

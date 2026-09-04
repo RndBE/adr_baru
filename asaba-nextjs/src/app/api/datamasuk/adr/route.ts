@@ -47,8 +47,18 @@ function getWaktu(payload: PayloadMap): string {
   return `${yyyy}-${mm}-${dd} ${hh}:${mi}:${ss}`;
 }
 
-// Sensor yang kolom-nya integer/bit di MySQL — tidak boleh string kosong
-const NUMERIC_SENSORS = new Set([14, 15, 16, 17, 18, 19]);
+// Sensor yang kolom-nya FLOAT di MySQL — tidak boleh string kosong.
+//
+// Batasnya di sensor14: sensor1–sensor13 varchar (nama target, sudut DMS,
+// koordinat), sensor14–sensor25 float. Lihat model Rts/TempRts di
+// prisma/schema.prisma.
+//
+// Daftar ini sebelumnya berhenti di 19, padahal payload boleh tidak memuat
+// sensor20–sensor25 sama sekali — termasuk tilt yang tidak terbaca. Slot yang
+// hilang jadi "" dan MySQL menolaknya di kolom float.
+const NUMERIC_SENSORS = new Set([
+  14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25,
+]);
 
 function buildSensorPayload(payload: PayloadMap) {
   const data: Record<string, string | number> = {};
@@ -56,7 +66,7 @@ function buildSensorPayload(payload: PayloadMap) {
   for (let i = 1; i <= 25; i += 1) {
     const val = payload[`sensor${i}`];
     if (NUMERIC_SENSORS.has(i)) {
-      // Kolom integer/bit: pakai 0 jika tidak ada atau kosong
+      // Kolom float: pakai 0 jika tidak ada atau kosong
       data[`sensor${i}`] = (val !== undefined && val !== "") ? val : "0";
     } else {
       // Kolom varchar/text: pakai string kosong jika tidak ada
@@ -95,7 +105,7 @@ function buildUpdateStatement(
  * Port of CI3 Datamasuk::add_adr().
  *
  * Accepts either JSON or form-urlencoded/form-data payloads using the
- * legacy field names: id_alat, tanggal, jam, sensor1..sensor23, sn.
+ * legacy field names: id_alat, tanggal, jam, sensor1..sensor25, sn.
  */
 export async function POST(request: NextRequest) {
   try {
@@ -173,6 +183,12 @@ export async function POST(request: NextRequest) {
           ...tempPrismaUpdate.values,
           siteAktif
         );
+        // `sensor3` = nama titik. PROTOKOL_MQTT_ADR revisi 6 bagian F
+        // menyebutnya "konstanta prisma" — itu keliru, sudah dikonfirmasi ke
+        // sisi firmware, dan data historis di `rts` juga berisi nama (`TS_1`,
+        // `TS_2`). Jangan diikutkan ke dokumen: kalau slot ini dianggap
+        // konstanta, setiap payload masuk akan menimpa `nama_prisma` seluruh
+        // prisma dengan angka seperti "-30".
         await prisma.$executeRaw`
           UPDATE t_prisma
           SET nama_prisma = ${sensorData.sensor3}
