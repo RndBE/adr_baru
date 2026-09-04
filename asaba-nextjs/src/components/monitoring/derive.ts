@@ -51,6 +51,14 @@ export interface PengukuranRow {
     DZ?: string | number;
     linear?: number;
     arah_pergeseran?: string;
+    /**
+     * Koordinat UTM MENTAH sebelum koreksi rotasi site. Dipakai halaman detail
+     * prisma sebagai acuan untuk riwayat dari /api/analisa, yang juga mentah.
+     */
+    raw_E0?: number;
+    raw_N0?: number;
+    raw_E1?: number;
+    raw_N1?: number;
     /** Lat/lon hasil utm2ll() di server, untuk peta. */
     map_lat0?: number | null;
     map_lon0?: number | null;

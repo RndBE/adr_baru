@@ -73,7 +73,11 @@ export function PanelHeader({
           </div>
         )}
       </div>
-      {actions && <div className="flex shrink-0 items-center gap-2">{actions}</div>}
+      {/* Tanpa shrink-0: blok aksi yang lebih lebar dari panelnya (mis. pemilih
+          rentang di layar 390px) harus boleh membungkus, bukan meluap keluar
+          panel. Pada lebar normal perilakunya sama — flex hanya menyusutkan
+          item yang sendirian melebihi barisnya. */}
+      {actions && <div className="flex flex-wrap items-center gap-2">{actions}</div>}
     </div>
   );
 }
