@@ -299,3 +299,95 @@ html {
     --app-logo-height: 2.25rem;
   }
 }
+
+/* Merah rambu Beacon. Di halaman Masuk ia hanya dipakai sekali — untuk garis
+   ukur di bawah judul dan untuk penanda galat form — supaya tetap terbaca
+   sebagai isyarat, bukan hiasan. Di-scope ke halamannya agar tidak bocor ke
+   tema-monitoring yang dipakai halaman lain. */
+.halaman-masuk {
+  --signal: #e32636;
+}
+
+/* ─── Lembar survei: latar kolom kiri halaman Masuk ──────────────────────────
+   Halaman Masuk dibaca sebagai lembar ukur, bukan sampul pemasaran: bidang
+   bergaris 32 px sebagai kisi gambar, lalu rel tik di tepi atas dan kiri
+   dengan irama tik kecil tiap 32 px dan tik besar tiap 128 px — perkakas yang
+   dipakai subjeknya sendiri (total station, gambar teknik), bukan hiasan.
+
+   Kisi digambar di elemennya, rel tik di ::before/::after, supaya ketiganya
+   tidak saling berebut satu properti background. Warnanya diturunkan dari
+   --line milik tema-monitoring agar sehalaman dengan sisa aplikasi. */
+.lembar-survei {
+  --tik: rgba(20, 23, 58, 0.38);
+  --kisi: rgba(20, 23, 58, 0.05);
+  position: relative;
+  background-image:
+    linear-gradient(to right, var(--kisi) 0 1px, transparent 1px),
+    linear-gradient(to bottom, var(--kisi) 0 1px, transparent 1px);
+  background-size: 32px 32px;
+}
+/* Rel tik: tik kecil tiap 32 px, tik besar tiap 128 px, plus satu rel menerus
+   di tepi supaya tik-nya terbaca sebagai skala alat ukur — bukan garis lepas. */
+.lembar-survei::before,
+.lembar-survei::after {
+  content: "";
+  position: absolute;
+  pointer-events: none;
+  background-image:
+    linear-gradient(var(--arah), var(--tik) 0 1px, transparent 1px),
+    linear-gradient(var(--arah), var(--tik) 0 1px, transparent 1px),
+    linear-gradient(var(--tik), var(--tik));
+  background-repeat: var(--ulang), var(--ulang), no-repeat;
+  background-position: 0 0;
+}
+.lembar-survei::before {
+  --arah: to right;
+  --ulang: repeat-x;
+  inset: 0 0 auto 0;
+  height: 16px;
+  background-size: 32px 6px, 128px 16px, 100% 1px;
+}
+.lembar-survei::after {
+  --arah: to bottom;
+  --ulang: repeat-y;
+  inset: 0 auto 0 0;
+  width: 16px;
+  background-size: 6px 32px, 16px 128px, 1px 100%;
+}
+
+/* Garis ukur di bawah judul: satu rel mendatar dengan tanda batas di kedua
+   ujung, seperti garis dimensi pada gambar teknik. Kotaknya sengaja 10 px
+   supaya tanda batas muat di dalam border box dan clip-path tidak memotongnya
+   saat garis "ditarik" waktu halaman dibuka. */
+.garis-ukur {
+  position: relative;
+  display: block;
+  height: 10px;
+  background-image: linear-gradient(var(--signal), var(--signal));
+  background-size: 100% 1px;
+  background-position: 0 50%;
+  background-repeat: no-repeat;
+}
+.garis-ukur::before,
+.garis-ukur::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  width: 1px;
+  height: 100%;
+  background: var(--signal);
+}
+.garis-ukur::before { left: 0; }
+.garis-ukur::after { right: 0; }
+
+/* Satu-satunya gerak di halaman ini: garis ukur ditarik sekali saat halaman
+   dibuka — pengukuran yang sedang diambil. */
+@keyframes tarik-ukur {
+  from { clip-path: inset(0 100% 0 0); }
+  to   { clip-path: inset(0 0 0 0); }
+}
+@media (prefers-reduced-motion: no-preference) {
+  .garis-ukur {
+    animation: tarik-ukur 0.7s cubic-bezier(0.2, 0.8, 0.2, 1) both;
+  }
+}
