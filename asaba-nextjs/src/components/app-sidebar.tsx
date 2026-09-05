@@ -100,21 +100,25 @@ const DashboardIcon = ({ className, isActive }: SidebarIconProps) => (
 );
 
 /**
- * Tanda merek Asaba saja — simbol tanpa teks — untuk header di mode ringkas.
+ * Tanda merek Beacon — huruf "b" saja — untuk header di mode ringkas.
  *
  * Dipotong dari berkas lockup yang sama lalu diputihkan bersamanya, jadi
- * keduanya tak bisa lepas sinkron. Rasionya nyaris persegi (141×131), sehingga
- * di rail 48px ia masih terbaca utuh; lockup penuhnya 4,1:1 dan di lebar yang
- * sama akan tinggal ±10px tinggi.
+ * keduanya tak bisa lepas sinkron.
+ *
+ * Ukurannya mengikuti LEBAR, bukan --app-logo-height seperti lockup-nya.
+ * Merek ini tidak punya bentuk persegi: ligatur "be" utuh rasionya 5,3:1 dan
+ * pada rail 48px tinggal ±8px tinggi — tidak terbaca lagi. Huruf "b" sendiri
+ * 2,6:1, dan dipatok 40px lebar ia jadi ±15px tinggi, muat di rail tanpa
+ * meluap.
  */
 const BrandMark = ({ className }: { className?: string }) => (
   <Image
-    src="/logo_asaba_mark_dark.png"
+    src="/logo_beacon_b_putih.png"
     alt=""
     aria-hidden="true"
-    width={141}
-    height={131}
-    className={cn("h-(--app-logo-height) w-auto object-contain", className)}
+    width={244}
+    height={94}
+    className={cn("h-auto w-10 object-contain", className)}
     draggable={false}
   />
 );
@@ -276,21 +280,26 @@ export function AppSidebar() {
       <SidebarHeader className="relative h-16 flex-row items-center justify-center border-b border-sidebar-border px-4 py-0 group-data-[collapsible=icon]:px-0">
         <Link
           href="/beranda"
-          aria-label="PT Asaba Surveying Solutions — ke Dashboard"
+          aria-label="Beacon Engineering — ke Dashboard"
           className="flex items-center rounded-md outline-hidden focus-visible:ring-2 focus-visible:ring-sidebar-ring"
         >
-          {/* logo_asaba_dark.png diturunkan dari image/logo_asaba.png milik app
-              lama: SELURUH piksel dijadikan putih, hanya alpha-nya yang dijaga.
-              Logo aslinya navy #372D7F dengan busur kuning #E5BC38 — navy-nya
-              di atas sidebar yang juga navy praktis lenyap, jadi dibuat versi
-              putih penuh (knockout) supaya kontrasnya rata. Tingginya dari
-              --app-logo-height di globals.css, satu tempat dengan lebar
-              sidebar, jadi keduanya mengecil bersamaan. */}
+          {/* logo_beacon_putih.png diturunkan dari logo_beacon.png: SELURUH
+              piksel dijadikan putih, hanya alpha-nya yang dijaga.
+
+              Logo aslinya merah pada huruf "b" dan navy pada "e" serta
+              teksnya. Navy itu di atas sidebar yang juga navy praktis lenyap —
+              separuh merek hilang dan sisanya terlihat timpang — jadi dipakai
+              versi putih penuh (knockout) supaya kontrasnya rata. Berkas
+              logo_beacon_dark.png yang sudah ada hanya memutihkan sebagian dan
+              menyisakan merahnya, jadi tidak dipakai di sini.
+
+              Tingginya dari --app-logo-height di globals.css, satu tempat
+              dengan lebar sidebar, jadi keduanya mengecil bersamaan. */}
           <Image
-            src="/logo_asaba_dark.png"
-            alt="PT Asaba Surveying Solutions"
-            width={540}
-            height={131}
+            src="/logo_beacon_putih.png"
+            alt="Beacon Engineering"
+            width={499}
+            height={148}
             preload
             className="h-(--app-logo-height) w-auto object-contain group-data-[collapsible=icon]:hidden"
             draggable={false}
