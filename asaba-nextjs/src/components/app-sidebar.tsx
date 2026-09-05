@@ -99,30 +99,6 @@ const DashboardIcon = ({ className, isActive }: SidebarIconProps) => (
   </svg>
 );
 
-/**
- * Tanda merek Beacon — huruf "b" saja — untuk header di mode ringkas.
- *
- * Dipotong dari berkas lockup yang sama lalu diputihkan bersamanya, jadi
- * keduanya tak bisa lepas sinkron.
- *
- * Ukurannya mengikuti LEBAR, bukan --app-logo-height seperti lockup-nya.
- * Merek ini tidak punya bentuk persegi: ligatur "be" utuh rasionya 5,3:1 dan
- * pada rail 48px tinggal ±8px tinggi — tidak terbaca lagi. Huruf "b" sendiri
- * 2,6:1, dan dipatok 40px lebar ia jadi ±15px tinggi, muat di rail tanpa
- * meluap.
- */
-const BrandMark = ({ className }: { className?: string }) => (
-  <Image
-    src="/logo_beacon_b_putih.png"
-    alt=""
-    aria-hidden="true"
-    width={244}
-    height={94}
-    className={cn("h-auto w-10 object-contain", className)}
-    draggable={false}
-  />
-);
-
 type NavItem = {
   title: string;
   href: string;
@@ -273,38 +249,74 @@ export function AppSidebar() {
         className="pointer-events-none absolute inset-0 bg-[image:radial-gradient(120%_55%_at_0%_0%,oklch(0.45_0.13_278/0.28),transparent_60%)]"
       />
 
-      {/* h-16 menyamai tinggi header konten (h-16 di (dashboard)/layout.tsx)
-          supaya garis bawah keduanya sejajar. Blok ini tetap tampil saat
-          sidebar diringkas — logonya berganti tanda merek saja — supaya garis
-          atasnya tidak berhenti di rail. */}
-      <SidebarHeader className="relative h-16 flex-row items-center justify-center border-b border-sidebar-border px-4 py-0 group-data-[collapsible=icon]:px-0">
+      {/* Merek bertumpuk: lambang PU di atas, nama balai di bawahnya.
+          Bentuknya mengikuti kartu identitas balai, bukan lockup mendatar.
+
+          TINGGINYA TIDAK LAGI h-16. Sebelumnya dipatok segitu supaya garis
+          bawah header ini sejajar dengan header konten di (dashboard)/layout.tsx.
+          Kesejajaran itu sengaja dilepas: lockup mendatar BBWS rasionya 8,23:1,
+          dan dipaksa masuk sidebar 168-224px tiga baris teksnya tinggal 7-9px
+          per baris — nama instansinya praktis tidak terbaca. Bertumpuk, namanya
+          jadi teks HTML sungguhan yang ukurannya bisa ditentukan sendiri.
+
+          Lambangnya tetap berkas gambar karena bentuknya memang gambar; nama
+          balainya TIDAK ikut di dalam gambar itu, supaya tidak ikut mengecil
+          bersama lambangnya.
+
+          Blok ini tetap tampil saat sidebar diringkas — tinggal lambangnya —
+          supaya garis atasnya tidak berhenti di rail. */}
+      <SidebarHeader className="relative flex-col items-center gap-2.5 border-b border-sidebar-border px-4 py-4 group-data-[collapsible=icon]:gap-0 group-data-[collapsible=icon]:px-0 group-data-[collapsible=icon]:py-3">
         <Link
           href="/beranda"
-          aria-label="Beacon Engineering — ke Dashboard"
-          className="flex items-center rounded-md outline-hidden focus-visible:ring-2 focus-visible:ring-sidebar-ring"
+          aria-label="Balai Besar Wilayah Sungai Ciliwung Cisadane — ke Dashboard"
+          className="flex w-full flex-col items-center gap-2.5 rounded-md outline-hidden focus-visible:ring-2 focus-visible:ring-sidebar-ring group-data-[collapsible=icon]:gap-0"
         >
-          {/* logo_beacon_putih.png diturunkan dari logo_beacon.png: SELURUH
-              piksel dijadikan putih, hanya alpha-nya yang dijaga.
-
-              Logo aslinya merah pada huruf "b" dan navy pada "e" serta
-              teksnya. Navy itu di atas sidebar yang juga navy praktis lenyap —
-              separuh merek hilang dan sisanya terlihat timpang — jadi dipakai
-              versi putih penuh (knockout) supaya kontrasnya rata. Berkas
-              logo_beacon_dark.png yang sudah ada hanya memutihkan sebagian dan
-              menyisakan merahnya, jadi tidak dipakai di sini.
-
-              Tingginya dari --app-logo-height di globals.css, satu tempat
-              dengan lebar sidebar, jadi keduanya mengecil bersamaan. */}
+          {/* Lambang PU. Warnanya TIDAK diubah: ia bidang navy dengan bentuk
+              kuning di dalamnya, dan navy-nya lebih terang dari sidebar
+              sehingga kotaknya terbaca sebagai blok tersendiri — persis seperti
+              di kartu identitas balai. Diputihkan, gambarnya lenyap jadi kotak
+              polos. */}
           <Image
-            src="/logo_beacon_putih.png"
-            alt="Beacon Engineering"
-            width={499}
-            height={148}
+            src="/logo_bbws_mark.png"
+            alt=""
+            aria-hidden="true"
+            width={288}
+            height={288}
             preload
-            className="h-(--app-logo-height) w-auto object-contain group-data-[collapsible=icon]:hidden"
+            className="size-12 shrink-0 object-contain group-data-[collapsible=icon]:size-8"
             draggable={false}
           />
-          <BrandMark className="hidden group-data-[collapsible=icon]:block" />
+
+          {/* Nama balai — teks, bukan gambar. Disembunyikan di mode ringkas
+              karena rail 48px tidak menyediakan lebar untuk teks apa pun. */}
+          <span className="text-center font-display text-[11px] font-bold uppercase leading-[1.35] tracking-[0.06em] text-sidebar-foreground group-data-[collapsible=icon]:hidden">
+            {/* Dibiarkan membungkus sendiri. Patahan manual sesudah "Sungai"
+                terlihat rapi di 256px tapi jadi tiga baris timpang di 200px,
+                karena baris pertamanya sudah tidak muat lebih dulu. */}
+            Balai Besar Wilayah Sungai Ciliwung Cisadane
+          </span>
+
+          {/* Alamat, DIRINGKAS jadi dua baris — bukan alamat penuh yang
+              dipotong. Versi lengkapnya 130 karakter: pada kolom 168px ia
+              membungkus jadi 5-7 baris, dan `line-clamp` hanya akan
+              memenggalnya di tengah kata. Yang dipertahankan bagian yang
+              menunjukkan tempat: nama jalan dan nomor, lalu kelurahan dan kota.
+
+              Tiap baris jadi blok sendiri supaya jumlahnya tetap dua di semua
+              lebar sidebar; dibiarkan membungkus, baris pertamanya sudah tidak
+              muat di 168px. Alamat utuhnya ada di `title`.
+
+              Tetap 9px meski ditebalkan: pada 10px baris pertamanya 182px dan
+              meluap dari kolom 168px, jadi alamatnya berubah tiga baris. Yang
+              menaikkan keterbacaan di sini bukan ukurannya, melainkan bobot dan
+              opasitasnya — 55% terlalu pudar untuk teks sekecil ini. */}
+          <span
+            title="Jl Inspeksi Saluran Tarum Barat No.58, RT.1/RW.6, Cipinang Melayu, Kec. Makasar, Kota Jakarta Timur, Daerah Khusus Ibukota Jakarta"
+            className="flex flex-col text-center text-[9px] font-semibold leading-[1.45] text-sidebar-foreground/75 group-data-[collapsible=icon]:hidden"
+          >
+            <span>Jl Inspeksi Saluran Tarum Barat No.58</span>
+            <span>Cipinang Melayu, Jakarta Timur</span>
+          </span>
         </Link>
       </SidebarHeader>
 

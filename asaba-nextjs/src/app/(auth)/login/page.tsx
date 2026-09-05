@@ -51,6 +51,28 @@ function JudulLembar({ ringkas = false }: { ringkas?: boolean }) {
   );
 }
 
+/**
+ * Kop lembar: lambang instansi pemilik sistem.
+ *
+ * Warnanya TIDAK diubah — di sini latarnya putih, jadi teks hitam dan lambang
+ * kuning-navy-nya justru terbaca apa adanya. Versi berteks putih hanya dipakai
+ * di sidebar yang latarnya navy.
+ *
+ * Tempatnya di atas judul, bukan di kaki bersama logo pelaksana: halaman ini
+ * dibaca sebagai lembar ukur, dan lembar resmi berkop instansinya di kepala.
+ */
+function KopInstansi({ className }: { className?: string }) {
+  return (
+    <img
+      src="/logo_bbws.png"
+      alt="Kementerian Pekerjaan Umum dan Perumahan Rakyat — Direktorat Jenderal Sumber Daya Air — Balai Besar Wilayah Sungai Ciliwung Cisadane"
+      width={2370}
+      height={288}
+      className={cn("h-auto w-full max-w-[420px] object-contain", className)}
+    />
+  );
+}
+
 function KakiMerek({ className }: { className?: string }) {
   return (
     <div className={cn("flex items-center gap-6", className)}>
@@ -128,6 +150,7 @@ export default function LoginPage() {
       {/* ── Lembar survei ───────────────────────────────────────────────────
           Kisi, rel tik di tepi, dan ilustrasi instrumen di tengahnya. */}
       <section className="lembar-survei hidden flex-col bg-white px-14 py-10 lg:flex lg:w-[56%] xl:px-20 xl:py-12 2xl:w-[58%]">
+        <KopInstansi className="mb-7" />
         <JudulLembar />
 
         <div className="flex min-h-0 flex-1 items-center justify-center py-6">
@@ -146,6 +169,7 @@ export default function LoginPage() {
           batas yang jelas dan bayangannya bernada navy, senada aplikasi. */}
       <main className="flex w-full flex-col justify-center px-5 py-10 sm:px-8 lg:w-[44%] lg:px-10 xl:px-14 2xl:w-[42%]">
         <div className="mx-auto mb-8 w-full max-w-[440px] lg:hidden">
+          <KopInstansi className="mb-6 max-w-[320px]" />
           <JudulLembar ringkas />
         </div>
 
