@@ -70,7 +70,6 @@ import {
   RENTANG_RETRIES,
   RENTANG_SEARCH_AREA,
   KELIPATAN_SEARCH_AREA,
-  RENTANG_SETELAH_POWERON_DERAJAT,
   BAWAAN_SEARCH_AREA_DERAJAT,
   validasiCycleTime,
   validasiRetries,
@@ -1216,6 +1215,14 @@ export default function KontrolAdrPage() {
     cycleTime: "",
   });
 
+  // Ditandai salah HANYA setelah kolomnya diisi. Kolom kosong bernilai ""
+  // yang jadi 0 lewat Number(), dan 0 di luar rentang mana pun — sehingga
+  // sebelumnya form yang belum disentuh sekalipun sudah memasang peringatan.
+  const cycleTimeSalah =
+    rtsConfig.cycleTime.trim() !== "" && validasiCycleTime(rtsConfig.cycleTime) !== null;
+  const retriesSalah =
+    rtsConfig.retries.trim() !== "" && validasiRetries(rtsConfig.retries) !== null;
+
   // Jadwal Running state
   const [showJadwalModal, setShowJadwalModal] = useState(false);
   const [jadwalLoading, setJadwalLoading] = useState(false);
@@ -2272,7 +2279,6 @@ export default function KontrolAdrPage() {
       {showRtsConfig && (
         <ModalShell
           judul="RTS Config"
-          keterangan="Setelan yang dikirim ke instrumen saat menyala dan di awal setiap sesi."
           ikon={<Settings2 className="size-4.5" />}
           lebar="max-w-[600px]"
           onClose={() => setShowRtsConfig(false)}
@@ -2396,63 +2402,64 @@ export default function KontrolAdrPage() {
                   </div>
                   <div>
                     <label htmlFor="cfg-retries" className={LABEL}>
-                      Retries{" "}
-                      <span className="font-normal text-(--ink-3)">
-                        {RENTANG_RETRIES.min}–{RENTANG_RETRIES.maks}
-                      </span>
+                      Retries
                     </label>
                     <input
                       id="cfg-retries"
+                      inputMode="numeric"
+                      placeholder={`${RENTANG_RETRIES.min}–${RENTANG_RETRIES.maks}`}
                       value={rtsConfig.retries}
                       onChange={(e) => setRtsConfig({ ...rtsConfig, retries: e.target.value })}
-                      className={cn(INPUT, "font-mono tabular-nums")}
+                      aria-invalid={retriesSalah || undefined}
+                      className={cn(
+                        INPUT,
+                        "font-mono tabular-nums",
+                        retriesSalah && "border-amber-500 focus:border-amber-500"
+                      )}
                     />
+                    {retriesSalah && (
+                      <p className="mt-1 font-mono text-[11px] text-amber-700">
+                        {RENTANG_RETRIES.min}–{RENTANG_RETRIES.maks}
+                      </p>
+                    )}
                   </div>
                   <div>
-                    {/* Satuannya WAJIB tertulis. Menu serial dan Bluetooth
+                    {/* Satuannya WAJIB kelihatan. Menu serial dan Bluetooth
                         memakai DETIK untuk setelan yang sama, jadi angka yang
-                        identik memberi hasil 1000× berbeda tergantung jalurnya —
-                        dan firmware tidak menolak nilai di luar rentang, ia
-                        hanya diam-diam menggantinya dengan bawaan. */}
+                        identik memberi hasil 1000× berbeda tergantung jalurnya.
+                        Sekarang ditulis sebagai imbuhan "ms" di dalam kolom,
+                        bukan keterangan panjang di labelnya. */}
                     <label htmlFor="cfg-cycle" className={LABEL}>
-                      Cycle time{" "}
-                      <span className="font-normal text-(--ink-3)">
-                        milidetik, {RENTANG_CYCLE_TIME_MS.min.toLocaleString("id-ID")}–
-                        {RENTANG_CYCLE_TIME_MS.maks.toLocaleString("id-ID")}
-                      </span>
+                      Cycle time
                     </label>
-                    <input
-                      id="cfg-cycle"
-                      value={rtsConfig.cycleTime}
-                      onChange={(e) => setRtsConfig({ ...rtsConfig, cycleTime: e.target.value })}
-                      className={cn(INPUT, "font-mono tabular-nums")}
-                    />
-                    {Number(rtsConfig.cycleTime) >= RENTANG_CYCLE_TIME_MS.min &&
-                      Number(rtsConfig.cycleTime) <= RENTANG_CYCLE_TIME_MS.maks && (
-                        <p className="mt-1 text-[11px] text-(--ink-3)">
-                          = {(Number(rtsConfig.cycleTime) / 1000).toLocaleString("id-ID")} detik
-                        </p>
-                      )}
+                    <div className="relative">
+                      <input
+                        id="cfg-cycle"
+                        inputMode="numeric"
+                        placeholder={`${RENTANG_CYCLE_TIME_MS.min}–${RENTANG_CYCLE_TIME_MS.maks}`}
+                        value={rtsConfig.cycleTime}
+                        onChange={(e) => setRtsConfig({ ...rtsConfig, cycleTime: e.target.value })}
+                        aria-invalid={cycleTimeSalah || undefined}
+                        className={cn(
+                          INPUT,
+                          "pr-9 font-mono tabular-nums",
+                          cycleTimeSalah && "border-amber-500 focus:border-amber-500"
+                        )}
+                      />
+                      <span
+                        aria-hidden="true"
+                        className="pointer-events-none absolute inset-y-0 right-3 flex items-center text-[11px] text-(--ink-3)"
+                      >
+                        ms
+                      </span>
+                    </div>
+                    {cycleTimeSalah && (
+                      <p className="mt-1 font-mono text-[11px] text-amber-700">
+                        {RENTANG_CYCLE_TIME_MS.min}–{RENTANG_CYCLE_TIME_MS.maks}
+                      </p>
+                    )}
                   </div>
                 </div>
-
-                {/* Peringatan untuk nilai tersimpan yang di luar rentang. Nilai
-                    seperti ini sudah terlanjur ada di database: firmware
-                    menerimanya tanpa protes lalu menggantinya dengan bawaan,
-                    jadi setelannya tidak pernah berlaku dan tidak ada yang
-                    memberi tahu. */}
-                {(validasiCycleTime(rtsConfig.cycleTime) || validasiRetries(rtsConfig.retries)) && (
-                  <div className="mt-3 flex gap-2.5 rounded-[10px] border border-amber-200 bg-amber-50 px-3.5 py-2.5 text-[12px] leading-relaxed text-amber-900">
-                    <AlertTriangle className="mt-px size-4 shrink-0 text-amber-600" />
-                    <span>
-                      {[validasiCycleTime(rtsConfig.cycleTime), validasiRetries(rtsConfig.retries)]
-                        .filter(Boolean)
-                        .join(". ")}
-                      . Nilai di luar rentang diterima perangkat tanpa penolakan lalu diganti
-                      bawaan saat menyala berikutnya — setelannya tidak akan pernah berlaku.
-                    </span>
-                  </div>
-                )}
               </fieldset>
 
               {/* ── Rentang sapuan ──────────────────────────────────────────
@@ -2471,46 +2478,54 @@ export default function KontrolAdrPage() {
                   <Scan className="size-3.5" /> Rentang sapuan
                 </legend>
                 <div className="rounded-[10px] bg-(--paper) p-3.5">
-                  <p className="text-[11.5px] leading-relaxed text-(--ink-3)">
-                    Dikirim langsung ke instrumen,{" "}
-                    <span className="font-semibold text-(--ink-2)">terpisah dari Simpan</span>.
-                    Nilainya tidak disimpan aplikasi: setelah PowerOn instrumen selalu kembali
-                    ke {RENTANG_SETELAH_POWERON_DERAJAT}° × {RENTANG_SETELAH_POWERON_DERAJAT}°,
-                    jadi kirim ulang menjelang Auto Search bila ukurannya penting.
-                  </p>
-
-                  <div className="mt-3 grid grid-cols-3 items-end gap-3">
+                  <div className="grid grid-cols-3 items-end gap-3">
                     <div>
                       <label htmlFor="cfg-sa-hor" className={LABEL}>
-                        Horizontal{" "}
-                        <span className="font-normal text-(--ink-3)">
-                          {RENTANG_SEARCH_AREA.hor.min}–{RENTANG_SEARCH_AREA.hor.maks}°
-                        </span>
+                        Horizontal
                       </label>
-                      <input
-                        id="cfg-sa-hor"
-                        type="number"
-                        step={KELIPATAN_SEARCH_AREA}
-                        value={saHor}
-                        onChange={(e) => setSaHor(e.target.value)}
-                        className={cn(INPUT, "font-mono tabular-nums")}
-                      />
+                      <div className="relative">
+                        <input
+                          id="cfg-sa-hor"
+                          type="number"
+                          step={KELIPATAN_SEARCH_AREA}
+                          min={RENTANG_SEARCH_AREA.hor.min}
+                          max={RENTANG_SEARCH_AREA.hor.maks}
+                          placeholder={`${RENTANG_SEARCH_AREA.hor.min}–${RENTANG_SEARCH_AREA.hor.maks}`}
+                          value={saHor}
+                          onChange={(e) => setSaHor(e.target.value)}
+                          className={cn(INPUT, "pr-7 font-mono tabular-nums")}
+                        />
+                        <span
+                          aria-hidden="true"
+                          className="pointer-events-none absolute inset-y-0 right-3 flex items-center text-[11px] text-(--ink-3)"
+                        >
+                          °
+                        </span>
+                      </div>
                     </div>
                     <div>
                       <label htmlFor="cfg-sa-ver" className={LABEL}>
-                        Vertikal{" "}
-                        <span className="font-normal text-(--ink-3)">
-                          {RENTANG_SEARCH_AREA.ver.min}–{RENTANG_SEARCH_AREA.ver.maks}°
-                        </span>
+                        Vertikal
                       </label>
-                      <input
-                        id="cfg-sa-ver"
-                        type="number"
-                        step={KELIPATAN_SEARCH_AREA}
-                        value={saVer}
-                        onChange={(e) => setSaVer(e.target.value)}
-                        className={cn(INPUT, "font-mono tabular-nums")}
-                      />
+                      <div className="relative">
+                        <input
+                          id="cfg-sa-ver"
+                          type="number"
+                          step={KELIPATAN_SEARCH_AREA}
+                          min={RENTANG_SEARCH_AREA.ver.min}
+                          max={RENTANG_SEARCH_AREA.ver.maks}
+                          placeholder={`${RENTANG_SEARCH_AREA.ver.min}–${RENTANG_SEARCH_AREA.ver.maks}`}
+                          value={saVer}
+                          onChange={(e) => setSaVer(e.target.value)}
+                          className={cn(INPUT, "pr-7 font-mono tabular-nums")}
+                        />
+                        <span
+                          aria-hidden="true"
+                          className="pointer-events-none absolute inset-y-0 right-3 flex items-center text-[11px] text-(--ink-3)"
+                        >
+                          °
+                        </span>
+                      </div>
                     </div>
                     {/* SENGAJA tidak dinonaktifkan saat site belum dipilih:
                         tombol mati tanpa keterangan tidak memberi tahu apa pun.
@@ -2578,17 +2593,10 @@ export default function KontrolAdrPage() {
                   <Timer className="size-3.5" /> Jadwal AutoTracking
                 </legend>
                 <div className="rounded-[10px] border border-dashed border-(--line) px-3.5 py-3">
-                  <p className="text-[12px] leading-relaxed text-(--ink-2)">
-                    Menjalankan siklus sendiri tiap selang waktu, tanpa ditekan operator.
-                    Hanya ada di firmware <span className="font-mono">_timeScheduled</span> —
-                    unit lain mengabaikannya tanpa balasan.
-                  </p>
-
-                  <div className="mt-3 grid grid-cols-2 items-end gap-3">
+                  <div className="grid grid-cols-2 items-end gap-3">
                     <div>
                       <label htmlFor="cfg-track-every" className={LABEL}>
-                        Setiap{" "}
-                        <span className="font-normal text-(--ink-3)">menit</span>
+                        Setiap
                       </label>
                       <select
                         id="cfg-track-every"
@@ -2626,13 +2634,9 @@ export default function KontrolAdrPage() {
                       yang dibayar belakangan. Diperingatkan memakai jumlah
                       target yang benar-benar terdaftar, bukan angka karangan. */}
                   {jadwalTerlewat(Number(trackEvery), totalPrisma) && (
-                    <p className="mt-2.5 flex gap-2 text-[12px] leading-relaxed text-amber-900">
-                      <AlertTriangle className="mt-px size-4 shrink-0 text-amber-600" />
-                      <span>
-                        {totalPrisma} target perkiraannya lebih lama dari {trackEvery} menit.
-                        Jadwal yang jatuh saat siklus masih jalan DILEWATKAN, bukan diantre —
-                        praktisnya alat berjalan hampir terus-menerus.
-                      </span>
+                    <p className="mt-2.5 flex items-center gap-2 text-[12px] text-amber-900">
+                      <AlertTriangle className="size-4 shrink-0 text-amber-600" />
+                      {totalPrisma} target &gt; {trackEvery} menit, jadwal bertabrakan dilewati
                     </p>
                   )}
 
