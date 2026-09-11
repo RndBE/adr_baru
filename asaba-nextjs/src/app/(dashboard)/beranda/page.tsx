@@ -148,6 +148,13 @@ function RtsDashboard({
   const rtsTerhubung = statusRts.rtsAktif;
   const sdOk = Number(tempRts?.sensor17 ?? 0) === 1;
 
+  // Kemiringan yang belum pernah masuk ditulis "—", bukan 0. Nol di sini
+  // menyatakan instrumen tegak sempurna — pernyataan yang tidak pernah diukur
+  // siapa pun. LevelBubble sudah menaruh gelembungnya di tengah untuk nilai
+  // yang bukan angka.
+  const tiltX = tempRts?.sensor24 == null ? "—" : String(tempRts.sensor24);
+  const tiltY = tempRts?.sensor25 == null ? "—" : String(tempRts.sensor25);
+
   // ── Hasil sesi ──
   const ambang = useMemo(() => ambangDariSite(siteRow), [siteRow]);
   const pengukuran = useMemo(
@@ -225,8 +232,8 @@ function RtsDashboard({
         labelRts={statusRts.labelRts}
         rtsRunning={rtsRunning}
         waktuData={tempRts?.waktu ? fmtDate(tempRts.waktu, { detik: true }) : "—"}
-        tiltX={String(tempRts?.sensor24 ?? 0)}
-        tiltY={String(tempRts?.sensor25 ?? 0)}
+        tiltX={tiltX}
+        tiltY={tiltY}
         telemetri={{
           power: parseNum(tempRts?.sensor23),
           humidity: parseNum(tempRts?.sensor20),
@@ -493,14 +500,20 @@ function BerandaContent() {
                         style={{ background: s.badge_color }}
                       />
                       {s.nama}
-                      <span
-                        className={cn(
-                          "font-mono text-[11px] tabular-nums",
-                          aktif ? "text-white/70" : "text-(--ink-3)"
-                        )}
-                      >
-                        {s.jumlah_sesi ?? 0}
-                      </span>
+                      {/* Jumlah sesi ditulis HANYA kalau ada. Angka "0" polos di
+                          sebelah nama site tidak menerangkan apa pun — ia terbaca
+                          seperti bagian dari nama, atau kode yang tidak dikenal. */}
+                      {(s.jumlah_sesi ?? 0) > 0 && (
+                        <span
+                          title={`${s.jumlah_sesi} sesi pengukuran`}
+                          className={cn(
+                            "font-mono text-[11px] tabular-nums",
+                            aktif ? "text-white/70" : "text-(--ink-3)"
+                          )}
+                        >
+                          {s.jumlah_sesi}
+                        </span>
+                      )}
                       {b.peringatan && (
                         <AlertTriangle
                           className={cn("size-3.5", aktif ? "text-amber-300" : "text-amber-600")}
@@ -527,7 +540,7 @@ function BerandaContent() {
               </div>
             )}
 
-            {activeLogger && activeSiteSlug && (
+            {activeLogger && activeSiteSlug ? (
               // key=site → remount saat site berganti, jadi sesi terpilih tidak
               // terbawa dari site sebelumnya.
               <RtsDashboard
@@ -536,6 +549,22 @@ function BerandaContent() {
                 site={activeSiteSlug}
                 siteRow={activeSite ?? null}
                 jumlahSesi={activeSite?.jumlah_sesi ?? 0}
+              />
+            ) : (
+              // Tanpa cabang ini seluruh panel instrumen HILANG tanpa sepatah
+              // kata pun begitu site belum punya logger — layar yang kosong
+              // tidak bisa dibedakan dari aplikasi yang rusak.
+              <Pesan
+                judul={
+                  activeSite?.id_logger
+                    ? "Logger site ini bukan unit RTS"
+                    : "Site ini belum punya logger"
+                }
+                isi={
+                  activeSite?.id_logger
+                    ? `Site ini menunjuk logger ${activeSite.id_logger}, tapi unit itu tidak terdaftar sebagai RTS/ADR sehingga tidak punya telemetri instrumen.`
+                    : "Pilih loggernya di Master Data → Site. Tanpa itu tidak ada perangkat yang bisa dibaca maupun diperintah untuk site ini."
+                }
               />
             )}
           </>
