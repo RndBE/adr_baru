@@ -413,6 +413,12 @@ export function ArahkanModal({
   };
 
   /** Putar ke slot terpilih, lalu ukur. Dua perintah, dikirim berurutan. */
+  /**
+   * Jenis ukur milik prisma terpilih. Bawaannya "fs" — kolomnya memang
+   * ber-default begitu, dan slot yang belum terdaftar tidak bisa diukur.
+   */
+  const jenisTarget: KodeUkur = target?.jenis === "bs" ? "bs" : "fs";
+
   const ukur = async (jenis: KodeUkur) => {
     if (!target) return;
     const a: Alur = {
@@ -648,30 +654,27 @@ export function ArahkanModal({
           </div>
         )}
 
-        {/* ── Ukur ── */}
+        {/* ── Ukur ──
+            SATU tombol, bukan dua. Jenis ukurnya diambil dari prismanya sendiri
+            (t_prisma.jenis), bukan ditanyakan tiap kali. Backsight mengirim
+            `measure_bs` (*ST2), foresight `measure_fs` (*ST3). Dulu operator
+            memilihnya setiap kali mengukur — pilihan yang tidak pernah
+            tersimpan, dan tidak ada yang memastikan prisma yang sama selalu
+            diukur dengan perintah yang sama. */}
         <div className="border-t border-(--line) pt-4">
           <p className={LABEL}>Ukur prisma terpilih</p>
-          <div className="grid grid-cols-2 gap-2">
-            {(["bs", "fs"] as const).map((kode) => (
-              <button
-                key={kode}
-                type="button"
-                onClick={() => ukur(kode)}
-                disabled={terkunci || sibuk || jogStatus === "waiting"}
-                className={cn(
-                  tombol,
-                  "bg-white text-(--ink-2) ring-1 ring-(--line) hover:text-(--ink)"
-                )}
-              >
-                {alur?.jenis === kode ? (
-                  <Loader2 className="size-4 animate-spin" />
-                ) : (
-                  <Ruler className="size-4" />
-                )}
-                {JENIS_UKUR[kode].label}
-              </button>
-            ))}
-          </div>
+          <button
+            type="button"
+            onClick={() => ukur(jenisTarget)}
+            disabled={!target || terkunci || sibuk || jogStatus === "waiting"}
+            className={cn(
+              tombol,
+              "w-full bg-white text-(--ink-2) ring-1 ring-(--line) hover:text-(--ink)"
+            )}
+          >
+            {alur ? <Loader2 className="size-4 animate-spin" /> : <Ruler className="size-4" />}
+            Ukur sebagai {JENIS_UKUR[jenisTarget].label}
+          </button>
 
           {/* Tahap yang sedang berjalan disebut eksplisit: putarannya sendiri
               bisa 20 detik, dan tanpa keterangan ini indikator yang berputar

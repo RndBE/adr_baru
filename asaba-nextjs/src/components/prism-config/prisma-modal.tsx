@@ -1,11 +1,12 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { AlertCircle, Crosshair, Loader2, Search, Target } from "lucide-react";
+import { AlertCircle, Crosshair, Gauge, Loader2, Search, Target } from "lucide-react";
 import mqtt from "mqtt";
 import { cn } from "@/lib/utils";
 import { nilaiBalasanLogger, balasanSelesai, balasanGagal } from "@/lib/balasan-logger";
 import {
+  bacaManualHaVa,
   klasifikasiTurningTarget,
 } from "@/lib/protokol-rts";
 import {
@@ -155,6 +156,28 @@ export function PrismaModal({
   const [goTargetStatus, setGoTargetStatus] = useState<StatusPerintah>("idle");
   const [autoSearchStatus, setAutoSearchStatus] = useState<StatusPerintah>("idle");
 
+  /**
+   * Jalur MANUAL: operator membidik sendiri di lapangan, lalu menekan tombol ini
+   * untuk membaca sudut teleskop sekarang.
+   *
+   * Ada karena RTS ini sering gagal mengunci prisma yang jauh dengan Auto
+   * Search. Perlu ditegaskan: `manual_hava` TIDAK mengarahkan apa pun, ia hanya
+   * membaca. Yang merekam target tetap `recordTarget` saat Simpan, dan perintah
+   * itu merekam ke mana pun teleskop sedang menghadap. Jadi tombol ini bukan
+   * pengganti pembidikan — ia buktinya bahwa instrumen menjawab dan teleskopnya
+   * memang sedang mengarah ke sesuatu.
+   */
+  const [manualStatus, setManualStatus] = useState<StatusPerintah>("idle");
+  const [manualHaVa, setManualHaVa] = useState<{ HA: string; VA: string } | null>(null);
+
+  /**
+   * Backsight atau foresight. Bawaannya "fs" — hampir semua prisma titik
+   * pantau; backsight biasanya hanya satu atau dua per site.
+   */
+  const [jenis, setJenis] = useState<"bs" | "fs">(
+    slot.jenis === "bs" ? "bs" : "fs"
+  );
+
   // Diturunkan, bukan disimpan sebagai state.
   //
   // Versi lama menyimpannya di useState dan effect-nya HANYA pernah menyetel
@@ -165,8 +188,11 @@ export function PrismaModal({
   // goTargetStatus selamanya "idle". Syarat lama menuntut keduanya "done",
   // sehingga Simpan TIDAK PERNAH bisa aktif saat mendaftarkan prisma baru —
   // modalnya mustahil diselesaikan.
-  const simpanEnabled =
-    autoSearchStatus === "done" && (mode === "set" || goTargetStatus === "done");
+  // Salah satu dari dua jalur cukup: Auto Search yang mengunci prismanya, atau
+  // pembacaan manual yang membuktikan instrumen menjawab. Keduanya sama-sama
+  // berakhir dengan teleskop mengarah ke target, dan itulah yang direkam.
+  const targetSiap = autoSearchStatus === "done" || manualStatus === "done";
+  const simpanEnabled = targetSiap && (mode === "set" || goTargetStatus === "done");
 
   // Batas menunggu balasan, diturunkan dari tabel durasi maksimum di protokol
   // (Bagian A): auto_search 30 detik, turning_target 20 detik. Diberi margin
@@ -187,6 +213,19 @@ export function PrismaModal({
     }, 45_000);
     return () => clearTimeout(timer);
   }, [autoSearchStatus]);
+
+  // 5 detik menurut tabel durasi protokol (Bagian A) untuk `manual_hava`,
+  // diberi margin. Perintah ini tidak menggerakkan instrumen, jadi diamnya
+  // berarti tidak sampai — bukan sedang bekerja.
+  useEffect(() => {
+    if (manualStatus !== "waiting") return;
+    const timer = setTimeout(() => {
+      setManualStatus("failed");
+      setError("Instrumen tidak menjawab dalam 12 detik. Periksa koneksi logger, lalu coba lagi.");
+      setLoading(false);
+    }, 12_000);
+    return () => clearTimeout(timer);
+  }, [manualStatus]);
 
   useEffect(() => {
     if (goTargetStatus !== "waiting") return;
@@ -268,6 +307,27 @@ export function PrismaModal({
           // dikenal tidak boleh divonis gagal maupun sukses.
         }
 
+        // 2b. Balasan manual_hava — bernama `ManualHAVA`.
+        //
+        //     Sudutnya ditampilkan APA ADANYA. Dokumen protokol menyebut
+        //     `manual_hava` termasuk yang kena bug sudut: firmware memotong
+        //     desimal derajat seolah menit dan detik, jadi nilai seperti
+        //     "151,38,71" (detik 71) memang yang dikirim alat. Mengonversinya
+        //     hanya akan menghasilkan angka yang salah dengan cara berbeda.
+        const bHaVa = bacaManualHaVa(data.ManualHAVA);
+        if (bHaVa.ada) {
+          if (bHaVa.gagal) {
+            setManualStatus("failed");
+            setError(
+              "Instrumen membalas tanpa sudut yang sah. Pastikan RTS menyala dan teleskopnya sudah diarahkan."
+            );
+          } else {
+            setManualHaVa({ HA: bHaVa.HA, VA: bHaVa.VA });
+            setManualStatus("done");
+          }
+          setLoading(false);
+        }
+
         // 3. Balasan turning_target — bernama `TurningTarget` (PascalCase).
         //
         //    Revisi protokol sebelumnya menulis nama balasannya huruf kecil;
@@ -325,6 +385,10 @@ export function PrismaModal({
   const handleAutoSearch = async () => {
     setLoading(true);
     setError("");
+    // Pembacaan manual sebelumnya dibatalkan: teleskop akan menyapu dan
+    // berpindah, jadi sudut yang tadi dibaca tidak lagi menggambarkan arahnya.
+    setManualStatus("idle");
+    setManualHaVa(null);
     setAutoSearchStatus("waiting");
     try {
       const res = await fetch("/api/kontrol/auto-search", {
@@ -342,14 +406,37 @@ export function PrismaModal({
     }
   };
 
+  const handleManualHaVa = async () => {
+    setLoading(true);
+    setError("");
+    setManualHaVa(null);
+    setManualStatus("waiting");
+    try {
+      const res = await fetch("/api/kontrol/manual-hava", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ site }),
+      });
+      const json = await res.json();
+      if (!json.success) throw new Error(json.error || "Gagal membaca sudut");
+      // Hasilnya datang lewat MQTT sebagai {"ManualHAVA":{"HA":…,"VA":…}}.
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : "Terjadi kesalahan");
+      setManualStatus("idle");
+      setLoading(false);
+    }
+  };
+
   const handleGoToTarget = async () => {
     setLoading(true);
     setError("");
     setGoTargetStatus("waiting");
-    // Hasil Auto Search sebelumnya ikut dibatalkan: teleskop akan berpindah,
-    // jadi pencarian yang lama tidak lagi menggambarkan posisi sekarang.
-    // Tanpa ini Simpan tetap aktif memakai hasil pencarian yang basi.
+    // Hasil Auto Search dan pembacaan manual sebelumnya ikut dibatalkan:
+    // teleskop akan berpindah, jadi keduanya tidak lagi menggambarkan posisi
+    // sekarang. Tanpa ini Simpan tetap aktif memakai hasil yang basi.
     setAutoSearchStatus("idle");
+    setManualStatus("idle");
+    setManualHaVa(null);
     try {
       // `site` wajib dikirim walau endpoint-nya menerima tanpa itu: slot "P1"
       // ada di beberapa site dan menunjuk target fisik berbeda, jadi tanpa site
@@ -384,6 +471,7 @@ export function PrismaModal({
           slot_id: slot.slot,
           nama_prisma: namaPrisma,
           target_height: targetHeight,
+          jenis,
           site,
         }),
       });
@@ -401,6 +489,16 @@ export function PrismaModal({
   // bisa dituju. Penomoran langkahnya karena itu ikut bergeser.
   const adaGoTo = mode === "edit";
   const nomorCari = adaGoTo ? 3 : 2;
+  const nomorJenis = nomorCari + 1;
+
+  // Lingkaran nomor langkah jadi hijau begitu SALAH SATU jalur berhasil.
+  const statusKunci: StatusPerintah = targetSiap
+    ? "done"
+    : autoSearchStatus === "waiting" || manualStatus === "waiting"
+      ? "waiting"
+      : autoSearchStatus === "failed" || manualStatus === "failed"
+        ? "failed"
+        : "idle";
 
   return (
     <ModalShell
@@ -509,38 +607,135 @@ export function PrismaModal({
           </Langkah>
         )}
 
-        {/* ── 3. Cari prisma ── */}
+        {/* ── Kunci prisma: dua jalur, salah satu cukup ──
+            Auto Search menyapu dan mengunci sendiri. Jalur manual dipakai saat
+            prismanya terlalu jauh untuk disapu RTS ini: operator membidik di
+            lapangan, tombolnya hanya MEMBACA sudut teleskop sekarang sebagai
+            bukti instrumen menjawab. Yang merekam target tetap `recordTarget`
+            saat Simpan, dan itu merekam ke mana pun teleskop menghadap. */}
         <Langkah
           nomor={nomorCari}
-          judul="Cari prisma"
-          status={autoSearchStatus}
+          judul="Kunci prisma"
+          status={statusKunci}
           nonaktif={adaGoTo && goTargetStatus !== "done"}
           alasanNonaktif="Arahkan teleskop lebih dulu."
         >
-          <div className="flex flex-wrap items-center gap-2.5">
-            <button
-              type="button"
-              onClick={handleAutoSearch}
-              disabled={
-                autoSearchStatus === "waiting" ||
-                autoSearchStatus === "done" ||
-                (mode === "edit" && goTargetStatus !== "done")
-              }
-              className={cn(TOMBOL_SEKUNDER, "ring-(--navy)/30 text-(--navy)")}
-            >
-              {autoSearchStatus === "waiting" ? (
-                <Loader2 className="size-4 animate-spin" />
-              ) : (
-                <Search className="size-4" />
-              )}
-              Auto Search
-            </button>
+          <div className="flex flex-col gap-2.5">
+            <div className="grid grid-cols-2 gap-2">
+              <button
+                type="button"
+                onClick={handleAutoSearch}
+                disabled={
+                  autoSearchStatus === "waiting" ||
+                  manualStatus === "waiting" ||
+                  (mode === "edit" && goTargetStatus !== "done")
+                }
+                className={cn(
+                  TOMBOL_SEKUNDER,
+                  "w-full",
+                  autoSearchStatus === "done"
+                    ? "ring-(--st-normal)/40 text-(--st-normal)"
+                    : "ring-(--navy)/30 text-(--navy)"
+                )}
+              >
+                {autoSearchStatus === "waiting" ? (
+                  <Loader2 className="size-4 animate-spin" />
+                ) : (
+                  <Search className="size-4" />
+                )}
+                Auto Search
+              </button>
+              <button
+                type="button"
+                onClick={handleManualHaVa}
+                disabled={
+                  autoSearchStatus === "waiting" ||
+                  manualStatus === "waiting" ||
+                  (mode === "edit" && goTargetStatus !== "done")
+                }
+                className={cn(
+                  TOMBOL_SEKUNDER,
+                  "w-full",
+                  manualStatus === "done"
+                    ? "ring-(--st-normal)/40 text-(--st-normal)"
+                    : "ring-(--navy)/30 text-(--navy)"
+                )}
+              >
+                {manualStatus === "waiting" ? (
+                  <Loader2 className="size-4 animate-spin" />
+                ) : (
+                  <Gauge className="size-4" />
+                )}
+                Manual HA/VA
+              </button>
+            </div>
+
             <StatusPerintahChip
               status={autoSearchStatus}
               teksMenunggu="Menyapu area…"
               teksSelesai="Prisma terkunci"
               teksGagal="Prisma tidak ditemukan"
             />
+            <StatusPerintahChip
+              status={manualStatus}
+              teksMenunggu="Membaca sudut…"
+              teksSelesai="Sudut terbaca"
+              teksGagal="Instrumen tidak menjawab"
+            />
+
+            {/* Sudut ditulis APA ADANYA. Dokumen protokol menyebut manual_hava
+                termasuk yang kena bug sudut, jadi nilai seperti "151,38,71"
+                memang yang dikirim alat — mengonversinya hanya menghasilkan
+                angka yang salah dengan cara lain. */}
+            {manualHaVa && (
+              <dl className="grid grid-cols-2 gap-x-4 rounded-[10px] bg-(--paper) px-3 py-2 font-mono text-[12px] tabular-nums">
+                <div>
+                  <dt className="font-sans text-[11px] text-(--ink-3)">HA</dt>
+                  <dd className="text-(--ink)">{manualHaVa.HA || "—"}</dd>
+                </div>
+                <div>
+                  <dt className="font-sans text-[11px] text-(--ink-3)">VA</dt>
+                  <dd className="text-(--ink)">{manualHaVa.VA || "—"}</dd>
+                </div>
+              </dl>
+            )}
+          </div>
+        </Langkah>
+
+        {/* ── Jenis prisma ──
+            Menentukan perintah ukur yang dipakai nanti: backsight mengirim
+            `measure_bs` (*ST2), foresight `measure_fs` (*ST3). Sebelumnya
+            operator memilihnya tiap kali mengukur di modal Arahkan teleskop,
+            dan jenisnya tidak tersimpan di mana pun. */}
+        <Langkah nomor={nomorJenis} judul="Jenis prisma">
+          <div className="grid grid-cols-2 gap-2">
+            {([
+              ["fs", "Foresight", "Titik pantau"],
+              ["bs", "Backsight", "Titik acuan"],
+            ] as const).map(([kode, label, arti]) => (
+              <button
+                key={kode}
+                type="button"
+                onClick={() => setJenis(kode)}
+                aria-pressed={jenis === kode}
+                className={cn(
+                  "flex cursor-pointer flex-col items-start rounded-[9px] px-3 py-2 text-left outline-none ring-1 transition-colors focus-visible:ring-2",
+                  jenis === kode
+                    ? "bg-(--navy) text-white ring-(--navy)"
+                    : "bg-white text-(--ink-2) ring-(--line) hover:text-(--ink)"
+                )}
+              >
+                <span className="text-[13px] font-semibold">{label}</span>
+                <span
+                  className={cn(
+                    "text-[11px]",
+                    jenis === kode ? "text-white/70" : "text-(--ink-3)"
+                  )}
+                >
+                  {arti}
+                </span>
+              </button>
+            ))}
           </div>
         </Langkah>
       </ol>

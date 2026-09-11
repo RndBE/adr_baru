@@ -103,7 +103,19 @@ model PrismaTarget {
   /// id_prisma saja.
   site              String  @db.VarChar(50)
 
+  /// "bs" (backsight, titik acuan) atau "fs" (foresight, titik pantau).
+  ///
+  /// Menentukan perintah ukur yang dipakai: `measure_bs` mengirim `*ST2` ke
+  /// instrumen, `measure_fs` mengirim `*ST3`. Sebelumnya operator memilihnya
+  /// tiap kali mengukur, dan satu-satunya jejak jenis prisma adalah kebiasaan
+  /// menamainya berawalan "BS".
+  ///
+  /// TIDAK dipakai perhitungan deformasi — di sana semua prisma masih
+  /// diperlakukan sama.
+  jenis             String  @default("fs") @db.VarChar(2)
+
   @@unique([site, id_prisma], name: "uk_site_prisma")
+  @@index([site, jenis])
   @@map("t_prisma")
 }
 

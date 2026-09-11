@@ -8,6 +8,8 @@ export interface PrismaSlot {
   id_logger?: string;
   nama_prisma: string;
   status_controller?: string;
+  /** "bs" (backsight, titik acuan) atau "fs" (foresight, titik pantau). */
+  jenis?: string;
   target_height: string | number;
   /** Sudut horizontal hasil pembelajaran, format derajat,menit,detik. */
   HA: string;

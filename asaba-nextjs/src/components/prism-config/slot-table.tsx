@@ -88,6 +88,9 @@ export function SlotTable({
             <th scope="col" className={TH}>
               Nama prisma
             </th>
+            <th scope="col" className={TH}>
+              Jenis
+            </th>
             <th
               scope="col"
               className={cn(TH, "text-right")}
@@ -113,7 +116,7 @@ export function SlotTable({
         <tbody>
           {loading && rows.length === 0 ? (
             <tr>
-              <td colSpan={6} className="h-64 text-center">
+              <td colSpan={7} className="h-64 text-center">
                 <Loader2
                   className="mx-auto size-5 animate-spin text-(--navy)"
                   aria-label="Memuat daftar slot"
@@ -122,7 +125,7 @@ export function SlotTable({
             </tr>
           ) : rows.length === 0 ? (
             <tr>
-              <td colSpan={6} className="h-64 px-6 text-center text-[13px] text-(--ink-3)">
+              <td colSpan={7} className="h-64 px-6 text-center text-[13px] text-(--ink-3)">
                 {adaPencarian
                   ? "Tidak ada slot yang cocok dengan pencarian."
                   : "Belum ada slot untuk site ini."}
@@ -169,6 +172,23 @@ export function SlotTable({
                       </span>
                     ) : (
                       <span className="text-[12.5px] text-(--ink-3)">Slot kosong</span>
+                    )}
+                  </td>
+                  {/* Backsight ditandai, foresight tidak: titik acuan biasanya
+                      hanya satu atau dua per site, dan yang perlu cepat
+                      ketemu justru yang sedikit itu. */}
+                  <td className="border-b border-(--line) px-3 py-2.5 whitespace-nowrap">
+                    {!row.registered ? (
+                      <span className="text-[12.5px] text-(--ink-3)">—</span>
+                    ) : row.jenis === "bs" ? (
+                      <span
+                        title="Backsight — titik acuan"
+                        className="inline-flex items-center rounded-[6px] bg-(--navy)/10 px-1.5 py-0.5 font-mono text-[11px] font-semibold text-(--navy)"
+                      >
+                        BS
+                      </span>
+                    ) : (
+                      <span className="font-mono text-[11px] text-(--ink-3)">FS</span>
                     )}
                   </td>
                   <td className={cn(TD_ANGKA, row.registered ? "text-(--ink)" : "text-(--ink-3)")}>

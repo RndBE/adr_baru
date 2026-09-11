@@ -50,7 +50,7 @@ export async function GET(request: NextRequest) {
     const registeredPrisma = await prisma.$queryRaw<Array<Record<string, unknown>>>`
       SELECT
         p.id, p.id_prisma, p.id_logger, p.nama_prisma, p.status_controller,
-        p.target_height, p.HA, p.VA, p.SlopDis, p.site,
+        p.target_height, p.HA, p.VA, p.SlopDis, p.site, p.jenis,
         tp.waktu, tp.N1, tp.E1, tp.Z1, tp.N0, tp.E0, tp.Z0, tp.status_get
       FROM t_prisma p
       LEFT JOIN temp_prisma tp
@@ -81,6 +81,9 @@ export async function GET(request: NextRequest) {
         HA: "Not Set",
         VA: "Not Set",
         SlopDis: "Not Set",
+        // Slot kosong dibawa dengan bawaan yang sama dengan kolomnya, supaya
+        // pilihan di modal tidak berangkat dari keadaan tak terpilih.
+        jenis: "fs",
         registered: false,
       };
     });
@@ -106,10 +109,19 @@ export async function GET(request: NextRequest) {
  * 
  * Body: { slot_id, nama_prisma, target_height, site }
  */
+/** "bs" atau "fs" saja. Kolomnya VARCHAR, jadi tanpa ini nilai apa pun masuk. */
+function bacaJenis(v: unknown): "bs" | "fs" | null {
+  const j = String(v ?? "").trim().toLowerCase();
+  return j === "bs" || j === "fs" ? j : null;
+}
+
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
     const { slot_id, nama_prisma, target_height, site } = body;
+    // Bawaan "fs": hampir semua prisma adalah titik pantau, backsight biasanya
+    // hanya satu atau dua per site.
+    const jenis = bacaJenis(body.jenis) ?? "fs";
 
     if (!slot_id || !nama_prisma) {
       return NextResponse.json(
@@ -168,8 +180,8 @@ export async function POST(request: NextRequest) {
       // sama lalu bertabrakan di primary key, dan hasil hitungannya juga
       // meleset begitu ada baris yang pernah dihapus.
       await tx.$executeRaw`
-        INSERT INTO t_prisma (id_logger, id_prisma, nama_prisma, status_controller, target_height, site)
-        VALUES (${id_logger}, ${id_prisma}, ${nama_prisma}, 'sensor9', ${target_height ?? 0}, ${site})
+        INSERT INTO t_prisma (id_logger, id_prisma, nama_prisma, status_controller, target_height, site, jenis)
+        VALUES (${id_logger}, ${id_prisma}, ${nama_prisma}, 'sensor9', ${target_height ?? 0}, ${site}, ${jenis})
       `;
 
       // 2. INSERT ke temp_prisma
@@ -234,12 +246,15 @@ export async function POST(request: NextRequest) {
  * 3. Kirim recordTarget via publishMqtt
  * 4. Logger balas dengan HA/VA → simpan ke t_prisma
  *
- * Body: { slot_id, nama_prisma?, target_height?, site }
+ * Body: { slot_id, nama_prisma?, target_height?, jenis?, site }
  */
 export async function PUT(request: NextRequest) {
   try {
     const body = await request.json();
     const { slot_id, nama_prisma, target_height, site } = body;
+    // undefined = tidak diubah; nilai tak dikenal diperlakukan sama, bukan
+    // ditulis apa adanya ke kolom.
+    const jenis = body.jenis === undefined ? undefined : bacaJenis(body.jenis);
 
     if (!slot_id) {
       return NextResponse.json(
@@ -275,6 +290,7 @@ export async function PUT(request: NextRequest) {
     const nilai: unknown[] = [];
     if (nama_prisma !== undefined) { updates.push("nama_prisma = ?"); nilai.push(nama_prisma); }
     if (target_height !== undefined) { updates.push("target_height = ?"); nilai.push(target_height); }
+    if (jenis !== undefined && jenis !== null) { updates.push("jenis = ?"); nilai.push(jenis); }
 
     if (updates.length > 0) {
       await prisma.$executeRawUnsafe(
