@@ -35,7 +35,33 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
 export async function DELETE(_req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
     const { id } = await params;
-    await prisma.lokasi.delete({ where: { idlokasi: parseInt(id) } });
+    const idNum = parseInt(id);
+
+    const lokasi = await prisma.lokasi.findUnique({ where: { idlokasi: idNum } });
+    if (!lokasi) return NextResponse.json({ success: false, error: "Tidak ditemukan" }, { status: 404 });
+
+    // t_logger.lokasi_logger menyimpan idlokasi sebagai VARCHAR dan tidak ada
+    // foreign key-nya. Tanpa pemeriksaan ini, menghapus lokasi membuat kolom
+    // LOKASI di daftar logger jatuh balik menampilkan angka id — persis gejala
+    // yang bikin halaman ini terlihat rusak.
+    const dipakai = await prisma.logger.findMany({
+      where: { lokasi_logger: String(idNum) },
+      select: { nama_logger: true },
+    });
+    if (dipakai.length > 0) {
+      return NextResponse.json(
+        {
+          success: false,
+          error:
+            `Lokasi "${lokasi.nama_lokasi}" masih dipakai ${dipakai.length} logger ` +
+            `(${dipakai.map((l) => l.nama_logger).join(", ")}). ` +
+            `Pindahkan logger itu ke lokasi lain dulu.`,
+        },
+        { status: 409 }
+      );
+    }
+
+    await prisma.lokasi.delete({ where: { idlokasi: idNum } });
     return NextResponse.json({ success: true, message: "Lokasi berhasil dihapus" });
   } catch (error) {
     console.error("[DELETE /api/lokasi]", error);

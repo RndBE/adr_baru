@@ -165,6 +165,51 @@ export async function PUT(req: Request, { params }: { params: Promise<{ id: stri
 export async function DELETE(_req: Request, { params }: { params: Promise<{ id: string }> }) {
   try {
     const { id } = await params;
+
+    const logger = await prisma.logger.findUnique({ where: { id: parseInt(id) } });
+    if (!logger) {
+      return NextResponse.json({ success: false, error: "Logger tidak ditemukan" }, { status: 404 });
+    }
+
+    // Tidak ada foreign key di skema ini: menghapus logger hanya membuang satu
+    // baris t_logger dan meninggalkan prisma, config, serta seluruh riwayat
+    // pengukurannya menunjuk id yang sudah tidak ada. Barisnya tidak hilang,
+    // tapi tidak bisa lagi ditelusuri dari mana pun — jadi tolak selagi masih
+    // ada yang menggantung.
+    //
+    // Tabel lain merujuk logger lewat KODE-nya (`id_logger`, mis. "30002"),
+    // bukan lewat primary key `t_logger.id`. t_prisma/config_adr menyimpannya
+    // sebagai INT, tabel data sebagai VARCHAR.
+    const kode = logger.id_logger;
+    const kodeInt = Number.parseInt(kode, 10);
+    const [jumlah] = await prisma.$queryRaw<Array<Record<string, bigint>>>`
+      SELECT
+        (SELECT COUNT(*) FROM t_prisma WHERE id_logger = ${Number.isNaN(kodeInt) ? -1 : kodeInt}) AS prisma,
+        (SELECT COUNT(*) FROM config_adr WHERE id_logger = ${Number.isNaN(kodeInt) ? -1 : kodeInt}) AS config,
+        (SELECT COUNT(*) FROM rts WHERE code_logger = ${kode}) AS data_ukur
+    `;
+    const prismaCount = Number(jumlah.prisma);
+    const configCount = Number(jumlah.config);
+    const dataCount = Number(jumlah.data_ukur);
+
+    if (prismaCount > 0 || configCount > 0 || dataCount > 0) {
+      const bagian = [
+        prismaCount > 0 ? `${prismaCount} prisma` : null,
+        configCount > 0 ? `${configCount} konfigurasi ADR` : null,
+        dataCount > 0 ? `${dataCount} baris data pengukuran` : null,
+      ].filter(Boolean);
+      return NextResponse.json(
+        {
+          success: false,
+          error:
+            `Logger "${logger.nama_logger}" masih dipakai oleh ${bagian.join(", ")}. ` +
+            `Hapus dulu yang menggantung itu, atau biarkan logger ini apa adanya — ` +
+            `menghapusnya membuat data tersebut tidak bisa ditelusuri lagi.`,
+        },
+        { status: 409 }
+      );
+    }
+
     await prisma.logger.delete({ where: { id: parseInt(id) } });
     return NextResponse.json({ success: true, message: "Logger berhasil dihapus" });
   } catch (error) {
