@@ -1,0 +1,28 @@
+-- Mode AutoTracking: menyapu mencari prisma, atau langsung ukur ke sudut rekaman.
+--
+-- Setelan `autoSearch` (PROTOKOL_MQTT_ADR, Bagian D) menentukan apakah
+-- AutoTracking menyapu di tiap target (`*SJ`) atau langsung memutar ke sudut
+-- rekaman lalu mengukur. Sebelumnya aplikasi tidak punya jalan mengubahnya sama
+-- sekali — modenya apa pun yang kebetulan tersimpan di EEPROM instrumen.
+--
+-- KENAPA DISIMPAN, padahal SearchArea dan trackEvery sengaja TIDAK.
+--
+-- Alasan kedua setelan itu tidak disimpan: SearchArea direset instrumen sendiri
+-- tiap PowerOn, dan trackEvery tidak pernah dilaporkan balik. Menyimpannya
+-- berarti memegang angka yang bisa diam-diam tidak lagi benar.
+--
+-- `autoSearch` berbeda dalam dua hal yang menentukan. Ia bertahan di EEPROM
+-- melewati mati-hidup, DAN nilainya selalu ikut di snapshot ack konfigurasi.
+-- Jadi menyimpannya bukan membuat sumber kebenaran kedua yang buta: nilainya
+-- dicocokkan dengan echo tiap kali setelan dikirim, dan selisihnya dilaporkan.
+--
+-- Tanpa disimpan, kolom pilihannya di RTS Config tidak punya nilai awal —
+-- operator tidak akan tahu mode mana yang sedang berlaku sampai ia menekan
+-- Simpan, dan itu justru menekan tombol untuk mencari tahu.
+--
+-- TINYINT(1), bukan BOOLEAN: MySQL memperlakukan keduanya sama, dan kolom bool
+-- lain di skema ini (`t_site.aktif`, `t_site.utm_north`) juga TINYINT.
+--
+-- Bawaannya 1 — sama dengan bawaan firmware menurut dokumen.
+
+ALTER TABLE `config_adr` ADD COLUMN `auto_search` TINYINT(1) NOT NULL DEFAULT 1;

@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { sendRtsConfig } from "@/lib/mqtt";
-import { validasiRetries, validasiCycleTime } from "@/lib/protokol-rts";
+import { validasiRetries, validasiCycleTime, bacaAutoSearch } from "@/lib/protokol-rts";
 
 /**
  * GET /api/config-adr?site=xxx
@@ -60,6 +60,10 @@ export async function PUT(request: Request) {
       retries,
       cycle_time,
     } = body;
+    // Nilai yang tidak dikenal jatuh ke bawaan firmware (true), bukan ditolak:
+    // ia setelan bool, dan menggagalkan seluruh penyimpanan karena satu kolom
+    // pilihan yang salah bentuk tidak sebanding.
+    const auto_search = bacaAutoSearch(body.auto_search) ?? true;
 
     // Kunci baris berdasarkan site, bukan id — id bisa saja dikirim dari
     // tampilan site lain yang belum ter-refresh.
@@ -131,12 +135,12 @@ export async function PUT(request: Request) {
       await prisma.$executeRaw`
         INSERT INTO config_adr
           (id_logger, job_name, prisma_cons, ts_high, coor_x, coor_y, coor_z,
-           step_record, retries, cycle_time, site)
+           step_record, retries, cycle_time, site, auto_search)
         VALUES
           (${parseInt(siteBaru.id_logger, 10)}, ${job_name}, ${parseFloat(prisma_cons)},
            ${parseFloat(ts_high)}, ${parseFloat(coor_x)}, ${parseFloat(coor_y)},
            ${parseFloat(coor_z)}, ${parseInt(step_record)}, ${parseInt(retries)},
-           ${parseInt(cycle_time)}, ${site})
+           ${parseInt(cycle_time)}, ${site}, ${auto_search ? 1 : 0})
       `;
       loggerId = siteBaru.id_logger;
     } else {
@@ -151,7 +155,8 @@ export async function PUT(request: Request) {
           coor_z       = ${parseFloat(coor_z)},
           step_record  = ${parseInt(step_record)},
           retries      = ${parseInt(retries)},
-          cycle_time   = ${parseInt(cycle_time)}
+          cycle_time   = ${parseInt(cycle_time)},
+          auto_search  = ${auto_search ? 1 : 0}
         WHERE site = ${site}
       `;
       loggerId = String(existing[0].id_logger);
@@ -188,6 +193,7 @@ export async function PUT(request: Request) {
       // diganti bawaan oleh firmware persis seperti masalah yang diperbaiki.
       retries: parseInt(retries),
       cycleTime: parseInt(cycle_time),
+      autoSearch: auto_search,
     });
 
     return NextResponse.json({

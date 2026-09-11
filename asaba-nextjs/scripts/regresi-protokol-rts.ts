@@ -8,6 +8,8 @@
  * Jalankan: npx tsx scripts/regresi-protokol-rts.ts
  */
 import {
+  bacaAutoSearch,
+  MEDAN_CONFIG_TER_ECHO,
   nilaiRts,
   nilaiRtsLama,
   klasifikasiPower,
@@ -687,6 +689,40 @@ periksa("Tilt punya label operasi", typeof OPERASI_DIAGNOSTIK.Tilt, "string");
 periksa("ketiga nama diagnostik terdaftar", NAMA_DIAGNOSTIK.length, 3);
 periksa("paket kosong → tidak ada", bacaDiagnostik("Rotate", {}).ada, false);
 periksa("undefined → tidak ada", bacaDiagnostik("Rotate", undefined).ada, false);
+
+// ── autoSearch — mode AutoTracking (Bagian D) ────────────────────────────────
+//
+// Firmware menerima tiga pasang bentuk untuk setelan yang sama. Mengirim bentuk
+// yang tidak dikenal TIDAK menghasilkan galat yang terlihat — hanya balasan
+// terpisah {"autoSearch":{"error":"unknown value"}} yang gampang terlewat, dan
+// modenya diam-diam tidak berubah.
+console.log("\nMode AutoTracking:");
+periksa("true", bacaAutoSearch(true), true);
+periksa("false", bacaAutoSearch(false), false);
+periksa("angka 1", bacaAutoSearch(1), true);
+periksa("angka 0", bacaAutoSearch(0), false);
+periksa('"ON"', bacaAutoSearch("ON"), true);
+periksa('"OFF"', bacaAutoSearch("OFF"), false);
+periksa('"on" huruf kecil', bacaAutoSearch("on"), true);
+periksa('"true" sebagai teks', bacaAutoSearch("true"), true);
+periksa('"1" sebagai teks', bacaAutoSearch("1"), true);
+// Yang tidak dikenal WAJIB null, bukan jatuh ke false: false adalah perintah
+// mematikan penyapuan, dan salah ketik tidak boleh diam-diam jadi perintah.
+periksa("nilai asing → null", bacaAutoSearch("yes"), null);
+periksa("angka lain → null", bacaAutoSearch(2), null);
+periksa("kosong → null", bacaAutoSearch(""), null);
+periksa("undefined → null", bacaAutoSearch(undefined), null);
+
+// "turning" hanya terbit saat autoSearch dimatikan. Tanpa terdaftar di sini,
+// tahap pertama tiap target tampil sebagai kata asing di antarmuka.
+periksa("STATUS_TARGET_SAH memuat turning", STATUS_TARGET_SAH.includes("turning"), true);
+periksa("STATUS_TARGET_SAH memuat search", STATUS_TARGET_SAH.includes("search"), true);
+// autoSearch selalu ikut snapshot ack, jadi selisihnya harus ikut dibandingkan.
+periksa(
+  "autoSearch termasuk medan yang echo-nya dicocokkan",
+  MEDAN_CONFIG_TER_ECHO.includes("autoSearch"),
+  true
+);
 
 console.log(`\n${gagal === 0 ? "✅" : "❌"} ${lulus} lulus, ${gagal} gagal`);
 process.exit(gagal === 0 ? 0 : 1);

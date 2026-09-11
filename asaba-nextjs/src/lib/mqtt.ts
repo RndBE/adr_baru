@@ -129,6 +129,8 @@ export async function sendRtsConfig(
     stepRecord: number;
     retries: number;
     cycleTime: number;
+    /** Mode AutoTracking — lihat bacaAutoSearch() di protokol-rts.ts. */
+    autoSearch: boolean;
   }
 ): Promise<boolean> {
   const topicTarget = topikPerintah(loggerId);
@@ -142,6 +144,7 @@ export async function sendRtsConfig(
       stepRecord: config.stepRecord,
       retries: config.retries,
       cycleTime: config.cycleTime,
+      autoSearch: config.autoSearch,
     },
   };
   return publishMqtt(topicTarget, payload);

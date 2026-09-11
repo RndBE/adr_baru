@@ -251,20 +251,6 @@ const LABEL_NILAI_POWER: Record<"on" | "off", Record<string, string>> = {
   },
 };
 
-/** Balasan yang menutup rangkaian power dengan sukses. */
-const NILAI_SELESAI_POWER = "done";
-
-/**
- * Balasan yang menutup rangkaian power dengan GAGAL.
- *
- * `Failed` = instrumen tidak menjawab setelah 8 percobaan (PowerOn).
- * `RTS Off` = urutan dibatalkan karena instrumen tidak menjawab (PowerOff).
- */
-const NILAI_GAGAL_POWER: Record<"on" | "off", string[]> = {
-  on: ["Failed"],
-  off: ["RTS Off"],
-};
-
 const LABEL_NILAI_TRACKING: Record<string, string> = {
   start: "Menyiapkan pengukuran",
   scheduled: "Dijalankan oleh jadwal",
@@ -275,6 +261,10 @@ const LABEL_NILAI_TRACKING: Record<string, string> = {
 
 const LABEL_STATUS_TARGET: Record<string, string> = {
   search: "mencari",
+  // Hanya muncul saat autoSearch dimatikan: tahap pertama tiap target jadi
+  // memutar ke sudut rekaman, bukan menyapu. Tanpa entri ini kata "turning"
+  // tampil mentah di antarmuka.
+  turning: "memutar",
   measure: "mengukur",
   done: "selesai",
   failed: "gagal",
@@ -324,6 +314,7 @@ const LABEL_MEDAN_CONFIG: Record<string, string> = {
   stepRecord: "Step Record",
   retries: "Retries",
   cycleTime: "Cycle Time",
+  autoSearch: "Mode AutoTracking",
 };
 
 type KonfirmasiConfig = {
@@ -394,9 +385,23 @@ type RtsConfig = {
   stepRecord: string;
   retries: string;
   cycleTime: string;
+  /**
+   * Mode AutoTracking. Boolean, bukan string seperti medan lain: ia pilihan
+   * dua nilai, bukan angka yang perlu bisa dikosongkan sambil diketik.
+   */
+  autoSearch: boolean;
 };
 
 // --- Jadwal Schedules Type ---
+/** Satu baris `scheduling_task` seperti dikembalikan GET /api/scheduling. */
+type BarisJadwalApi = {
+  id: string;
+  nama: string;
+  status: number;
+  time: string | null;
+  days: number;
+};
+
 type RunSchedule = {
   id: string;
   nama: string;
@@ -1257,6 +1262,7 @@ export default function KontrolAdrPage() {
     stepRecord: "",
     retries: "",
     cycleTime: "",
+    autoSearch: true,
   });
 
   // Ditandai salah HANYA setelah kolomnya diisi. Kolom kosong bernilai ""
@@ -1303,7 +1309,7 @@ export default function KontrolAdrPage() {
           runs: []
         }));
 
-        json.data.forEach((row: any) => {
+        (json.data as BarisJadwalApi[]).forEach((row) => {
           const dayId = row.days;
           const dayObj = grouped[dayId - 1];
           if (dayObj) {
@@ -1329,7 +1335,9 @@ export default function KontrolAdrPage() {
     setJadwalSaving(true);
     try {
       // Flatten
-      const payload: any[] = [];
+      // Bentuknya mengikuti apa yang dibaca PUT /api/scheduling: hanya id,
+      // status, dan time. `nama` dan `days` tidak pernah diubah dari sini.
+      const payload: Array<{ id: string; status: number; time: string }> = [];
       schedules.forEach(s => {
         // If day is entirely inactive, we force all runs in that day to status 0
         s.runs.forEach(r => {
@@ -1410,6 +1418,7 @@ export default function KontrolAdrPage() {
           stepRecord:  String(d.step_record ?? ""),
           retries:     String(d.retries     ?? ""),
           cycleTime:   String(d.cycle_time  ?? ""),
+          autoSearch:  d.auto_search === undefined ? true : Boolean(d.auto_search),
         };
         setRtsConfig(dimuat);
         // Kelompok ini BOLEH dilewati kalau tidak diubah: sumber kebenarannya
@@ -1467,6 +1476,9 @@ export default function KontrolAdrPage() {
       prismConst: String(rtsConfig.prismaConst ?? ""),
       tsHigh: String(rtsConfig.tsHigh ?? ""),
       locCoor: [rtsConfig.coordX, rtsConfig.coordY, rtsConfig.coordZ].map((v) => String(v ?? "")).join(","),
+      // Echo-nya boolean; dinormalkan ke string yang sama supaya pembanding
+      // tidak melaporkan selisih palsu antara `false` dan "false".
+      autoSearch: String(rtsConfig.autoSearch),
     };
     setKonfirmasiConfig(null);
 
@@ -1485,6 +1497,7 @@ export default function KontrolAdrPage() {
           step_record: rtsConfig.stepRecord,
           retries:     rtsConfig.retries,
           cycle_time:  rtsConfig.cycleTime,
+          auto_search: rtsConfig.autoSearch,
         }),
       });
       const json = await res.json();
@@ -1758,8 +1771,9 @@ export default function KontrolAdrPage() {
             coordY:      String(json.data.coor_y      ?? ""),
             coordZ:      String(json.data.coor_z      ?? ""),
             stepRecord:  String(json.data.step_record ?? ""),
-            retries:     String(json.data.retries     ?? "1"),
-            cycleTime:   String(json.data.cycle_time  ?? "1"),
+            retries:     String(json.data.retries     ?? ""),
+            cycleTime:   String(json.data.cycle_time  ?? ""),
+            autoSearch:  json.data.auto_search === undefined ? true : Boolean(json.data.auto_search),
           });
         }
       })
@@ -1806,8 +1820,11 @@ export default function KontrolAdrPage() {
 
       // Kode benar — set semua prisma card ke "Running..." (seperti PHP)
       setPrismaCards(prev => prev.map(c => ({ ...c, status: "Running..." as const, y: "-", x: "-", z: "-" })));
-      // Data akan masuk real-time via MQTT rts-30002, jadi tidak perlu polling
-    } catch (err) {
+      // Hasil per prisma menyusul lewat MQTT, jadi tidak perlu polling.
+      //
+      // Topiknya `Logger_<idAlat>`, bukan "rts-<idAlat>" seperti tertulis di
+      // versi sebelumnya — nama itu tidak ada di protokol mana pun.
+    } catch {
       setAccessCodeError("Terjadi kesalahan jaringan. Coba lagi.");
       setIsControlRunning(false);
     }
@@ -2684,6 +2701,50 @@ export default function KontrolAdrPage() {
                         {RENTANG_CYCLE_TIME_MS.min}–{RENTANG_CYCLE_TIME_MS.maks}
                       </p>
                     )}
+                  </div>
+                </div>
+
+                {/* Mode AutoTracking (`autoSearch`).
+
+                    Menyala: tiap target disapu dulu mencari prismanya, dan
+                    sapuannya memakai rentang SearchArea. Dimatikan: tiap target
+                    langsung diputar ke sudut rekaman lalu diukur, perintah
+                    penyapuan dan penyetelan jendelanya dua-duanya dilewati —
+                    sehingga SearchArea jadi tidak terpakai sampai mode ini
+                    dinyalakan lagi.
+
+                    Ikut payload setelan yang sama, bukan perintah terpisah,
+                    karena konfirmasinya memang menumpang ack kolektif. */}
+                <div className="mt-3">
+                  <label className={LABEL}>Mode AutoTracking</label>
+                  <div className="grid grid-cols-2 gap-2">
+                    {([
+                      [true, "Sapu dulu", "cari prisma tiap target"],
+                      [false, "Langsung ukur", "putar ke sudut rekaman"],
+                    ] as const).map(([nilai, label, arti]) => (
+                      <button
+                        key={String(nilai)}
+                        type="button"
+                        onClick={() => setRtsConfig({ ...rtsConfig, autoSearch: nilai })}
+                        aria-pressed={rtsConfig.autoSearch === nilai}
+                        className={cn(
+                          "flex cursor-pointer flex-col items-start rounded-[9px] px-3 py-2 text-left outline-none ring-1 transition-colors focus-visible:ring-2",
+                          rtsConfig.autoSearch === nilai
+                            ? "bg-(--navy) text-white ring-(--navy)"
+                            : "bg-white text-(--ink-2) ring-(--line) hover:text-(--ink)"
+                        )}
+                      >
+                        <span className="text-[13px] font-semibold">{label}</span>
+                        <span
+                          className={cn(
+                            "text-[11px]",
+                            rtsConfig.autoSearch === nilai ? "text-white/70" : "text-(--ink-3)"
+                          )}
+                        >
+                          {arti}
+                        </span>
+                      </button>
+                    ))}
                   </div>
                 </div>
               </fieldset>

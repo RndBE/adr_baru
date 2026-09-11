@@ -100,8 +100,15 @@ export function klasifikasiTracking(nilai: string): KelasBalasan {
   return "kemajuan";
 }
 
-/** Nilai `status` yang sah pada pesan kemajuan per target. */
-export const STATUS_TARGET_SAH = ["search", "measure", "done", "failed"] as const;
+/**
+ * Nilai `status` yang sah pada pesan kemajuan per target.
+ *
+ * "turning" HANYA muncul saat setelan `autoSearch` dimatikan: tahap pertama tiap
+ * target bukan lagi menyapu, melainkan memutar ke sudut rekaman. Dokumen
+ * menyebutnya satu-satunya nilai status baru, dan memperingatkan sisi web perlu
+ * mengenalinya — kalau tidak, tahap itu tampil sebagai kata asing.
+ */
+export const STATUS_TARGET_SAH = ["search", "turning", "measure", "done", "failed"] as const;
 
 /**
  * Baca satu balasan AutoTracking, dua bentuk sekaligus.
@@ -736,6 +743,43 @@ export function bacaBalasanTilt(paket: unknown): BacaanTilt {
 // penolakan datang sebagai `error_trackEvery`.
 
 /** Interval yang diterima firmware. `0` mematikan jadwal. */
+// ── autoSearch — mode AutoTracking (Bagian D) ────────────────────────────────
+//
+//   {"set_30002":{"command":"set_rts","autoSearch":false}}
+//
+// Menentukan apakah AutoTracking menyapu mencari prisma di tiap target, atau
+// langsung memutar ke sudut rekaman lalu mengukur. Tersimpan di EEPROM, jadi
+// bertahan setelah alat mati. Bawaannya true.
+//
+// Yang berubah saat dimatikan:
+//   - tahap pertama tiap target bernama "turning", bukan "search";
+//   - {"AutoSearch":{"value":1}} per target tidak lagi terbit;
+//   - SearchArea tidak terpakai sampai autoSearch dinyalakan lagi.
+//
+// Arti `failed` ikut bergeser: dengan autoSearch berarti prisma tidak ketemu
+// saat disapu, tanpa autoSearch berarti pengukurannya sendiri tidak
+// menghasilkan jarak.
+//
+// Nilai yang tidak dikenal dibalas SENDIRI di luar ack kolektif:
+//   {"autoSearch":{"error":"unknown value"}}
+
+/**
+ * Normalkan nilai autoSearch ke boolean.
+ *
+ * Firmware menerima `true`/`false`, `1`/`0`, dan `"ON"`/`"OFF"`. Dinormalkan di
+ * satu tempat supaya jalur mana pun mengirim bentuk yang sama — mengirim
+ * bentuk lain yang kebetulan tidak dikenal tidak menghasilkan galat yang
+ * terlihat, hanya balasan terpisah yang mudah terlewat.
+ */
+export function bacaAutoSearch(v: unknown): boolean | null {
+  if (typeof v === "boolean") return v;
+  if (typeof v === "number") return v === 1 ? true : v === 0 ? false : null;
+  const t = String(v ?? "").trim().toLowerCase();
+  if (t === "true" || t === "1" || t === "on") return true;
+  if (t === "false" || t === "0" || t === "off") return false;
+  return null;
+}
+
 export const NILAI_TRACK_EVERY = [0, 5, 10, 15, 20, 30, 60] as const;
 
 export function validasiTrackEvery(v: unknown): string | null {
@@ -935,7 +979,15 @@ export function validasiCycleTime(v: unknown): string | null {
 // diam-diam diganti bawaan saat alat menyala berikutnya.
 
 /** Medan yang nilainya ikut dikembalikan logger, jadi bisa dicocokkan. */
-export const MEDAN_CONFIG_TER_ECHO = ["jobName", "prismConst", "tsHigh", "locCoor"];
+export const MEDAN_CONFIG_TER_ECHO = [
+  "jobName",
+  "prismConst",
+  "tsHigh",
+  "locCoor",
+  // Selalu ikut di snapshot ack, jadi selisih antara yang dikirim dan yang
+  // benar-benar berlaku ketahuan tanpa perintah tambahan.
+  "autoSearch",
+];
 
 export type KonfirmasiConfigRts = {
   /** true = balasan setelan; false = pesan lain yang harus diabaikan. */

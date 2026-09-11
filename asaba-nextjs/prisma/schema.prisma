@@ -400,6 +400,13 @@ model ConfigAdr {
   step_record Int
   retries     Int
   cycle_time  Int
+  /// Mode AutoTracking: true = menyapu mencari prisma di tiap target (`*SJ`),
+  /// false = langsung putar ke sudut rekaman lalu ukur.
+  ///
+  /// Disimpan — beda dari SearchArea dan trackEvery yang sengaja tidak — karena
+  /// nilainya bertahan di EEPROM instrumen DAN selalu ikut di snapshot ack
+  /// konfigurasi, jadi bisa dicocokkan, bukan ditebak.
+  auto_search Boolean @default(true)
   /// Konfigurasi RTS bersifat per-site, bukan per-logger: satu unit RTS bisa
   /// dipakai di beberapa site dengan job name dan titik origin yang berbeda.
   ///
