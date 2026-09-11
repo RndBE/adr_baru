@@ -52,46 +52,39 @@ function JudulLembar({ ringkas = false }: { ringkas?: boolean }) {
 }
 
 /**
- * Kop lembar: lambang instansi pemilik sistem.
+ * Kop lembar: logo pemilik sistem.
  *
- * Warnanya TIDAK diubah — di sini latarnya putih, jadi teks hitam dan lambang
- * kuning-navy-nya justru terbaca apa adanya. Versi berteks putih hanya dipakai
- * di sidebar yang latarnya navy.
+ * Warnanya TIDAK diubah — di sini latarnya putih, jadi navy dan busur
+ * kuningnya justru terbaca apa adanya. Versi putih penuh (knockout) hanya
+ * dipakai di sidebar yang latarnya navy.
  *
- * Tempatnya di atas judul, bukan di kaki bersama logo pelaksana: halaman ini
- * dibaca sebagai lembar ukur, dan lembar resmi berkop instansinya di kepala.
+ * Tempatnya di atas judul, bukan di kaki: halaman ini dibaca sebagai lembar
+ * ukur, dan lembar resmi berkop pemiliknya di kepala.
+ *
+ * Lebarnya dipatok lebih sempit dari kop BBWS sebelumnya (420px): lockup ini
+ * 4,1:1, bukan 8,2:1, jadi pada lebar yang sama tingginya dua kali lipat.
  */
 function KopInstansi({ className }: { className?: string }) {
   return (
     <img
-      src="/logo_bbws.png"
-      alt="Kementerian Pekerjaan Umum dan Perumahan Rakyat — Direktorat Jenderal Sumber Daya Air — Balai Besar Wilayah Sungai Ciliwung Cisadane"
-      width={2370}
-      height={288}
-      className={cn("h-auto w-full max-w-[420px] object-contain", className)}
+      src="/logo_asaba.png"
+      alt="PT Asaba Surveying Solutions"
+      width={540}
+      height={131}
+      className={cn("h-auto w-full max-w-[240px] object-contain", className)}
     />
   );
 }
 
+/**
+ * Kaki lembar: hanya baris hak cipta. Logo Beacon Engineering dan STESY yang
+ * dulu mendampinginya sudah dihapus, jadi ini <p> tunggal, bukan baris flex.
+ */
 function KakiMerek({ className }: { className?: string }) {
   return (
-    <div className={cn("flex items-center gap-6", className)}>
-      <div className="flex items-center gap-5">
-        <img
-          src="/logo_be.png"
-          alt="Beacon Engineering"
-          style={{ width: 76, height: 28 }}
-          className="object-contain"
-        />
-        <img
-          src="/logostesy.png"
-          alt="STESY"
-          style={{ width: 86, height: 28 }}
-          className="object-contain"
-        />
-      </div>
-      <p className="text-[12px] text-(--ink-3)">© Beacon Engineering {TAHUN}</p>
-    </div>
+    <p className={cn("text-[12px] text-(--ink-3)", className)}>
+      © Asaba Surveying {TAHUN}
+    </p>
   );
 }
 
@@ -161,7 +154,7 @@ export default function LoginPage() {
           />
         </div>
 
-        <KakiMerek className="justify-between border-t border-(--line) pt-5" />
+        <KakiMerek className="border-t border-(--line) pt-5" />
       </section>
 
       {/* ── Kartu masuk ─────────────────────────────────────────────────────
@@ -169,7 +162,7 @@ export default function LoginPage() {
           batas yang jelas dan bayangannya bernada navy, senada aplikasi. */}
       <main className="flex w-full flex-col justify-center px-5 py-10 sm:px-8 lg:w-[44%] lg:px-10 xl:px-14 2xl:w-[42%]">
         <div className="mx-auto mb-8 w-full max-w-[440px] lg:hidden">
-          <KopInstansi className="mb-6 max-w-[320px]" />
+          <KopInstansi className="mb-6 max-w-[200px]" />
           <JudulLembar ringkas />
         </div>
 
@@ -301,7 +294,7 @@ export default function LoginPage() {
           </form>
         </div>
 
-        <KakiMerek className="mx-auto mt-8 w-full max-w-[440px] flex-col items-center gap-3 lg:hidden" />
+        <KakiMerek className="mx-auto mt-8 w-full max-w-[440px] text-center lg:hidden" />
       </main>
     </div>
   );

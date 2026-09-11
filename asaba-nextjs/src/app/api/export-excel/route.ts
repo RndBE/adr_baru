@@ -124,7 +124,7 @@ export async function POST(request: NextRequest) {
 
     // Generate Excel
     const workbook = new ExcelJS.Workbook();
-    workbook.creator = "Beacon Engineering";
+    workbook.creator = "Asaba Surveying";
     const sheet = workbook.addWorksheet("Hasil Pengukuran");
 
     // Title
