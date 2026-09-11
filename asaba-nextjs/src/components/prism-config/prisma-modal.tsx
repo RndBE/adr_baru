@@ -1,11 +1,14 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { AlertCircle, Crosshair, Gauge, Loader2, Search, Target } from "lucide-react";
+import { AlertCircle, Crosshair, Gauge, Loader2, Ruler, Search, Target } from "lucide-react";
 import mqtt from "mqtt";
 import { cn } from "@/lib/utils";
 import { nilaiBalasanLogger, balasanSelesai, balasanGagal } from "@/lib/balasan-logger";
 import {
+  bacaBalasanUkur,
+  JENIS_UKUR,
+  type BalasanUkur,
   bacaManualHaVa,
   klasifikasiTurningTarget,
 } from "@/lib/protokol-rts";
@@ -178,6 +181,28 @@ export function PrismaModal({
     slot.jenis === "bs" ? "bs" : "fs"
   );
 
+  /**
+   * Uji tembak: benar-benar mengukur dengan perintah milik jenis yang dipilih.
+   *
+   * Memilih backsight atau foresight saja tidak membuktikan apa pun — ia cuma
+   * label. Yang membuktikan ada prisma di sudut itu adalah pantulan yang
+   * kembali. `measure_bs` mengirim `*ST2`, `measure_fs` mengirim `*ST3`, dan
+   * keduanya membalas HADMS/VADMS/SDis/HD kalau kena. Gagal ditandai keempat
+   * medan DIKOSONGKAN — itu satu-satunya penanda gagal yang bisa dipercaya,
+   * dan ia datang MENDAHULUI "failed".
+   */
+  const [ukurStatus, setUkurStatus] = useState<StatusPerintah>("idle");
+  const [hasilUkur, setHasilUkur] = useState<BalasanUkur | null>(null);
+
+  /**
+   * Jenis yang SEDANG diuji, dibaca handler MQTT.
+   *
+   * Handler dipasang sekali dengan dependency yang tidak memuat `jenis`,
+   * sehingga membacanya langsung akan selalu mendapat nilai render pertama.
+   * Ref ini juga menolak balasan jenis lain yang kebetulan lewat.
+   */
+  const ukurJenisRef = useRef<"bs" | "fs" | null>(null);
+
   // Diturunkan, bukan disimpan sebagai state.
   //
   // Versi lama menyimpannya di useState dan effect-nya HANYA pernah menyetel
@@ -192,7 +217,10 @@ export function PrismaModal({
   // pembacaan manual yang membuktikan instrumen menjawab. Keduanya sama-sama
   // berakhir dengan teleskop mengarah ke target, dan itulah yang direkam.
   const targetSiap = autoSearchStatus === "done" || manualStatus === "done";
-  const simpanEnabled = targetSiap && (mode === "set" || goTargetStatus === "done");
+  // Uji tembak WAJIB lulus. Tanpa itu jenis prisma cuma label yang belum pernah
+  // dibuktikan, dan slot bisa tersimpan menunjuk sudut yang tidak ada prismanya.
+  const simpanEnabled =
+    targetSiap && ukurStatus === "done" && (mode === "set" || goTargetStatus === "done");
 
   // Batas menunggu balasan, diturunkan dari tabel durasi maksimum di protokol
   // (Bagian A): auto_search 30 detik, turning_target 20 detik. Diberi margin
@@ -226,6 +254,19 @@ export function PrismaModal({
     }, 12_000);
     return () => clearTimeout(timer);
   }, [manualStatus]);
+
+  // Tabel durasi protokol (Bagian A) menyebut measure_bs/measure_fs 10 detik.
+  // Diberi margin karena balasannya "bisa datang terlambat beberapa detik".
+  useEffect(() => {
+    if (ukurStatus !== "waiting") return;
+    const timer = setTimeout(() => {
+      setUkurStatus("failed");
+      ukurJenisRef.current = null;
+      setError("Uji tembak tidak menjawab dalam 20 detik. Periksa koneksi logger, lalu coba lagi.");
+      setLoading(false);
+    }, 20_000);
+    return () => clearTimeout(timer);
+  }, [ukurStatus]);
 
   useEffect(() => {
     if (goTargetStatus !== "waiting") return;
@@ -328,6 +369,45 @@ export function PrismaModal({
           setLoading(false);
         }
 
+        // 2c. Balasan uji tembak — `MeasureBS` atau `MeasureFS`.
+        //
+        //     Dipilah lewat NAMA KUNCI balasan, bukan dari perintah yang
+        //     dikirim, dan hanya jenis yang sedang diuji yang diterima.
+        //     Hasilnya datang SEBELUM "done", jadi jangan menunggu "done" dulu
+        //     baru membaca angkanya.
+        const jenisUji = ukurJenisRef.current;
+        if (jenisUji) {
+          const bUkur = bacaBalasanUkur(data[JENIS_UKUR[jenisUji].balasan]);
+          if (bUkur.jenis === "hasil") {
+            if (bUkur.kosong) {
+              // Keempat medan dikosongkan — satu-satunya penanda gagal yang
+              // bisa dipercaya, dan ia mendahului "failed".
+              setUkurStatus("failed");
+              setHasilUkur(null);
+              ukurJenisRef.current = null;
+              setError(
+                `Uji tembak ${JENIS_UKUR[jenisUji].label} tidak mendapat pantulan. Tidak ada prisma di sudut ini, atau lintasannya terhalang.`
+              );
+              setLoading(false);
+            } else {
+              setHasilUkur(bUkur);
+              setUkurStatus("done");
+              ukurJenisRef.current = null;
+              setLoading(false);
+            }
+          } else if (bUkur.jenis === "gagal") {
+            setUkurStatus("failed");
+            setHasilUkur(null);
+            ukurJenisRef.current = null;
+            setError(
+              `Uji tembak ${JENIS_UKUR[jenisUji].label} gagal. Periksa bidikan dan halangan di lintasan.`
+            );
+            setLoading(false);
+          }
+          // "tahap" (start/measure) dan "selesai" dibiarkan — angkanya sudah
+          // ditangkap di cabang "hasil" sebelum "done" datang.
+        }
+
         // 3. Balasan turning_target — bernama `TurningTarget` (PascalCase).
         //
         //    Revisi protokol sebelumnya menulis nama balasannya huruf kecil;
@@ -390,6 +470,10 @@ export function PrismaModal({
     setManualStatus("idle");
     setManualHaVa(null);
     setAutoSearchStatus("waiting");
+    // Uji tembak ikut batal: hasilnya milik arah teleskop yang lama.
+    setUkurStatus("idle");
+    setHasilUkur(null);
+    ukurJenisRef.current = null;
     try {
       const res = await fetch("/api/kontrol/auto-search", {
         method: "POST",
@@ -411,6 +495,11 @@ export function PrismaModal({
     setError("");
     setManualHaVa(null);
     setManualStatus("waiting");
+    // Uji tembak lama dibatalkan: operator baru saja membidik ulang di
+    // lapangan, jadi pantulan yang tadi bukan lagi milik arah sekarang.
+    setUkurStatus("idle");
+    setHasilUkur(null);
+    ukurJenisRef.current = null;
     try {
       const res = await fetch("/api/kontrol/manual-hava", {
         method: "POST",
@@ -427,6 +516,44 @@ export function PrismaModal({
     }
   };
 
+  const handleUjiTembak = async () => {
+    setLoading(true);
+    setError("");
+    setHasilUkur(null);
+    ukurJenisRef.current = jenis;
+    setUkurStatus("waiting");
+    try {
+      const res = await fetch("/api/kontrol/measure", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ site, jenis }),
+      });
+      const json = await res.json();
+      if (!json.success) throw new Error(json.error || "Gagal mengirim perintah ukur");
+      // Hasilnya datang lewat MQTT sebagai MeasureBS / MeasureFS.
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : "Terjadi kesalahan");
+      setUkurStatus("idle");
+      ukurJenisRef.current = null;
+      setLoading(false);
+    }
+  };
+
+  /**
+   * Mengganti jenis membatalkan uji tembak sebelumnya.
+   *
+   * Perintahnya memang berbeda — `*ST2` lawan `*ST3` — jadi lulus sebagai
+   * foresight bukan bukti lulus sebagai backsight. Menyimpannya dengan jenis
+   * yang belum pernah ditembakkan akan mencatat sesuatu yang tidak diuji.
+   */
+  const gantiJenis = (kode: "bs" | "fs") => {
+    if (kode === jenis) return;
+    setJenis(kode);
+    setUkurStatus("idle");
+    setHasilUkur(null);
+    ukurJenisRef.current = null;
+  };
+
   const handleGoToTarget = async () => {
     setLoading(true);
     setError("");
@@ -437,6 +564,10 @@ export function PrismaModal({
     setAutoSearchStatus("idle");
     setManualStatus("idle");
     setManualHaVa(null);
+    // Uji tembak ikut batal: hasilnya milik arah teleskop yang lama.
+    setUkurStatus("idle");
+    setHasilUkur(null);
+    ukurJenisRef.current = null;
     try {
       // `site` wajib dikirim walau endpoint-nya menerima tanpa itu: slot "P1"
       // ada di beberapa site dan menunjuk target fisik berbeda, jadi tanpa site
@@ -519,7 +650,9 @@ export function PrismaModal({
             title={
               simpanEnabled
                 ? undefined
-                : `Selesaikan langkah ${nomorCari} lebih dulu.`
+                : !targetSiap
+                  ? `Selesaikan langkah ${nomorCari} lebih dulu.`
+                  : `Uji tembak di langkah ${nomorJenis} harus lulus dulu.`
             }
             className={TOMBOL_UTAMA}
           >
@@ -707,7 +840,13 @@ export function PrismaModal({
             `measure_bs` (*ST2), foresight `measure_fs` (*ST3). Sebelumnya
             operator memilihnya tiap kali mengukur di modal Arahkan teleskop,
             dan jenisnya tidak tersimpan di mana pun. */}
-        <Langkah nomor={nomorJenis} judul="Jenis prisma">
+        <Langkah
+          nomor={nomorJenis}
+          judul="Jenis prisma & uji tembak"
+          status={ukurStatus}
+          nonaktif={!targetSiap}
+          alasanNonaktif="Kunci prismanya lebih dulu."
+        >
           <div className="grid grid-cols-2 gap-2">
             {([
               ["fs", "Foresight", "Titik pantau"],
@@ -716,7 +855,8 @@ export function PrismaModal({
               <button
                 key={kode}
                 type="button"
-                onClick={() => setJenis(kode)}
+                onClick={() => gantiJenis(kode)}
+                disabled={ukurStatus === "waiting"}
                 aria-pressed={jenis === kode}
                 className={cn(
                   "flex cursor-pointer flex-col items-start rounded-[9px] px-3 py-2 text-left outline-none ring-1 transition-colors focus-visible:ring-2",
@@ -736,6 +876,62 @@ export function PrismaModal({
                 </span>
               </button>
             ))}
+          </div>
+
+          {/* Memilih jenis saja tidak membuktikan apa pun. Tombol ini benar-benar
+              menembak dengan perintah milik jenis yang dipilih, dan Simpan baru
+              terbuka kalau ada pantulan yang kembali. */}
+          <div className="mt-2.5 flex flex-col gap-2.5">
+            <button
+              type="button"
+              onClick={handleUjiTembak}
+              disabled={!targetSiap || ukurStatus === "waiting"}
+              className={cn(
+                TOMBOL_SEKUNDER,
+                "w-full",
+                ukurStatus === "done"
+                  ? "ring-(--st-normal)/40 text-(--st-normal)"
+                  : "ring-(--navy)/30 text-(--navy)"
+              )}
+            >
+              {ukurStatus === "waiting" ? (
+                <Loader2 className="size-4 animate-spin" />
+              ) : (
+                <Ruler className="size-4" />
+              )}
+              Uji tembak sebagai {JENIS_UKUR[jenis].label}
+            </button>
+
+            <StatusPerintahChip
+              status={ukurStatus}
+              teksMenunggu="Menembak…"
+              teksSelesai="Prisma terdeteksi"
+              teksGagal="Tidak ada pantulan"
+            />
+
+            {/* Sudut ditulis apa adanya — measure_bs/measure_fs termasuk yang
+                kena bug sudut. Jaraknya TIDAK kena: SDis dan HD angka sungguhan,
+                dan justru itu buktinya ada prisma di sana. */}
+            {hasilUkur && (
+              <dl className="grid grid-cols-2 gap-x-4 gap-y-1.5 rounded-[10px] bg-(--paper) px-3 py-2 font-mono text-[12px] tabular-nums">
+                <div>
+                  <dt className="font-sans text-[11px] text-(--ink-3)">HA</dt>
+                  <dd className="text-(--ink)">{hasilUkur.HADMS || "—"}</dd>
+                </div>
+                <div>
+                  <dt className="font-sans text-[11px] text-(--ink-3)">VA</dt>
+                  <dd className="text-(--ink)">{hasilUkur.VADMS || "—"}</dd>
+                </div>
+                <div>
+                  <dt className="font-sans text-[11px] text-(--ink-3)">Jarak miring</dt>
+                  <dd className="text-(--ink)">{hasilUkur.SDis || "—"} m</dd>
+                </div>
+                <div>
+                  <dt className="font-sans text-[11px] text-(--ink-3)">Jarak datar</dt>
+                  <dd className="text-(--ink)">{hasilUkur.HD || "—"} m</dd>
+                </div>
+              </dl>
+            )}
           </div>
         </Langkah>
       </ol>
