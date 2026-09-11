@@ -33,8 +33,8 @@ import {
   fmtJam,
   fmtTanggal,
   parseNum,
-  waktuMsWib,
 } from "@/components/monitoring/format";
+import { hitungStatusRts } from "@/lib/status-rts";
 import {
   ringkasPrisma,
   type LogKontrolRow,
@@ -131,15 +131,21 @@ function RtsDashboard({
     keepPreviousData: true,
   });
 
-  // ── Telemetri & koneksi — aturan yang sama dengan versi sebelumnya ──
-  // Terhubung = data terakhir masuk dalam 1 jam (WIB); RTS terhubung juga
-  // butuh power (sensor14) atau sedang running (sensor16).
+  // ── Telemetri & koneksi ──
+  // Rumusnya dari lib/status-rts.ts, satu tempat untuk seluruh aplikasi.
+  // Sebelumnya dihitung di sini DAN di useRtsConnectionStatus dengan cara yang
+  // sedikit berbeda, sehingga Beranda dan halaman lain bisa menjawab berbeda
+  // untuk perangkat yang sama pada saat yang sama.
   const tempRts = detail?.tempData?.[0];
-  const waktuMs = waktuMsWib(tempRts?.waktu);
-  const dataSegar = waktuMs !== null && waktuMs >= nowMs - 60 * 60 * 1000;
-  const rtsRunning = Number(tempRts?.sensor16) === 1;
-  const rtsPowerOn = Number(tempRts?.sensor14) === 1;
-  const rtsTerhubung = dataSegar && (rtsRunning || rtsPowerOn);
+  const statusRts = hitungStatusRts(
+    tempRts?.waktu,
+    tempRts?.sensor14,
+    tempRts?.sensor16,
+    nowMs
+  );
+  const dataSegar = statusRts.loggerTerhubung;
+  const rtsRunning = statusRts.rtsMengukur;
+  const rtsTerhubung = statusRts.rtsAktif;
   const sdOk = Number(tempRts?.sensor17 ?? 0) === 1;
 
   // ── Hasil sesi ──
@@ -216,6 +222,7 @@ function RtsDashboard({
         sdOk={sdOk}
         loggerTerhubung={dataSegar}
         rtsTerhubung={rtsTerhubung}
+        labelRts={statusRts.labelRts}
         rtsRunning={rtsRunning}
         waktuData={tempRts?.waktu ? fmtDate(tempRts.waktu, { detik: true }) : "—"}
         tiltX={String(tempRts?.sensor24 ?? 0)}
@@ -419,10 +426,13 @@ function BerandaContent() {
     router.replace(`/beranda?${q}`, { scroll: false });
   };
 
-  // Kalau site belum punya data sama sekali, jatuh ke logger RTS pertama supaya
-  // panel telemetri tetap punya sesuatu untuk ditampilkan.
-  const activeLogger =
-    rtsLoggers.find((l) => l.id_logger === activeSite?.id_logger) ?? rtsLoggers[0];
+  // Logger site ini, TANPA cadangan "logger RTS pertama".
+  //
+  // Cadangan itu membuat panel telemetri menampilkan angka milik unit lain
+  // untuk site yang belum punya logger — terlihat seperti data site ini,
+  // padahal bukan. Kontrol ADR sudah tidak memakainya; Beranda mengikuti,
+  // supaya kedua halaman tidak lagi bicara tentang perangkat yang berbeda.
+  const activeLogger = rtsLoggers.find((l) => l.id_logger === activeSite?.id_logger);
   const peringatan = activeSiteSlug ? siteBadge(activeSiteSlug).peringatan : null;
 
   return (

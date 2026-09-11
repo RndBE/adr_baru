@@ -339,7 +339,12 @@ function HasilPengukuranContent() {
                 className="size-2 rounded-full"
                 style={{ background: isConnected ? "var(--st-normal)" : "var(--st-awas)" }}
               />
-              RTS {isConnected ? "terhubung" : "terputus"}
+              {/* "Logger", bukan "RTS". Yang diukur di sini kesegaran data dari
+                  kotak logger, dan itu TIDAK sama dengan instrumennya menyala —
+                  logger bisa terus mengirim sementara total station-nya mati.
+                  Menyebutnya "RTS" membuat halaman ini membantah Beranda dan
+                  Kontrol ADR untuk perangkat yang sama. */}
+              Logger {isConnected ? "terhubung" : "terputus"}
             </span>
             <button
               type="button"

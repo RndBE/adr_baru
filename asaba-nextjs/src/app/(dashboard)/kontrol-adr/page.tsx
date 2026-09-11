@@ -450,8 +450,16 @@ export default function KontrolAdrPage() {
    * logger sekarang menampilkan ketiadaannya, bukan menebak.
    */
   const idLoggerSite = siteList.find((s) => s.slug === selectedSite)?.id_logger ?? null;
-  const { isConnected, lastUpdate, sensor14, sensor16, sensor5, sensor6, sensor7 } =
-    useRtsConnectionStatus(idLoggerSite);
+  const {
+    isConnected,
+    lastUpdate,
+    sensor16,
+    sensor5,
+    sensor6,
+    sensor7,
+    rtsAktif,
+    labelRts,
+  } = useRtsConnectionStatus(idLoggerSite);
   // Riwayat running site terpilih (4 sesi terakhir).
   const { logs: riwayatLogs } = useLogKontrol(selectedSite || undefined, 4);
   const [showPassword, setShowPassword] = useState(false);
@@ -579,12 +587,15 @@ export default function KontrolAdrPage() {
     return () => clearTimeout(timer);
   }, [progresTracking]);
 
-  // Sinkronkan local power state dengan actual status dari logger
+  // Sinkronkan keadaan tombol daya dengan keadaan sebenarnya di logger.
+  //
+  // Memakai `rtsAktif` dari lib/status-rts.ts, bukan rumus sendiri. Yang lama
+  // di sini menganggap sensor16 saja cukup TANPA memeriksa kesegaran data,
+  // sehingga siklus yang tercatat kemarin membuat tombol daya mengaku instrumen
+  // menyala sementara label di kartu sebelahnya menulis "Tidak aktif".
   useEffect(() => {
-    const isRtsOn = String(sensor16) === "1" || (String(sensor14) === "1" && isConnected);
-    console.log(`[Debug Power] sensor16: ${sensor16}, sensor14: ${sensor14}, isConnected: ${isConnected} => isRtsOn: ${isRtsOn}`);
-    setRtsPowerState(isRtsOn ? "on" : "off");
-  }, [sensor16, sensor14, isConnected]);
+    setRtsPowerState(rtsAktif ? "on" : "off");
+  }, [rtsAktif]);
 
   const handlePower = async (action: "on" | "off") => {
     setPowerLoading(true);
@@ -1839,18 +1850,15 @@ export default function KontrolAdrPage() {
     },
   ];
 
-  const rtsBerjalan = String(sensor16) === "1";
-  const rtsSiap = !rtsBerjalan && String(sensor14) === "1" && isConnected;
-  const labelStatusRts = rtsBerjalan
-    ? "Sedang mengukur"
-    : rtsSiap
-      ? "Menyala, siap"
-      : "Tidak aktif";
-  const warnaStatusRts = rtsBerjalan
-    ? "var(--navy)"
-    : rtsSiap
-      ? "var(--st-normal)"
-      : "var(--ink-3)";
+  // Label dan rumusnya dari lib/status-rts.ts — sama persis dengan yang dipakai
+  // Beranda, jadi kedua halaman tidak bisa lagi menjawab berbeda.
+  const labelStatusRts = labelRts;
+  const warnaStatusRts =
+    labelRts === "Sedang mengukur"
+      ? "var(--navy)"
+      : labelRts === "Menyala, siap"
+        ? "var(--st-normal)"
+        : "var(--ink-3)";
 
   const tombol =
     "inline-flex h-9 cursor-pointer items-center justify-center gap-2 rounded-[9px] px-3.5 text-[13px] font-semibold outline-none transition-colors focus-visible:ring-2 focus-visible:ring-(--navy)/50 disabled:cursor-not-allowed disabled:opacity-50";
@@ -1859,7 +1867,7 @@ export default function KontrolAdrPage() {
   const alasanTerkunci = !selectedSite
     ? "Pilih site dulu"
     : !isConnected
-      ? "RTS tidak terhubung"
+      ? "Logger tidak terhubung"
       : null;
 
   return (
@@ -2395,7 +2403,7 @@ export default function KontrolAdrPage() {
                 <div>
                   <dt className="text-[11.5px] text-(--ink-2)">Percobaan ulang</dt>
                   <dd className="inline-flex items-baseline gap-1.5 font-mono text-[15px] tabular-nums text-(--ink)">
-                    {rtsConfig.retries || "1"}
+                    {rtsConfig.retries || "—"}
                     <RefreshCcw
                       className={cn("size-3.5 text-(--ink-3)", isControlRunning && "animate-spin")}
                       style={{ animationDirection: "reverse" }}
@@ -2406,8 +2414,10 @@ export default function KontrolAdrPage() {
                 <div>
                   <dt className="text-[11.5px] text-(--ink-2)">Cycle time</dt>
                   <dd className="font-mono text-[15px] tabular-nums text-(--ink)">
-                    {rtsConfig.cycleTime || "1"}
-                    <span className="ml-1 text-[11px] text-(--ink-3)">ms</span>
+                    {rtsConfig.cycleTime || "—"}
+                    {rtsConfig.cycleTime && (
+                      <span className="ml-1 text-[11px] text-(--ink-3)">ms</span>
+                    )}
                   </dd>
                 </div>
               </dl>

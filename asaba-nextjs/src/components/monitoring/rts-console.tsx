@@ -30,6 +30,13 @@ export interface RtsConsoleProps {
   sdOk: boolean;
   loggerTerhubung: boolean;
   rtsTerhubung: boolean;
+  /**
+   * Label instrumen dari lib/status-rts.ts. Diberikan dari luar, bukan disusun
+   * di sini, supaya kalimatnya sama persis dengan yang dipakai Kontrol ADR —
+   * dulu panel ini menulis "RTS terhubung/terputus" untuk keadaan yang di
+   * halaman sebelah bernama "Menyala, siap"/"Tidak aktif".
+   */
+  labelRts: string;
   rtsRunning: boolean;
   /** Waktu data telemetri terakhir, sudah diformat. */
   waktuData: string;
@@ -73,6 +80,7 @@ export function RtsConsole({
   sdOk,
   loggerTerhubung,
   rtsTerhubung,
+  labelRts,
   rtsRunning,
   waktuData,
   tiltX,
@@ -133,7 +141,7 @@ export function RtsConsole({
                   rtsTerhubung ? "bg-(--st-normal) text-(--st-normal) status-pulse" : "bg-(--st-awas)"
                 )}
               />
-              {rtsTerhubung ? "RTS terhubung" : "RTS terputus"}
+              RTS · {labelRts}
             </span>
           </div>
 
@@ -150,7 +158,7 @@ export function RtsConsole({
                 </dd>
                 <dd aria-hidden="true">·</dd>
                 <dt className="sr-only">Koneksi logger</dt>
-                <dd>{loggerTerhubung ? "terhubung" : "terputus"}</dd>
+                <dd>Logger {loggerTerhubung ? "terhubung" : "terputus"}</dd>
                 <dd aria-hidden="true">·</dd>
                 <dt className="sr-only">SD card</dt>
                 <dd>

@@ -46,7 +46,7 @@ import {
   SheetTrigger,
 } from "@/components/ui/sheet";
 import { cn } from "@/lib/utils";
-import { useLoggers } from "@/hooks/use-api";
+import { useLoggers, useRtsConnectionStatus } from "@/hooks/use-api";
 import { POS_RTS_TANPA_NAMA } from "@/hooks/use-sites";
 
 // ─── API Data Fetching Config ───
@@ -121,7 +121,9 @@ export default function PowerRtsPage() {
   const [isFetching, setIsFetching] = useState(false);
   const [loggerInfo, setLoggerInfo] = useState<LoggerInfo | null>(null);
   const [infoLoading, setInfoLoading] = useState(false);
-  const [isConnected, setIsConnected] = useState(false);
+  // Dulu `useState(false)` yang setter-nya TIDAK PERNAH dipanggil, jadi lampu
+  // ini selalu menyala merah "Koneksi Terputus" walau loggernya sehat.
+  const { isConnected } = useRtsConnectionStatus(selectedPos || null);
 
   // Auto-select first RTS logger if current is not in list
   useEffect(() => {
@@ -219,7 +221,7 @@ export default function PowerRtsPage() {
                 {loggerInfo?.nama_lokasi || rtsLoggers.find((l: any) => l.id_logger === selectedPos)?.nama_logger || POS_RTS_TANPA_NAMA}
               </p>
               <p className="text-[13px] text-gray-800 font-medium">
-                {isConnected ? "Koneksi Terhubung" : "Koneksi Terputus"}
+                {isConnected ? "Logger terhubung" : "Logger terputus"}
               </p>
             </div>
           </div>

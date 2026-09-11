@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import useSWR from "swr";
+import { hitungStatusRts } from "@/lib/status-rts";
 
 const fetcher = (url: string) => fetch(url).then((r) => r.json());
 
@@ -188,21 +189,15 @@ export function useRtsConnectionStatus(idLoggerDiminta?: string | null) {
 
   const tempRts = detail?.tempData?.[0];
 
-  // Nilai waktu di DB adalah jam dinding WIB, jadi zonanya dipasang eksplisit.
-  const isConnected = (() => {
-    if (!tempRts?.waktu) return false;
-    const rawWaktu =
-      typeof tempRts.waktu === "string"
-        ? tempRts.waktu
-        : new Date(tempRts.waktu).toISOString();
-    const dbWibStr = rawWaktu.split(".")[0].replace("Z", "") + "+07:00";
-    const waktuTerakhirMs = new Date(dbWibStr).getTime();
-    if (isNaN(waktuTerakhirMs)) return false;
-    return waktuTerakhirMs >= nowMs - 60 * 60 * 1000;
-  })();
+  // Rumusnya TIDAK dihitung di sini lagi. Dulu hook ini dan Beranda menghitung
+  // sendiri-sendiri dengan cara yang sedikit berbeda, dan itulah yang membuat
+  // dua halaman menjawab berbeda untuk perangkat yang sama.
+  const status = hitungStatusRts(tempRts?.waktu, tempRts?.sensor14, tempRts?.sensor16, nowMs);
 
   return {
-    isConnected,
+    /** Logger masih mengirim data. BUKAN berarti instrumennya menyala. */
+    isConnected: status.loggerTerhubung,
+    ...status,
     lastUpdate: tempRts?.waktu || null,
     idLogger: idDipakai ?? undefined,
     sensor14: tempRts?.sensor14 ?? 0,
