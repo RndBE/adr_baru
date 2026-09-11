@@ -123,7 +123,7 @@ function TabLokasi() {
   return (
     <>
       <CrudCard title="Data Lokasi" onAdd={openAdd}>
-        {loading ? <LoadingRow cols={4} /> : (
+        {loading ? <LoadingRow /> : (
           <Table>
             <TableHeader className="bg-[#F5F6FA]">
               <TableRow>
@@ -237,7 +237,7 @@ function TabUser() {
   return (
     <>
       <CrudCard title="Data User" onAdd={openAdd}>
-        {loading ? <LoadingRow cols={5} /> : (
+        {loading ? <LoadingRow /> : (
           <Table>
             <TableHeader className="bg-[#F5F6FA]">
               <TableRow>
@@ -289,7 +289,7 @@ function TabUser() {
               </Field>
               <Field label="Level *">
                 <Select value={form.level_user} onValueChange={v => setForm(f => ({ ...f, level_user: v as string }))}>
-                  <SelectTrigger className="h-9 text-sm border-[#D1D5DB] cursor-pointer"><SelectValue /></SelectTrigger>
+                  <SelectTrigger className="h-9 w-full text-sm border-[#D1D5DB] cursor-pointer"><SelectValue /></SelectTrigger>
                   <SelectContent>
                     {LEVEL_OPTIONS.map(l => <SelectItem key={l} value={l}>{l}</SelectItem>)}
                   </SelectContent>
@@ -343,6 +343,13 @@ function TabLogger() {
 
   useEffect(() => { load(); }, [load]);
 
+  // Base UI menampilkan label item di trigger HANYA kalau Select.Root diberi
+  // `items`. Tanpa itu <SelectValue /> menulis nilai mentahnya — dan karena
+  // nilai di sini adalah id, yang muncul di kolom Lokasi/Kategori adalah "2"
+  // dan "1", bukan nama lokasi dan nama kategorinya.
+  const opsiLokasi = lokasiList.map(l => ({ value: String(l.idlokasi), label: l.nama_lokasi }));
+  const opsiKategori = kategoriList.map(k => ({ value: String(k.id_katlogger), label: k.nama_kategori }));
+
   const openAdd = () => { setEditing(null); setForm({ id_logger: "", nama_logger: "", lokasi_logger: "", kategori_log: "", tabel: "" }); setOpen(true); };
   const openEdit = (row: LoggerData) => { setEditing(row); setForm({ id_logger: row.id_logger, nama_logger: row.nama_logger, lokasi_logger: String(row.lokasi_logger), kategori_log: String(row.kategori_log), tabel: row.tabel }); setOpen(true); };
 
@@ -368,7 +375,7 @@ function TabLogger() {
   return (
     <>
       <CrudCard title="Data Logger" onAdd={openAdd}>
-        {loading ? <LoadingRow cols={6} /> : (
+        {loading ? <LoadingRow /> : (
           <Table>
             <TableHeader className="bg-[#F5F6FA]">
               <TableRow>
@@ -387,8 +394,8 @@ function TabLogger() {
                   <TableCell className="text-xs text-gray-500">{i + 1}</TableCell>
                   <TableCell className="text-xs font-mono font-semibold text-[#303481]">{row.id_logger}</TableCell>
                   <TableCell className="text-sm font-medium text-gray-800">{row.nama_logger}</TableCell>
-                  <TableCell className="text-xs text-gray-600">{(row as any).nama_lokasi || row.lokasi_logger}</TableCell>
-                  <TableCell className="text-xs text-gray-600">{(row as any).nama_kategori || row.kategori_log}</TableCell>
+                  <TableCell className="text-xs text-gray-600">{row.nama_lokasi || row.lokasi_logger}</TableCell>
+                  <TableCell className="text-xs text-gray-600">{row.nama_kategori || row.kategori_log}</TableCell>
                   <TableCell className="text-xs font-mono text-gray-600">{row.tabel}</TableCell>
                   <TableCell className="text-right">
                     <ActionButtons onEdit={() => openEdit(row)} onDelete={() => handleDelete(row)} />
@@ -411,8 +418,12 @@ function TabLogger() {
               <Field label="Nama Logger *"><Input value={form.nama_logger} onChange={e => setForm(f => ({ ...f, nama_logger: e.target.value }))} placeholder="Nama logger" /></Field>
             </div>
             <Field label="Lokasi *">
-              <Select value={form.lokasi_logger} onValueChange={v => setForm(f => ({ ...f, lokasi_logger: v as string }))}>
-                <SelectTrigger className="h-9 text-sm border-[#D1D5DB] cursor-pointer"><SelectValue placeholder="Pilih lokasi" /></SelectTrigger>
+              <Select
+                value={form.lokasi_logger}
+                onValueChange={v => setForm(f => ({ ...f, lokasi_logger: v as string }))}
+                items={opsiLokasi}
+              >
+                <SelectTrigger className="h-9 w-full text-sm border-[#D1D5DB] cursor-pointer"><SelectValue placeholder="Pilih lokasi" /></SelectTrigger>
                 <SelectContent>
                   {lokasiList.map(l => <SelectItem key={l.idlokasi} value={String(l.idlokasi)}>{l.nama_lokasi}</SelectItem>)}
                 </SelectContent>
@@ -420,17 +431,42 @@ function TabLogger() {
             </Field>
             <Field label="Kategori *">
               {kategoriList.length > 0 ? (
-                <Select value={form.kategori_log} onValueChange={v => { const kat = kategoriList.find(k => String(k.id_katlogger) === v); setForm(f => ({ ...f, kategori_log: v as string, tabel: (kat ? kat.tabel : f.tabel) as string })); }}>
-                  <SelectTrigger className="h-9 text-sm border-[#D1D5DB] cursor-pointer"><SelectValue placeholder="Pilih kategori" /></SelectTrigger>
+                <Select
+                  value={form.kategori_log}
+                  onValueChange={v => { const kat = kategoriList.find(k => String(k.id_katlogger) === v); setForm(f => ({ ...f, kategori_log: v as string, tabel: (kat ? kat.tabel : f.tabel) as string })); }}
+                  items={opsiKategori}
+                >
+                  <SelectTrigger className="h-9 w-full text-sm border-[#D1D5DB] cursor-pointer"><SelectValue placeholder="Pilih kategori" /></SelectTrigger>
                   <SelectContent>
                     {kategoriList.map(k => <SelectItem key={k.id_katlogger} value={String(k.id_katlogger)}>{k.nama_kategori}</SelectItem>)}
                   </SelectContent>
                 </Select>
               ) : (
-                <Input value={form.kategori_log} onChange={e => setForm(f => ({ ...f, kategori_log: e.target.value }))} placeholder="ID Kategori (angka)" />
+                // Dulu di sini ada input bebas yang meminta "ID Kategori (angka)".
+                // Mengetik angka mentah ke kolom ini adalah cara paling mudah
+                // membuat logger yang menunjuk kategori tidak ada — dan tabel
+                // sumber datanya ikut salah. Lebih baik menolak sekalian.
+                <p className="rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-[12px] text-amber-900">
+                  Daftar kategori gagal dimuat, jadi logger belum bisa disimpan.
+                  Muat ulang halaman; kalau tetap kosong, isi dulu tabel
+                  <b> kategori_logger</b>.
+                </p>
               )}
             </Field>
-            <Field label="Tabel *"><Input value={form.tabel} onChange={e => setForm(f => ({ ...f, tabel: e.target.value }))} placeholder="cth: rts" /></Field>
+            {/* Tabel TIDAK bisa diketik: nilainya menentukan tabel mana yang
+                dibaca saat menampilkan data logger ini, dan satu-satunya nilai
+                yang sahih adalah milik kategorinya. Sebelumnya kolom ini terisi
+                otomatis saat kategori dipilih tapi tetap bisa diubah sesudahnya,
+                jadi logger bisa diam-diam menunjuk tabel yang tidak ada. */}
+            <Field label="Tabel *">
+              <Input
+                value={form.tabel}
+                readOnly
+                placeholder="mengikuti kategori"
+                className="bg-gray-50 text-gray-600 cursor-not-allowed"
+              />
+              <span className="text-[10.5px] text-gray-400">Mengikuti kategori yang dipilih</span>
+            </Field>
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setOpen(false)} className="cursor-pointer">Batal</Button>
@@ -479,7 +515,7 @@ function ActionButtons({ onEdit, onDelete }: { onEdit: () => void; onDelete: () 
   );
 }
 
-function LoadingRow({ cols }: { cols: number }) {
+function LoadingRow() {
   return (
     <div className="flex items-center justify-center py-16">
       <Loader2 className="w-6 h-6 animate-spin text-[#303481]" />

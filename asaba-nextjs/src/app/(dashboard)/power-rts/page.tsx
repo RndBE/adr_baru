@@ -274,7 +274,7 @@ export default function PowerRtsPage() {
             <div>
               {/* Parameter */}
               <div className="text-[15px] font-semibold mb-2 mt-1">Parameter</div>
-              <Select value={parameter} onValueChange={(val) => { if (val !== null) setParameter(val); }}>
+              <Select value={parameter} onValueChange={(val) => { if (val !== null) setParameter(val); }} items={PARAMETER_OPTIONS}>
                 <SelectTrigger className="w-full h-[42px] px-3 text-sm border border-[#303481] rounded-lg cursor-pointer bg-white text-slate-700 outline-none focus:ring-2 focus:ring-[#303481]/20 shadow-none">
                   <SelectValue />
                 </SelectTrigger>
