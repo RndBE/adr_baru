@@ -336,6 +336,35 @@ type KonfirmasiConfig = {
   beda?: Array<{ medan: string; dikirim: string; diterima: string }>;
 };
 
+/**
+ * Satu langkah dalam alur Simpan berurutan.
+ *
+ * "dilewati" berarti kelompoknya memang tidak berubah, jadi tidak ada yang
+ * perlu dikirim — BUKAN kegagalan. "batal" berarti langkah sebelumnya gagal
+ * sehingga langkah ini tidak jadi dijalankan.
+ */
+type StatusLangkah = "antre" | "jalan" | "ok" | "gagal" | "dilewati" | "batal";
+
+type LangkahSimpan = {
+  kunci: "config" | "sapuan" | "jadwal";
+  label: string;
+  status: StatusLangkah;
+  pesan?: string;
+};
+
+/**
+ * Batas menunggu tiap langkah.
+ *
+ * Menulis setelan tidak menggerakkan instrumen, jadi keduanya jauh lebih
+ * longgar dari operasi terlama di tabel durasi protokol (auto_search 30 detik).
+ * Angkanya dipertahankan dari batas yang dulu dipasang masing-masing tombol.
+ */
+const BATAS_ACK_CONFIG_MS = 20_000;
+const BATAS_ACK_SAPUAN_MS = 15_000;
+
+/** Hasil satu langkah. `ok: false` menghentikan sisa antrean. */
+type HasilLangkah = { ok: boolean; pesan: string };
+
 type ProgresPower = {
   action: "on" | "off";
   nilai: string;
@@ -443,11 +472,10 @@ export default function KontrolAdrPage() {
   // ── Jadwal AutoTracking (trackEvery) ──────────────────────────────────────
   //
   // Hanya ada di varian firmware `_timeScheduled`. Unit lain mengabaikannya
-  // TANPA balasan, jadi tidak ada konfirmasi yang bisa ditunggu — statusnya
-  // berhenti di "terkirim", bukan "berlaku".
+  // TANPA balasan, jadi tidak ada konfirmasi yang bisa ditunggu — langkahnya
+  // berhenti di "terkirim", bukan "berlaku". Itu sebabnya ia langkah TERAKHIR
+  // di antrean Simpan: tidak ada yang bisa ditunggu sesudahnya.
   const [trackEvery, setTrackEvery] = useState("0");
-  const [trackEveryKirim, setTrackEveryKirim] = useState(false);
-  const [trackEveryPesan, setTrackEveryPesan] = useState("");
 
   // ── Rekaman SD (replay) ───────────────────────────────────────────────────
   const [showReplay, setShowReplay] = useState(false);
@@ -612,48 +640,6 @@ export default function KontrolAdrPage() {
       console.error("[handleBacaTilt]", err);
       setTiltLoading(false);
       setPowerAlert({ type: "error", title: "Baca kemiringan", message: "Terjadi kesalahan jaringan" });
-    }
-  };
-
-  /**
-   * Kirim jadwal AutoTracking.
-   *
-   * Tidak ada balasan yang bisa ditunggu: perintah ini hanya dikenali firmware
-   * `_timeScheduled`, dan konfirmasinya — kalau ada — menumpang ack kolektif
-   * setelan. Jadi statusnya berhenti di "terkirim" dengan sengaja, bukan
-   * berpura-pura tahu perintahnya berlaku.
-   */
-  const kirimTrackEvery = async () => {
-    if (!selectedSite) {
-      setTrackEveryPesan("Pilih site dulu sebelum mengirim jadwal.");
-      return;
-    }
-    const salah = validasiTrackEvery(Number(trackEvery));
-    if (salah) {
-      setTrackEveryPesan(salah);
-      return;
-    }
-    setTrackEveryKirim(true);
-    setTrackEveryPesan("");
-    try {
-      const res = await fetch("/api/kontrol/track-every", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ site: selectedSite, menit: Number(trackEvery) }),
-      });
-      const json = await res.json();
-      setTrackEveryPesan(
-        json.success
-          ? Number(trackEvery) === 0
-            ? "Perintah mematikan jadwal terkirim."
-            : `Perintah jadwal tiap ${trackEvery} menit terkirim.`
-          : json.error || "Gagal mengirim jadwal"
-      );
-    } catch (err) {
-      console.error("[kirimTrackEvery]", err);
-      setTrackEveryPesan("Terjadi kesalahan jaringan");
-    } finally {
-      setTrackEveryKirim(false);
     }
   };
 
@@ -980,6 +966,21 @@ export default function KontrolAdrPage() {
               setRts: konfCfg.setRts,
               beda: konfCfg.beda.length ? konfCfg.beda : undefined,
             });
+            // Echo yang BERBEDA dari yang dikirim dihitung gagal walau logger
+            // menjawab OK: setelan yang tersimpan bukan yang diminta, dan
+            // melanjutkan antrean seolah berhasil akan menyembunyikan itu.
+            ackConfigRef.current?.(
+              konfCfg.beda.length
+                ? {
+                    ok: false,
+                    pesan: `Logger menyimpan nilai berbeda untuk ${konfCfg.beda
+                      .map((b) => LABEL_MEDAN_CONFIG[b.medan] ?? b.medan)
+                      .join(", ")}`,
+                  }
+                : konfCfg.ok
+                  ? { ok: true, pesan: `Logger menerima setelan (${konfCfg.setRts})` }
+                  : { ok: false, pesan: konfCfg.setRts || "Logger menolak setelan" }
+            );
           }
 
           // {"SearchArea":{"horizontal":15,"vertical":15}}
@@ -992,7 +993,10 @@ export default function KontrolAdrPage() {
           if (bSA.ada) {
             console.log("[KontrolADR] SearchArea:", bSA.horizontal, bSA.vertical);
             setSearchArea(bSA);
-            setSaLoading(false);
+            ackSapuanRef.current?.({
+              ok: true,
+              pesan: `Instrumen memasang ${bSA.horizontal}° × ${bSA.vertical}°`,
+            });
           }
 
           // {"setHome":{"setHome":",0,061,41,90,199,18,72;"}}
@@ -1116,7 +1120,6 @@ export default function KontrolAdrPage() {
   // (state configId dihapus: PUT /api/config-adr sekarang dikunci berdasarkan
   //  `site`, bukan id baris, jadi id-nya tidak perlu disimpan di klien.)
   const [configLoading, setConfigLoading] = useState(false);
-  const [configSaving, setConfigSaving] = useState(false);
   const [konfirmasiConfig, setKonfirmasiConfig] = useState<KonfirmasiConfig | null>(null);
   /**
    * Nilai yang BARU SAJA dikirim, disimpan di ref supaya bisa dibaca handler
@@ -1136,10 +1139,48 @@ export default function KontrolAdrPage() {
    */
   const [saHor, setSaHor] = useState(String(BAWAAN_SEARCH_AREA_DERAJAT));
   const [saVer, setSaVer] = useState(String(BAWAAN_SEARCH_AREA_DERAJAT));
-  const [saLoading, setSaLoading] = useState(false);
-  const [saGalat, setSaGalat] = useState("");
   /** Nilai yang DIKEMBALIKAN instrumen — bukan isi kolom di atas. */
   const [searchArea, setSearchArea] = useState<BalasanSearchArea | null>(null);
+
+  // ── Alur Simpan berurutan ────────────────────────────────────────────────
+  //
+  // Ketiga kelompok dulu punya tombol Kirim sendiri-sendiri. Sekarang satu
+  // tombol Simpan menjalankannya BERURUTAN: kelompok berikutnya baru dikirim
+  // setelah balasan kelompok sebelumnya datang. Alasannya bukan kerapian —
+  // ketiganya menulis ke instrumen yang sama lewat satu antrean perintah, dan
+  // menembakkannya bersamaan membuat balasan saling menyusul sehingga tidak
+  // ketahuan lagi ack mana milik perintah mana.
+  const [langkahSimpan, setLangkahSimpan] = useState<LangkahSimpan[] | null>(null);
+  const [simpanJalan, setSimpanJalan] = useState(false);
+  const [simpanGalat, setSimpanGalat] = useState("");
+
+  /**
+   * Nilai yang DIPASTIKAN sudah ada di tujuannya, dipakai memutuskan langkah
+   * mana yang boleh dilewati.
+   *
+   * `null` berarti BELUM DIKETAHUI, dan itu tidak sama dengan "sama dengan isi
+   * form". Rentang sapuan dan jadwal tidak disimpan aplikasi: sesudah PowerOn
+   * instrumen kembali sendiri ke sudut bawaannya, dan jadwal tidak pernah
+   * dilaporkan balik sama sekali. Jadi selama belum ada bukti, keduanya WAJIB
+   * dikirim — melewatkannya hanya karena operator tidak menyentuh kolomnya akan
+   * diam-diam meninggalkan instrumen memakai angka lain.
+   *
+   * Config beda: sumber kebenarannya database milik aplikasi ini sendiri, jadi
+   * nilai yang baru dimuat dari sana memang sudah terpasang.
+   */
+  const dasarConfigRef = useRef<string | null>(null);
+  const dasarSapuanRef = useRef<string | null>(null);
+  const dasarJadwalRef = useRef<string | null>(null);
+
+  /**
+   * Penampung `resolve` milik langkah yang sedang menunggu balasan MQTT.
+   *
+   * Handler MQTT dipasang sekali dengan dependency `[]`, jadi ia tidak bisa
+   * membaca state yang berubah. Ref inilah jembatannya: handler memanggil
+   * fungsi di sini, dan janji yang ditunggu orkestrator selesai.
+   */
+  const ackConfigRef = useRef<((h: HasilLangkah) => void) | null>(null);
+  const ackSapuanRef = useRef<((h: HasilLangkah) => void) | null>(null);
 
   // Batas menunggu balasan `data_tilt`.
   //
@@ -1170,39 +1211,10 @@ export default function KontrolAdrPage() {
     return () => clearTimeout(timer);
   }, [replayLoading]);
 
-  // Batas menunggu balasan SearchArea.
-  //
-  // Versi yang ada di modal prisma TIDAK punya ini: kalau logger tidak
-  // menjawab, tombol Kirim berputar selamanya dan tidak ada yang memberi tahu.
-  // Menulis setelan tidak menggerakkan instrumen, jadi 15 detik sudah longgar
-  // dibanding operasi terlama di tabel durasi protokol (auto_search 30 detik).
-  useEffect(() => {
-    if (!saLoading) return;
-    const timer = setTimeout(() => {
-      setSaLoading(false);
-      setSaGalat(
-        "Tidak ada balasan dalam 15 detik. Perintahnya sudah dikirim, tapi belum tentu diterima instrumen."
-      );
-    }, 15_000);
-    return () => clearTimeout(timer);
-  }, [saLoading]);
-
-  // Timeout konfirmasi RTS Config.
-  //
-  // 20 detik: menulis setelan tidak menggerakkan instrumen, jadi jauh lebih
-  // cepat dari operasi di tabel durasi protokol (terlama auto_search 30 detik).
-  // Pesannya membedakan dua hal yang sangat berbeda dan gampang tertukar —
-  // tersimpan di database vs sampai ke perangkat.
-  useEffect(() => {
-    if (konfirmasiConfig?.status !== "menunggu") return;
-    const timer = setTimeout(() => {
-      setKonfirmasiConfig({
-        status: "gagal",
-        setRts: "Tidak ada balasan dari logger dalam 20 detik. Setelan sudah tersimpan di aplikasi, tapi belum tentu sampai ke perangkat.",
-      });
-    }, 20_000);
-    return () => clearTimeout(timer);
-  }, [konfirmasiConfig]);
+  // Batas menunggu TIDAK lagi dipasang sebagai useEffect per-tombol. Kedua
+  // langkah itu sekarang dijalankan orkestrator Simpan, yang memegang batas
+  // waktunya sendiri lewat tungguAck() — dua sumber timeout untuk satu
+  // penantian hanya akan saling mendahului dan melaporkan hasil berbeda.
   const [rtsConfig, setRtsConfig] = useState<RtsConfig>({
     jobName: "",
     prismaConst: "",
@@ -1334,18 +1346,29 @@ export default function KontrolAdrPage() {
   // Fetch config saat modal dibuka
   const openRtsConfig = async () => {
     setShowRtsConfig(true);
-    // Konfirmasi dari sesi simpan sebelumnya dibersihkan. Kalau dibiarkan,
-    // modal terbuka dengan centang hijau untuk setelan yang belum dikirim.
+    // Konfirmasi dan progres dari sesi simpan sebelumnya dibersihkan. Kalau
+    // dibiarkan, modal terbuka dengan centang hijau untuk setelan yang belum
+    // dikirim pada sesi ini.
     setKonfirmasiConfig(null);
     setSearchArea(null);
-    setSaGalat("");
+    setLangkahSimpan(null);
+    setSimpanGalat("");
+
+    // Rentang sapuan dan jadwal kembali dianggap BELUM DIKETAHUI tiap kali
+    // modal dibuka. Instrumen bisa saja dimatikan di antara dua kali buka, dan
+    // PowerOn mengembalikan rentang sapuannya ke sudut bawaan tanpa memberi
+    // tahu siapa pun — jadi bukti dari sesi sebelumnya tidak berlaku lagi.
+    dasarSapuanRef.current = null;
+    dasarJadwalRef.current = null;
+    dasarConfigRef.current = null;
+
     setConfigLoading(true);
     try {
       const res = await fetch(`/api/config-adr?site=${encodeURIComponent(selectedSite)}`);
       const json = await res.json();
       if (json.success && json.data) {
         const d = json.data;
-        setRtsConfig({
+        const dimuat = {
           jobName:     String(d.job_name   ?? ""),
           prismaConst: String(d.prisma_cons ?? ""),
           tsHigh:      String(d.ts_high     ?? ""),
@@ -1355,7 +1378,13 @@ export default function KontrolAdrPage() {
           stepRecord:  String(d.step_record ?? ""),
           retries:     String(d.retries     ?? ""),
           cycleTime:   String(d.cycle_time  ?? ""),
-        });
+        };
+        setRtsConfig(dimuat);
+        // Kelompok ini BOLEH dilewati kalau tidak diubah: sumber kebenarannya
+        // database milik aplikasi ini sendiri, dan isinya dikirim ulang ke
+        // instrumen tiap kali alat menyala. Beda dari dua kelompok lain, yang
+        // tidak punya jaminan seperti itu.
+        dasarConfigRef.current = JSON.stringify(dimuat);
       }
     } catch (err) {
       console.error("Failed to fetch config:", err);
@@ -1365,52 +1394,38 @@ export default function KontrolAdrPage() {
   };
 
   /**
-   * Kirim rentang sapuan — SENDIRI, tidak lewat saveConfig.
+   * Menunggu satu balasan MQTT, dengan batas waktu.
    *
-   * Perintahnya `set_rts` bermedan SearchArea dan berlaku saat itu juga,
-   * sedangkan /api/config-adr menulis ke database dulu. Nilainya sengaja tidak
-   * disimpan aplikasi: instrumen sudah melaporkannya balik, jadi menyimpannya
-   * berarti membuat sumber kebenaran kedua untuk besaran yang sama. Alasan
-   * lengkapnya ada di api/kontrol/search-area/route.ts.
+   * Diamnya perangkat adalah hasil yang WAJAR di sini, bukan kelainan: unit
+   * yang bukan varian `_timeScheduled` mengabaikan sebagian perintah tanpa
+   * balasan apa pun. Jadi batas waktunya bukan jaring pengaman, melainkan satu
+   * dari dua akhir yang memang diharapkan.
    */
-  const kirimSearchArea = async () => {
-    if (!selectedSite) {
-      setSaGalat("Pilih site pengukuran lebih dulu.");
-      return;
-    }
-    // Divalidasi di klien juga, bukan hanya di server: rentangnya sudah
-    // diketahui di sini, dan menunggu satu perjalanan HTTP untuk diberi tahu
-    // angkanya di luar 0–180 tidak ada gunanya.
-    const salah = validasiSearchArea(saHor, saVer);
-    if (salah) {
-      setSaGalat(salah);
-      return;
-    }
-    setSaGalat("");
-    setSearchArea(null);
-    setSaLoading(true);
-    try {
-      const res = await fetch("/api/kontrol/search-area", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ site: selectedSite, hor: Number(saHor), ver: Number(saVer) }),
-      });
-      const json = await res.json();
-      if (!json.success) {
-        setSaGalat(json.error || "Gagal mengirim rentang sapuan");
-        setSaLoading(false);
-      }
-      // Konfirmasinya datang lewat MQTT: {"SearchArea":{"horizontal":…,"vertical":…}}
-    } catch (e: unknown) {
-      setSaGalat(e instanceof Error ? e.message : "Terjadi kesalahan jaringan");
-      setSaLoading(false);
-    }
-  };
+  const tungguAck = (
+    ref: React.RefObject<((h: HasilLangkah) => void) | null>,
+    batasMs: number,
+    pesanHabis: string
+  ) =>
+    new Promise<HasilLangkah>((resolve) => {
+      const timer = setTimeout(() => {
+        ref.current = null;
+        resolve({ ok: false, pesan: pesanHabis });
+      }, batasMs);
+      ref.current = (h) => {
+        clearTimeout(timer);
+        ref.current = null;
+        resolve(h);
+      };
+    });
 
-  // Simpan config ke database + kirim ke logger
-  const saveConfig = async () => {
-    setConfigSaving(true);
-    setKonfirmasiConfig(null);
+  /** Tandai satu langkah di daftar progres. */
+  const tandaiLangkah = (kunci: LangkahSimpan["kunci"], status: StatusLangkah, pesan?: string) =>
+    setLangkahSimpan((prev) =>
+      prev ? prev.map((l) => (l.kunci === kunci ? { ...l, status, pesan } : l)) : prev
+    );
+
+  // ── Langkah 1: setelan yang disimpan database, lalu dikirim ke logger ────
+  const langkahConfig = async (): Promise<HasilLangkah> => {
     // Disimpan SEBELUM dikirim: ini yang nanti dicocokkan dengan echo dari
     // logger. locCoor disusun [coor_x, coor_y, coor_z] mengikuti urutan yang
     // dipakai server saat menyusun payload MQTT — perhatikan coor_x itu
@@ -1421,6 +1436,8 @@ export default function KontrolAdrPage() {
       tsHigh: String(rtsConfig.tsHigh ?? ""),
       locCoor: [rtsConfig.coordX, rtsConfig.coordY, rtsConfig.coordZ].map((v) => String(v ?? "")).join(","),
     };
+    setKonfirmasiConfig(null);
+
     try {
       const res = await fetch("/api/config-adr", {
         method: "PUT",
@@ -1439,19 +1456,184 @@ export default function KontrolAdrPage() {
         }),
       });
       const json = await res.json();
-      if (json.success) {
-        // Modal SENGAJA tidak ditutup di sini. Tersimpan di database bukan
-        // berarti sampai ke logger — dan itu justru yang ingin dilihat operator.
-        // Konfirmasinya datang lewat MQTT sebagai {"updated":[…],"set_rts":"OK"}.
-        setKonfirmasiConfig({ status: "menunggu" });
-      } else {
+      if (!json.success) {
         setKonfirmasiConfig({ status: "gagal", setRts: json.error || "Gagal menyimpan" });
+        return { ok: false, pesan: json.error || "Gagal menyimpan ke database" };
       }
     } catch (err) {
-      console.error("Failed to save config:", err);
+      console.error("[langkahConfig]", err);
       setKonfirmasiConfig({ status: "gagal", setRts: "Terjadi kesalahan jaringan" });
+      return { ok: false, pesan: "Terjadi kesalahan jaringan" };
+    }
+
+    // Tersimpan di database BUKAN berarti sampai ke logger, dan justru yang
+    // kedua itulah yang menentukan RTS memakai setelan baru.
+    setKonfirmasiConfig({ status: "menunggu" });
+    const hasil = await tungguAck(
+      ackConfigRef,
+      BATAS_ACK_CONFIG_MS,
+      "Tidak ada balasan dalam 20 detik. Setelan tersimpan di aplikasi, tapi belum tentu sampai ke perangkat."
+    );
+    if (!hasil.ok) setKonfirmasiConfig({ status: "gagal", setRts: hasil.pesan });
+    return hasil;
+  };
+
+  // ── Langkah 2: rentang sapuan, berlaku seketika di instrumen ─────────────
+  //
+  // Perintahnya `set_rts` bermedan SearchArea dan berlaku saat itu juga,
+  // sedangkan /api/config-adr menulis ke database dulu. Nilainya sengaja tidak
+  // disimpan aplikasi: instrumen sudah melaporkannya balik, jadi menyimpannya
+  // berarti membuat sumber kebenaran kedua untuk besaran yang sama. Alasan
+  // lengkapnya ada di api/kontrol/search-area/route.ts.
+  const langkahSapuan = async (): Promise<HasilLangkah> => {
+    setSearchArea(null);
+    try {
+      const res = await fetch("/api/kontrol/search-area", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ site: selectedSite, hor: Number(saHor), ver: Number(saVer) }),
+      });
+      const json = await res.json();
+      if (!json.success) return { ok: false, pesan: json.error || "Gagal mengirim rentang sapuan" };
+    } catch (e: unknown) {
+      return { ok: false, pesan: e instanceof Error ? e.message : "Terjadi kesalahan jaringan" };
+    }
+
+    // Konfirmasinya datang lewat MQTT: {"SearchArea":{"horizontal":…,"vertical":…}}
+    return tungguAck(
+      ackSapuanRef,
+      BATAS_ACK_SAPUAN_MS,
+      "Tidak ada balasan dalam 15 detik. Perintahnya terkirim, tapi belum tentu diterima instrumen."
+    );
+  };
+
+  // ── Langkah 3: jadwal AutoTracking, TANPA konfirmasi ─────────────────────
+  //
+  // Perintah ini hanya dikenali firmware `_timeScheduled`; unit lain
+  // mengabaikannya tanpa balasan apa pun. Tidak ada yang bisa ditunggu, jadi
+  // langkahnya berhenti di "terkirim" dengan sengaja — dan karena itu ia
+  // diletakkan paling akhir, supaya tidak ada langkah yang bergantung padanya.
+  const langkahJadwal = async (): Promise<HasilLangkah> => {
+    try {
+      const res = await fetch("/api/kontrol/track-every", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ site: selectedSite, menit: Number(trackEvery) }),
+      });
+      const json = await res.json();
+      if (!json.success) return { ok: false, pesan: json.error || "Gagal mengirim jadwal" };
+      return {
+        ok: true,
+        pesan:
+          Number(trackEvery) === 0
+            ? "Perintah mematikan jadwal terkirim (tanpa konfirmasi)"
+            : `Perintah jadwal tiap ${trackEvery} menit terkirim (tanpa konfirmasi)`,
+      };
+    } catch (err) {
+      console.error("[langkahJadwal]", err);
+      return { ok: false, pesan: "Terjadi kesalahan jaringan" };
+    }
+  };
+
+  /**
+   * Simpan semua: satu tombol, tiga kelompok, BERURUTAN.
+   *
+   * Kelompok yang isinya tidak berubah dilewati. Yang menentukan bukan "kolom
+   * ini disentuh operator atau tidak", melainkan apakah nilainya sudah
+   * DIPASTIKAN ada di tujuannya — lihat catatan di dasarSapuanRef.
+   *
+   * Satu langkah gagal menghentikan sisanya. Instrumen yang tidak menjawab
+   * langkah pertama tidak akan tiba-tiba menjawab langkah kedua, dan meneruskan
+   * antrean hanya menumpuk perintah yang tidak bisa dipertanggungjawabkan.
+   * Karena langkah yang berhasil memperbarui dasarnya, menekan Simpan lagi
+   * hanya mengulang yang belum berhasil.
+   */
+  const simpanSemua = async () => {
+    if (!selectedSite) {
+      setSimpanGalat("Pilih site pengukuran lebih dulu.");
+      return;
+    }
+
+    // Seluruh isian divalidasi SEBELUM satu perintah pun dikirim. Berhenti di
+    // tengah antrean karena kolom yang sedari awal salah akan meninggalkan
+    // instrumen setengah terkonfigurasi.
+    const salah =
+      validasiRetries(rtsConfig.retries) ||
+      validasiCycleTime(rtsConfig.cycleTime) ||
+      validasiSearchArea(saHor, saVer) ||
+      validasiTrackEvery(Number(trackEvery));
+    if (salah) {
+      setSimpanGalat(salah);
+      return;
+    }
+
+    const kiniConfig = JSON.stringify(rtsConfig);
+    const kiniSapuan = `${Number(saHor)}x${Number(saVer)}`;
+    const kiniJadwal = String(Number(trackEvery));
+
+    const antre: LangkahSimpan[] = [
+      {
+        kunci: "config",
+        label: "Setelan job, koordinat & parameter running",
+        status: dasarConfigRef.current === kiniConfig ? "dilewati" : "antre",
+      },
+      {
+        kunci: "sapuan",
+        label: "Rentang sapuan",
+        status: dasarSapuanRef.current === kiniSapuan ? "dilewati" : "antre",
+      },
+      {
+        kunci: "jadwal",
+        label: "Jadwal AutoTracking",
+        status: dasarJadwalRef.current === kiniJadwal ? "dilewati" : "antre",
+      },
+    ];
+
+    if (antre.every((l) => l.status === "dilewati")) {
+      setSimpanGalat("");
+      setLangkahSimpan(antre);
+      return;
+    }
+
+    setSimpanGalat("");
+    setLangkahSimpan(antre);
+    setSimpanJalan(true);
+
+    const jalankan: Record<LangkahSimpan["kunci"], () => Promise<HasilLangkah>> = {
+      config: langkahConfig,
+      sapuan: langkahSapuan,
+      jadwal: langkahJadwal,
+    };
+    const dasarBaru: Record<LangkahSimpan["kunci"], [React.RefObject<string | null>, string]> = {
+      config: [dasarConfigRef, kiniConfig],
+      sapuan: [dasarSapuanRef, kiniSapuan],
+      jadwal: [dasarJadwalRef, kiniJadwal],
+    };
+
+    try {
+      let gagal = false;
+      for (const langkah of antre) {
+        if (langkah.status === "dilewati") continue;
+        if (gagal) {
+          tandaiLangkah(langkah.kunci, "batal", "Tidak dijalankan karena langkah sebelumnya gagal");
+          continue;
+        }
+
+        tandaiLangkah(langkah.kunci, "jalan");
+        const hasil = await jalankan[langkah.kunci]();
+        tandaiLangkah(langkah.kunci, hasil.ok ? "ok" : "gagal", hasil.pesan);
+
+        if (hasil.ok) {
+          const [ref, nilai] = dasarBaru[langkah.kunci];
+          ref.current = nilai;
+        } else {
+          gagal = true;
+        }
+      }
     } finally {
-      setConfigSaving(false);
+      setSimpanJalan(false);
+      ackConfigRef.current = null;
+      ackSapuanRef.current = null;
     }
   };
 
@@ -2282,23 +2464,28 @@ export default function KontrolAdrPage() {
           ikon={<Settings2 className="size-4.5" />}
           lebar="max-w-[600px]"
           onClose={() => setShowRtsConfig(false)}
-          bisaDitutup={!configSaving && konfirmasiConfig?.status !== "menunggu"}
+          bisaDitutup={!simpanJalan}
           footer={
             <>
               <button
                 type="button"
                 onClick={() => setShowRtsConfig(false)}
+                disabled={simpanJalan}
                 className={TOMBOL_SEKUNDER}
               >
-                {konfirmasiConfig?.status === "ok" ? "Tutup" : "Batal"}
+                {langkahSimpan && !simpanJalan ? "Tutup" : "Batal"}
               </button>
+              {/* SATU tombol untuk ketiga kelompok. Sebelumnya rentang sapuan
+                  dan jadwal punya tombol Kirim sendiri, sehingga operator harus
+                  tahu urutan menekannya — dan menekan ketiganya beruntun
+                  membuat balasan instrumen saling menyusul. */}
               <button
                 type="button"
-                onClick={saveConfig}
-                disabled={configSaving || konfirmasiConfig?.status === "menunggu"}
+                onClick={simpanSemua}
+                disabled={simpanJalan}
                 className={TOMBOL_UTAMA}
               >
-                {configSaving || konfirmasiConfig?.status === "menunggu" ? (
+                {simpanJalan ? (
                   <>
                     <Loader2 className="size-4 animate-spin" /> Menyimpan…
                   </>
@@ -2466,19 +2653,17 @@ export default function KontrolAdrPage() {
                   Pindah ke sini dari modal prisma di Prism Config: ini setelan
                   INSTRUMEN, bukan bagian identitas satu prisma.
 
-                  SENGAJA di luar alur Simpan, dan bingkainya dibedakan supaya
-                  itu kelihatan. Setelan lain di modal ini ditulis ke database
-                  lalu dikirim ulang tiap kali alat menyala; rentang sapuan
-                  tidak disimpan aplikasi sama sekali dan berlaku begitu
-                  dikirim. Menggabungkannya ke Simpan akan menjanjikan sesuatu
-                  yang tidak bisa ditepati — nilainya hilang di PowerOn
-                  berikutnya. */}
+                  Sekarang ikut tombol Simpan, sebagai langkah KEDUA di antrean.
+                  Yang tetap berlaku: nilainya tidak disimpan aplikasi dan hilang
+                  di PowerOn berikutnya. Itulah sebabnya langkah ini tidak pernah
+                  dilewati hanya karena kolomnya tidak disentuh — lihat catatan
+                  di dasarSapuanRef. */}
               <fieldset>
                 <legend className="mb-2 inline-flex items-center gap-2 font-display text-[12px] font-semibold uppercase tracking-[0.1em] text-(--ink-2)">
                   <Scan className="size-3.5" /> Rentang sapuan
                 </legend>
                 <div className="rounded-[10px] bg-(--paper) p-3.5">
-                  <div className="grid grid-cols-3 items-end gap-3">
+                  <div className="grid grid-cols-2 items-end gap-3">
                     <div>
                       <label htmlFor="cfg-sa-hor" className={LABEL}>
                         Horizontal
@@ -2527,37 +2712,7 @@ export default function KontrolAdrPage() {
                         </span>
                       </div>
                     </div>
-                    {/* SENGAJA tidak dinonaktifkan saat site belum dipilih:
-                        tombol mati tanpa keterangan tidak memberi tahu apa pun.
-                        Klik-nya dibiarkan masuk supaya handler-nya bisa
-                        MENGATAKAN alasannya di tempat yang terlihat. */}
-                    <button
-                      type="button"
-                      onClick={kirimSearchArea}
-                      disabled={saLoading}
-                      className={cn(TOMBOL_SEKUNDER, "w-full")}
-                    >
-                      {saLoading ? (
-                        <Loader2 className="size-4 animate-spin" />
-                      ) : (
-                        <Send className="size-4" />
-                      )}
-                      Kirim
-                    </button>
                   </div>
-
-                  {saGalat && (
-                    <p className="mt-2.5 flex gap-2 text-[12px] leading-relaxed text-amber-900">
-                      <AlertTriangle className="mt-px size-4 shrink-0 text-amber-600" />
-                      <span>{saGalat}</span>
-                    </p>
-                  )}
-
-                  {saLoading && (
-                    <p className="mt-2.5 text-[12px] text-(--ink-2)">
-                      Menunggu instrumen mengonfirmasi…
-                    </p>
-                  )}
 
                   {/* Yang ditampilkan nilai yang DIKEMBALIKAN instrumen, bukan
                       isi kolom di atas — dua hal berbeda, dan yang kedua inilah
@@ -2579,15 +2734,11 @@ export default function KontrolAdrPage() {
               </fieldset>
 
               {/* ── Jadwal AutoTracking (trackEvery) ────────────────────────
-                  Sama seperti rentang sapuan: dikirim sendiri, tidak lewat
-                  Simpan, dan tidak disimpan aplikasi. Perangkat melaporkannya
-                  balik lewat snapshot ack konfigurasi, jadi menambah kolom
-                  database berarti membuat sumber kebenaran kedua.
-
-                  Perintah ini HANYA ada di varian firmware `_timeScheduled`.
-                  Unit lain mengabaikannya tanpa balasan apa pun, jadi tidak
-                  ada konfirmasi yang bisa ditunggu — statusnya berhenti di
-                  "terkirim" dengan sengaja. */}
+                  Langkah KETIGA dan terakhir di antrean Simpan. Tempatnya di
+                  akhir bukan kebetulan: perintah ini HANYA ada di varian
+                  firmware `_timeScheduled`, dan unit lain mengabaikannya tanpa
+                  balasan apa pun. Tidak ada konfirmasi yang bisa ditunggu, jadi
+                  tidak boleh ada langkah yang bergantung padanya. */}
               <fieldset>
                 <legend className="mb-2 inline-flex items-center gap-2 font-display text-[12px] font-semibold uppercase tracking-[0.1em] text-(--ink-2)">
                   <Timer className="size-3.5" /> Jadwal AutoTracking
@@ -2601,10 +2752,7 @@ export default function KontrolAdrPage() {
                       <select
                         id="cfg-track-every"
                         value={trackEvery}
-                        onChange={(e) => {
-                          setTrackEvery(e.target.value);
-                          setTrackEveryPesan("");
-                        }}
+                        onChange={(e) => setTrackEvery(e.target.value)}
                         className={cn(INPUT, "font-mono tabular-nums")}
                       >
                         {NILAI_TRACK_EVERY.map((n) => (
@@ -2614,19 +2762,6 @@ export default function KontrolAdrPage() {
                         ))}
                       </select>
                     </div>
-                    <button
-                      type="button"
-                      onClick={kirimTrackEvery}
-                      disabled={trackEveryKirim}
-                      className={cn(TOMBOL_SEKUNDER, "w-full")}
-                    >
-                      {trackEveryKirim ? (
-                        <Loader2 className="size-4 animate-spin" />
-                      ) : (
-                        <Send className="size-4" />
-                      )}
-                      Kirim
-                    </button>
                   </div>
 
                   {/* Siklus yang lebih lama dari intervalnya MELEWATKAN jadwal
@@ -2640,27 +2775,124 @@ export default function KontrolAdrPage() {
                     </p>
                   )}
 
-                  {trackEveryPesan && (
-                    <p className="mt-2.5 text-[12px] leading-relaxed text-(--ink-2)">
-                      {trackEveryPesan}
-                    </p>
-                  )}
                 </div>
               </fieldset>
 
-              {/* Konfirmasi dari logger. Dipisah dari status simpan-ke-database
-                  dengan sengaja: tersimpan di aplikasi dan sampai ke perangkat
-                  adalah dua hal berbeda, dan yang kedua itulah yang menentukan
-                  RTS benar-benar memakai setelan baru. */}
+              {/* Galat yang menggagalkan SELURUH antrean sebelum satu perintah
+                  pun dikirim — site belum dipilih, atau ada isian di luar
+                  rentang. */}
+              {simpanGalat && (
+                <p className="flex gap-2 border-t border-(--line) pt-3.5 text-[12.5px] leading-relaxed text-amber-900">
+                  <AlertTriangle className="mt-px size-4 shrink-0 text-amber-600" />
+                  <span>{simpanGalat}</span>
+                </p>
+              )}
+
+              {/* ── Progres Simpan ──────────────────────────────────────────
+                  Tiga kelompok dikirim berurutan, jadi yang perlu terlihat
+                  bukan sekadar "sedang menyimpan" melainkan SAMPAI MANA. Tiap
+                  baris menyebut hasilnya sendiri karena ketiganya berakhir
+                  dengan cara yang berbeda: config dan rentang sapuan menunggu
+                  balasan instrumen, jadwal berhenti di "terkirim". */}
+              {langkahSimpan && (
+                <div className="border-t border-(--line) pt-3.5">
+                  <div className="mb-2.5 flex items-center justify-between text-[12px] text-(--ink-2)">
+                    <span className="font-semibold">
+                      {simpanJalan
+                        ? "Mengirim berurutan…"
+                        : langkahSimpan.every((l) => l.status === "dilewati")
+                          ? "Tidak ada perubahan"
+                          : langkahSimpan.some((l) => l.status === "gagal")
+                            ? "Berhenti di langkah yang gagal"
+                            : "Selesai"}
+                    </span>
+                    <span className="font-mono tabular-nums">
+                      {langkahSimpan.filter((l) => l.status === "ok" || l.status === "dilewati").length}
+                      /{langkahSimpan.length}
+                    </span>
+                  </div>
+
+                  <div
+                    role="progressbar"
+                    aria-valuemin={0}
+                    aria-valuemax={langkahSimpan.length}
+                    aria-valuenow={
+                      langkahSimpan.filter((l) => l.status === "ok" || l.status === "dilewati").length
+                    }
+                    className="h-1.5 w-full overflow-hidden rounded-full"
+                    style={{
+                      background: langkahSimpan.some((l) => l.status === "gagal")
+                        ? "color-mix(in oklab, var(--st-awas) 25%, transparent)"
+                        : "var(--line)",
+                    }}
+                  >
+                    <div
+                      className="h-full rounded-full transition-[width] duration-300"
+                      style={{
+                        width: `${
+                          (langkahSimpan.filter((l) => l.status === "ok" || l.status === "dilewati")
+                            .length /
+                            langkahSimpan.length) *
+                          100
+                        }%`,
+                        background: langkahSimpan.some((l) => l.status === "gagal")
+                          ? "var(--st-awas)"
+                          : "var(--navy)",
+                      }}
+                    />
+                  </div>
+
+                  <ol className="mt-3 flex flex-col gap-2">
+                    {langkahSimpan.map((l, i) => (
+                      <li key={l.kunci} className="flex gap-2.5 text-[12px] leading-relaxed">
+                        <span className="mt-px flex size-4 shrink-0 items-center justify-center">
+                          {l.status === "jalan" ? (
+                            <Loader2 className="size-4 animate-spin text-(--navy)" />
+                          ) : l.status === "ok" ? (
+                            <Check className="size-4" style={{ color: "var(--st-normal)" }} />
+                          ) : l.status === "gagal" ? (
+                            <XCircle className="size-4" style={{ color: "var(--st-awas)" }} />
+                          ) : (
+                            <span className="size-1.5 rounded-full bg-(--ink-3)" />
+                          )}
+                        </span>
+                        <span className="min-w-0">
+                          <span
+                            className={cn(
+                              "font-medium",
+                              l.status === "dilewati" || l.status === "batal"
+                                ? "text-(--ink-3)"
+                                : "text-(--ink)"
+                            )}
+                          >
+                            {i + 1}. {l.label}
+                          </span>
+                          {l.status === "dilewati" && (
+                            <span className="text-(--ink-3)"> — tidak berubah, dilewati</span>
+                          )}
+                          {l.pesan && (
+                            <span
+                              className={cn(
+                                "block",
+                                l.status === "gagal" ? "text-amber-900" : "text-(--ink-2)"
+                              )}
+                            >
+                              {l.pesan}
+                            </span>
+                          )}
+                        </span>
+                      </li>
+                    ))}
+                  </ol>
+                </div>
+              )}
+
+              {/* Rincian konfirmasi dari logger untuk langkah pertama. Progres
+                  di atas hanya menyebut berhasil atau tidak; di sini terlihat
+                  medan mana yang diterapkan, dan mana yang nilainya kembali
+                  berbeda dari yang dikirim. */}
               {konfirmasiConfig && (
                 <div className="border-t border-(--line) pt-3.5">
-                  {konfirmasiConfig.status === "menunggu" && (
-                    <div className="flex items-center gap-2.5 rounded-[10px] bg-(--paper) px-3.5 py-2.5 text-[12.5px] text-(--ink-2)">
-                      <Loader2 className="size-4 shrink-0 animate-spin text-(--navy)" />
-                      Tersimpan di aplikasi. Menunggu logger mengonfirmasi…
-                    </div>
-                  )}
-
                   {konfirmasiConfig.status === "ok" && (
                     <div className="rounded-[10px] bg-(--paper) px-3.5 py-2.5">
                       <p className="inline-flex items-center gap-2 text-[12.5px] font-semibold text-(--ink)">
@@ -2679,15 +2911,6 @@ export default function KontrolAdrPage() {
                             .join(", ")}
                         </p>
                       ) : null}
-                    </div>
-                  )}
-
-                  {konfirmasiConfig.status === "gagal" && (
-                    <div className="flex gap-2.5 rounded-[10px] border border-amber-200 bg-amber-50 px-3.5 py-2.5 text-[12.5px] leading-relaxed text-amber-900">
-                      <AlertTriangle className="mt-px size-4 shrink-0 text-amber-600" />
-                      <span>
-                        {konfirmasiConfig.setRts || "Logger tidak mengonfirmasi setelan."}
-                      </span>
                     </div>
                   )}
 
