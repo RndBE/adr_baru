@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { signOut } from "next-auth/react";
 import Image from "next/image";
 import { LogOut, Settings2 } from "lucide-react";
 import {
@@ -332,14 +333,20 @@ export function AppSidebar() {
         <div className="mb-2 h-px bg-sidebar-border" />
         <SidebarMenu>
           <SidebarMenuItem>
-            {/* Memakai SidebarMenuButton yang sama dengan menu di atas supaya
+            {/* SEBELUMNYA hanya `<Link href="/login" />`.
+                Tombol ini tidak pernah memanggil signOut(), jadi menekan Keluar
+                cuma berpindah halaman sementara cookie sesinya tetap hidup.
+                Itulah sebabnya menekan Back sesudahnya membawa kembali ke
+                dasbor: sesinya memang tidak pernah dihapus.
+
+                Memakai SidebarMenuButton yang sama dengan menu di atas supaya
                 barisnya sejajar dan dapat tooltip di mode ringkas. Merah hanya
                 muncul saat hover — di aplikasi pemantauan, merah yang diam
                 terbaca sebagai status Awas. */}
             <SidebarMenuButton
-              render={<Link href="/login" />}
+              onClick={() => signOut({ callbackUrl: "/login" })}
               tooltip="Keluar"
-              className={cn(BUTTON_CLASS, "text-sidebar-foreground/60 hover:bg-red-400/10 hover:text-red-300")}
+              className={cn(BUTTON_CLASS, "cursor-pointer text-sidebar-foreground/60 hover:bg-red-400/10 hover:text-red-300")}
             >
               <LogOut className={ICON_CLASS} strokeWidth={1.6} />
               <span className="group-data-[collapsible=icon]:hidden">Keluar</span>

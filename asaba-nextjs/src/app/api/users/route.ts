@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
+import { hash } from "bcryptjs";
 
 // GET /api/users - list semua user
 export async function GET() {
@@ -30,7 +31,14 @@ export async function POST(req: NextRequest) {
       data: {
         nama,
         username,
-        password, // simpan as-is (sesuai sistem legacy)
+        // Di-hash bcrypt, TIDAK disimpan mentah.
+        //
+        // Komentar lama di sini berbunyi "simpan as-is (sesuai sistem legacy)",
+        // dan itu keliru dua kali. Sistem legacy memakai MD5, bukan teks polos —
+        // jadi "as-is" tidak menyamai apa pun. Dan verifyPassword() di lib/auth
+        // hanya mencoba bcrypt lalu MD5, sehingga akun yang dibuat dari sini
+        // TIDAK PERNAH bisa login sama sekali.
+        password: await hash(password, 10),
         level_user,
         alamat: alamat || "",
         telp: telp || "",

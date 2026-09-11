@@ -1,7 +1,13 @@
 "use client";
 
+import { SessionProvider } from "next-auth/react";
 import { AppSidebar } from "@/components/app-sidebar";
-import { SidebarProvider, SidebarTrigger, SidebarInset } from "@/components/ui/sidebar";
+import { PenjagaSesi } from "@/components/penjaga-sesi";
+import {
+  SidebarProvider,
+  SidebarTrigger,
+  SidebarInset,
+} from "@/components/ui/sidebar";
 import { usePathname } from "next/navigation";
 
 /**
@@ -69,35 +75,45 @@ export default function DashboardLayout({
     RUTE_FULL_BLEED.some((r) => pathname.startsWith(r));
 
   return (
-    <SidebarProvider>
-      <AppSidebar />
-      <SidebarInset className="min-w-0">
-        {/* Top Header */}
-        {/* Tombol ciutkan sidebar tinggal di sini, bukan di dalam sidebar.
+    // SessionProvider dulu HANYA ada di grup (auth), sehingga tidak ada satu pun
+    // halaman dasbor yang bisa tahu apakah sesinya masih hidup. PenjagaSesi di
+    // dalamnya menutup celah yang tidak bisa dijangkau proxy: halaman yang
+    // dipulihkan peramban dari back/forward cache tanpa menyentuh server.
+    <SessionProvider>
+      <PenjagaSesi>
+        <SidebarProvider>
+          <AppSidebar />
+          <SidebarInset className="min-w-0">
+            {/* Top Header */}
+            {/* Tombol ciutkan sidebar tinggal di sini, bukan di dalam sidebar.
             Sebelumnya ada dua: satu di header tapi `md:hidden` (mobile saja),
             satu lagi di header sidebar untuk desktop. */}
-        <header className="sticky top-0 z-30 flex h-16 items-center gap-3 border-b bg-white/85 px-3 backdrop-blur-lg md:px-5">
-          {/* Tanpa Separator vertikal di antara tombol dan judul: garis 1×20px
+            <header className="sticky top-0 z-30 flex h-16 items-center gap-3 border-b bg-white/85 px-3 backdrop-blur-lg md:px-5">
+              {/* Tanpa Separator vertikal di antara tombol dan judul: garis 1×20px
               itu menggantung di tengah header tanpa tersambung ke apa pun, dan
               warnanya sama dengan border bawah header sehingga terbaca sebagai
               garis yang terputus. Jarak `gap-3` sudah cukup memisahkan. */}
-          <SidebarTrigger className="-ml-1 h-8 w-8 flex-shrink-0 cursor-pointer rounded-md text-muted-foreground hover:bg-[#F4F6F9] hover:text-foreground" />
-          <h1 className="truncate text-lg font-bold tracking-tight text-gray-900">{title}</h1>
-        </header>
+              <SidebarTrigger className="-ml-1 h-8 w-8 flex-shrink-0 cursor-pointer rounded-md text-muted-foreground hover:bg-[#F4F6F9] hover:text-foreground" />
+              <h1 className="truncate text-lg font-bold tracking-tight text-gray-900">
+                {title}
+              </h1>
+            </header>
 
-        {/* Page Content.
+            {/* Page Content.
             <div>, bukan <main>: SidebarInset di atasnya SUDAH merender <main>
             (lihat data-slot="sidebar-inset" di components/ui/sidebar.tsx), jadi
             elemen ini membuat dokumen punya dua landmark utama di setiap
             halaman dashboard. Kelasnya tidak berubah — hanya tag-nya. */}
-        <div
-          className={`flex-1 overflow-auto bg-white min-w-0 ${
-            fullBleed ? "" : "p-4 md:p-6"
-          }`}
-        >
-          {children}
-        </div>
-      </SidebarInset>
-    </SidebarProvider>
+            <div
+              className={`flex-1 overflow-auto bg-white min-w-0 ${
+                fullBleed ? "" : "p-4 md:p-6"
+              }`}
+            >
+              {children}
+            </div>
+          </SidebarInset>
+        </SidebarProvider>
+      </PenjagaSesi>
+    </SessionProvider>
   );
 }

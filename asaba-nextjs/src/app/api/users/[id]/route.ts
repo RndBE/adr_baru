@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
+import { hash } from "bcryptjs";
 
 // GET /api/users/[id]
 export async function GET(_req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
@@ -27,8 +28,17 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
     const existing = await prisma.user.findFirst({ where: { username, NOT: { id_user: parseInt(id) } } });
     if (existing) return NextResponse.json({ success: false, error: "Username sudah digunakan user lain" }, { status: 409 });
 
-    const updateData: any = { nama, username, level_user, alamat: alamat || "", telp: telp || "", instansi: instansi || null, latitude: latitude || "0", longitude: longitude || "0", zoom: zoom || 10, bidang: bidang || null };
-    if (password && password.trim() !== "") updateData.password = password;
+    const updateData: {
+      nama: string; username: string; level_user: string; alamat: string;
+      telp: string; instansi: string | null; latitude: string; longitude: string;
+      zoom: number; bidang: string | null; password?: string;
+    } = { nama, username, level_user, alamat: alamat || "", telp: telp || "", instansi: instansi || null, latitude: latitude || "0", longitude: longitude || "0", zoom: zoom || 10, bidang: bidang || null };
+    // Di-hash bcrypt, TIDAK disimpan mentah. Sebelumnya password baru ditulis
+    // apa adanya, sementara verifyPassword() hanya mengenal bcrypt dan MD5 —
+    // jadi mengubah password lewat Master Data justru MENGUNCI akunnya.
+    if (password && password.trim() !== "") {
+      updateData.password = await hash(password, 10);
+    }
 
     const updated = await prisma.user.update({ where: { id_user: parseInt(id) }, data: updateData });
     const { password: _, ...safe } = updated;
