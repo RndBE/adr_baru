@@ -139,10 +139,10 @@ export function ConfigPanel({
           {!loading && <MagazineLegend slots={slots} />}
         </div>
 
-        {/* Magasin di kiri, keterangan di kanan. Magasinnya sengaja tidak
-            dilebarkan penuh — selnya sudah 37px, sasaran klik yang cukup, dan
-            membesarkannya lagi cuma menghasilkan kotak raksasa. Ruang sisa di
-            kanan dipakai keterangan, bukan dibiarkan menganga. */}
+        {/* Magasin sengaja tidak dilebarkan penuh — selnya sudah 37px, sasaran
+            klik yang cukup, dan membesarkannya lagi cuma menghasilkan kotak
+            raksasa. Kolom keterangan yang dulu mengisi ruang sisa di kanan
+            sudah dibuang. */}
         <div className="mt-3 flex flex-wrap items-start gap-x-8 gap-y-4">
           {loading && slots.length === 0 ? (
             <div
@@ -159,22 +159,6 @@ export function ConfigPanel({
               <SlotMagazine slots={slots} selected={selected} onSelect={onSelect} />
             </div>
           )}
-
-          <div className="min-w-[220px] max-w-[380px] flex-1 text-[12.5px] leading-relaxed text-(--ink-2)">
-            <p>Klik slot untuk melompat ke barisnya di daftar bawah.</p>
-            {terbuka ? (
-              <p className="mt-2.5">
-                Mengisi satu slot adalah prosedur bertahap: arahkan teleskop, cari prismanya,
-                baru simpan. Tombol Simpan menunggu perangkat menjawab lebih dulu.
-              </p>
-            ) : (
-              <p className="mt-2.5">
-                Seluruh daftar bisa dibaca tanpa membuka kunci. Menekan{" "}
-                <span className="font-medium text-(--ink)">Mulai konfigurasi</span> akan meminta
-                kode akses, dan setelah itu tombol Isi slot, Ubah, dan Hapus jadi aktif.
-              </p>
-            )}
-          </div>
         </div>
       </div>
     </Panel>

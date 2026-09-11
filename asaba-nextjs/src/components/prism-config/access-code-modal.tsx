@@ -53,7 +53,6 @@ export function AccessCodeModal({
   return (
     <ModalShell
       judul="Buka kunci konfigurasi"
-      keterangan="Kode akses dikelola di Master Data dan punya masa berlaku."
       ikon={<KeyRound className="size-4.5" />}
       lebar="max-w-[400px]"
       onClose={onClose}
@@ -109,11 +108,6 @@ export function AccessCodeModal({
             ada di footer ModalShell, di luar <form> ini. */}
         <button type="submit" className="hidden" tabIndex={-1} aria-hidden="true" />
       </form>
-
-      <p className="mt-3 text-[12px] leading-relaxed text-(--ink-3)">
-        Setelah terbuka, tombol Isi slot, Ubah, dan Hapus aktif sampai kamu menekan Selesai
-        konfigurasi.
-      </p>
     </ModalShell>
   );
 }

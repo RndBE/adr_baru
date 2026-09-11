@@ -362,7 +362,6 @@ export default function PrismConfigPage() {
           idLogger={idLogger}
           slots={data}
           slotAwal={terpilih}
-          namaPos={namaPos(site)}
           onClose={() => setArahkanTerbuka(false)}
         />
       )}

@@ -121,7 +121,6 @@ export function ArahkanModal({
   idLogger,
   slots,
   slotAwal,
-  namaPos,
   onClose,
 }: {
   /** Slot prisma hanya unik bersama site — lihat catatan di t_prisma.site. */
@@ -135,7 +134,6 @@ export function ArahkanModal({
   slots: PrismaSlot[];
   /** Slot yang sedang dipilih di daftar, dipakai sebagai pilihan awal. */
   slotAwal: number | null;
-  namaPos: string;
   onClose: () => void;
 }) {
   // ── Target ────────────────────────────────────────────────────────────────
@@ -455,7 +453,6 @@ export function ArahkanModal({
   return (
     <ModalShell
       judul="Arahkan RTS"
-      keterangan={`Setiap penekanan memutar teleskop di ${namaPos}.`}
       ikon={<Move className="size-4.5" />}
       lebar="max-w-[440px]"
       onClose={onClose}

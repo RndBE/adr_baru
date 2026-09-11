@@ -7,7 +7,6 @@ import { cn } from "@/lib/utils";
 import { nilaiBalasanLogger, balasanSelesai, balasanGagal } from "@/lib/balasan-logger";
 import {
   klasifikasiTurningTarget,
-  RENTANG_SETELAH_POWERON_DERAJAT,
 } from "@/lib/protokol-rts";
 import {
   INPUT,
@@ -34,7 +33,6 @@ type StatusPerintah = "idle" | "waiting" | "done" | "failed";
 function Langkah({
   nomor,
   judul,
-  keterangan,
   status,
   children,
   nonaktif,
@@ -42,7 +40,6 @@ function Langkah({
 }: {
   nomor: number;
   judul: string;
-  keterangan: string;
   status?: StatusPerintah;
   children: React.ReactNode;
   nonaktif?: boolean;
@@ -69,9 +66,9 @@ function Langkah({
       </span>
       <div className="min-w-0">
         <p className="text-[13px] font-semibold text-(--ink)">{judul}</p>
-        <p className="mt-0.5 text-[11.5px] leading-relaxed text-(--ink-3)">
-          {nonaktif && alasanNonaktif ? alasanNonaktif : keterangan}
-        </p>
+        {nonaktif && alasanNonaktif && (
+          <p className="mt-0.5 text-[11.5px] text-(--ink-3)">{alasanNonaktif}</p>
+        )}
         <div className="mt-2.5">{children}</div>
       </div>
     </li>
@@ -408,12 +405,6 @@ export function PrismaModal({
   return (
     <ModalShell
       judul={mode === "set" ? `Isi slot ${slot.slot}` : `Ubah slot ${slot.slot}`}
-      keterangan={
-        <>
-          Perintah di sini menggerakkan teleskop RTS. Simpan baru aktif setelah perangkat
-          menjawab.
-        </>
-      }
       ikon={<Target className="size-4.5" />}
       lebar="max-w-[440px]"
       onClose={onClose}
@@ -430,7 +421,7 @@ export function PrismaModal({
             title={
               simpanEnabled
                 ? undefined
-                : `Selesaikan langkah ${nomorCari} lebih dulu — perangkat harus menemukan prismanya.`
+                : `Selesaikan langkah ${nomorCari} lebih dulu.`
             }
             className={TOMBOL_UTAMA}
           >
@@ -447,7 +438,6 @@ export function PrismaModal({
         <Langkah
           nomor={1}
           judul="Identitas prisma"
-          keterangan="Nama dipakai perangkat sebagai nama target, dan muncul di seluruh laporan."
         >
           <div className="flex flex-col gap-3">
             <div>
@@ -465,17 +455,25 @@ export function PrismaModal({
             </div>
             <div>
               <label htmlFor="tinggi-target" className={LABEL}>
-                Tinggi target <span className="font-normal text-(--ink-3)">meter</span>
+                Tinggi target
               </label>
-              <input
-                id="tinggi-target"
-                type="number"
-                step="0.001"
-                value={targetHeight}
-                onChange={(e) => setTargetHeight(e.target.value)}
-                placeholder="0"
-                className={cn(INPUT, "font-mono tabular-nums")}
-              />
+              <div className="relative">
+                <input
+                  id="tinggi-target"
+                  type="number"
+                  step="0.001"
+                  value={targetHeight}
+                  onChange={(e) => setTargetHeight(e.target.value)}
+                  placeholder="0"
+                  className={cn(INPUT, "pr-7 font-mono tabular-nums")}
+                />
+                <span
+                  aria-hidden="true"
+                  className="pointer-events-none absolute inset-y-0 right-3 flex items-center text-[11px] text-(--ink-3)"
+                >
+                  m
+                </span>
+              </div>
             </div>
           </div>
         </Langkah>
@@ -485,7 +483,6 @@ export function PrismaModal({
           <Langkah
             nomor={2}
             judul="Arahkan teleskop"
-            keterangan="Memutar RTS ke sudut yang tersimpan untuk slot ini."
             status={goTargetStatus}
           >
             <div className="flex flex-wrap items-center gap-2.5">
@@ -516,10 +513,9 @@ export function PrismaModal({
         <Langkah
           nomor={nomorCari}
           judul="Cari prisma"
-          keterangan="Perangkat menyapu area dan mengunci prisma. Wajib berhasil sebelum menyimpan."
           status={autoSearchStatus}
           nonaktif={adaGoTo && goTargetStatus !== "done"}
-          alasanNonaktif="Arahkan teleskop lebih dulu — pencarian dimulai dari posisi teleskop sekarang."
+          alasanNonaktif="Arahkan teleskop lebih dulu."
         >
           <div className="flex flex-wrap items-center gap-2.5">
             <button
@@ -546,17 +542,6 @@ export function PrismaModal({
               teksGagal="Prisma tidak ditemukan"
             />
           </div>
-
-          <p className="mt-2.5 flex gap-1.5 text-[11.5px] leading-relaxed text-(--ink-3)">
-            <AlertCircle aria-hidden="true" className="mt-px size-3.5 shrink-0" />
-            <span>
-              Sapuan memakai rentang yang sedang terpasang di instrumen, dan setelah PowerOn
-              itu selalu {RENTANG_SETELAH_POWERON_DERAJAT}° ×{" "}
-              {RENTANG_SETELAH_POWERON_DERAJAT}°. Ubah lewat{" "}
-              <span className="font-semibold text-(--ink-2)">Kontrol ADR → RTS Config</span>{" "}
-              bila ukurannya penting, lalu kembali ke sini.
-            </span>
-          </p>
         </Langkah>
       </ol>
     </ModalShell>
