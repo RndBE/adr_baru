@@ -8,18 +8,18 @@ import { normalizeBody, validate } from "@/lib/site-validation";
  *
  * Query params:
  * - all=1          : sertakan site nonaktif
- * - with_logger=1  : sertakan `id_logger` yang DITURUNKAN dari data, yaitu
- *                    logger yang paling terakhir melapor untuk site itu.
- *                    Relasi site↔logger tidak dimodelkan di skema (satu unit
- *                    RTS bisa dipakai di lebih dari satu site), jadi ini murni
- *                    hasil pembacaan log_kontrol, bukan konfigurasi.
+ * - with_logger=1  : lengkapi tiap site dengan `nama_logger` dan `nama_lokasi`
+ *                    (nama pos RTS dari t_lokasi lewat t_logger.lokasi_logger),
+ *                    plus `jumlah_sesi` dari log_kontrol.
  *
- *                    Ikut menyertakan `nama_logger` dan `nama_lokasi` — nama pos
- *                    RTS dari t_lokasi, lewat t_logger.lokasi_logger. Judul
- *                    halaman dulu menulis "Pos RTS Site MIP" secara hardcode,
- *                    padahal nama posnya sudah ada di master data.
+ *                    `id_logger` SELALU ikut karena kini kolom asli di t_site.
+ *                    Sebelumnya nilai itu ditebak dari log_kontrol — "logger
+ *                    yang terakhir melapor" — sehingga site tanpa riwayat tidak
+ *                    punya logger sama sekali, dan site yang pernah dilayani dua
+ *                    unit berganti-ganti jawabannya. Sekarang relasinya
+ *                    dinyatakan, bukan disimpulkan.
  *
- *                    Karena satu logger bisa melayani beberapa site, dua site
+ *                    Karena satu logger boleh melayani beberapa site, dua site
  *                    yang memakai unit RTS yang sama akan menunjukkan
  *                    `nama_lokasi` yang sama — itu memang satu pos fisik.
  */
@@ -37,27 +37,14 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ success: true, data: sites });
     }
 
-    const terakhir = await prisma.$queryRaw<
-      Array<{ site: string | null; id_logger: string; sesi: bigint }>
-    >`
-      SELECT lk.site, lk.id_logger, COUNT(*) AS sesi
-      FROM log_kontrol lk
-      INNER JOIN (
-        SELECT site, MAX(datetime) AS terbaru
-        FROM log_kontrol
-        GROUP BY site
-      ) t ON t.site = lk.site
-      GROUP BY lk.site, lk.id_logger
-      ORDER BY MAX(lk.datetime) DESC
+    // log_kontrol sekarang dipakai HANYA untuk menghitung sesi. Penentuan
+    // loggernya sudah pindah ke kolom t_site.id_logger.
+    const sesiPerSite = await prisma.$queryRaw<Array<{ site: string | null; sesi: bigint }>>`
+      SELECT site, COUNT(*) AS sesi FROM log_kontrol GROUP BY site
     `;
-
-    // Site yang punya lebih dari satu logger: ambil yang paling terakhir melapor.
-    const loggerPerSite = new Map<string, string>();
     const jumlahSesi = new Map<string, number>();
-    for (const row of terakhir) {
-      if (!row.site) continue;
-      if (!loggerPerSite.has(row.site)) loggerPerSite.set(row.site, row.id_logger);
-      jumlahSesi.set(row.site, (jumlahSesi.get(row.site) ?? 0) + Number(row.sesi));
+    for (const row of sesiPerSite) {
+      if (row.site) jumlahSesi.set(row.site, Number(row.sesi));
     }
 
     // Nama pos RTS: t_logger.lokasi_logger → t_lokasi.idlokasi. LEFT JOIN karena
@@ -73,7 +60,7 @@ export async function GET(req: NextRequest) {
     const infoLogger = new Map(loggers.map((l) => [String(l.id_logger), l]));
 
     const data = sites.map((s) => {
-      const idLogger = loggerPerSite.get(s.slug) ?? null;
+      const idLogger = s.id_logger ?? null;
       const info = idLogger ? infoLogger.get(idLogger) : undefined;
       return {
         ...s,
@@ -94,6 +81,19 @@ export async function GET(req: NextRequest) {
   }
 }
 
+/**
+ * Pastikan id_logger menunjuk logger yang benar-benar terdaftar.
+ *
+ * Tidak ada foreign key di skema ini, jadi tanpa pemeriksaan ini sebuah site
+ * bisa menunjuk logger yang tidak ada — dan seluruh perintahnya akan dikirim ke
+ * topik MQTT yang tidak didengar siapa pun, tanpa satu pun pesan galat.
+ */
+async function cekLogger(idLogger: string | null): Promise<string | null> {
+  if (!idLogger) return null;
+  const ada = await prisma.logger.findFirst({ where: { id_logger: idLogger } });
+  return ada ? null : `Logger "${idLogger}" tidak terdaftar di master data`;
+}
+
 // POST /api/sites — tambah site baru
 export async function POST(req: NextRequest) {
   try {
@@ -107,6 +107,10 @@ export async function POST(req: NextRequest) {
         { success: false, error: `Slug "${data.slug}" sudah dipakai` },
         { status: 409 }
       );
+
+    const galatLogger = await cekLogger(data.id_logger);
+    if (galatLogger)
+      return NextResponse.json({ success: false, error: galatLogger }, { status: 400 });
 
     const created = await prisma.site.create({ data });
     invalidateSiteCache();

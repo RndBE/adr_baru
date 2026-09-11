@@ -502,6 +502,21 @@ model Site {
   ukur_lat   Float?
   ukur_lng   Float?
 
+  /// Logger (unit RTS) yang melayani site ini — SATU-SATUNYA sumber kebenaran
+  /// relasi site↔logger.
+  ///
+  /// Satu kolom berarti satu site tidak bisa punya lebih dari satu logger.
+  /// Tidak diberi kunci unik, karena satu logger memang boleh melayani banyak
+  /// site — 30002 melayani ccp dan viewpoint sekaligus.
+  ///
+  /// Isinya KODE logger (`t_logger.id_logger`, mis. "30002"), bukan primary key
+  /// `t_logger.id`. Tipenya menyamai tabel masternya; config_adr dan t_prisma
+  /// menyimpan kode yang sama sebagai INT.
+  ///
+  /// Null selama operator belum memilihnya. Site memang dibuat lebih dulu, baru
+  /// loggernya ditentukan.
+  id_logger String? @db.VarChar(10)
+
   /// Dihitung otomatis oleh API: true bila rts_* dan map_* sudah terisi.
   terkalibrasi Boolean @default(false)
   /// Ditandai manual: koordinat/ambang site ini masih nilai contoh, bukan hasil
@@ -512,5 +527,6 @@ model Site {
   urutan       Int     @default(0)
   catatan      String? @db.Text
 
+  @@index([id_logger])
   @@map("t_site")
 }

@@ -49,6 +49,8 @@ export interface SiteConfig {
   map: { lat: number; lng: number; zoom: number } | null;
   /** Null bila site tidak memerlukan koreksi rotasi. */
   rotation: SiteRotation | null;
+  /** Kode logger yang melayani site ini. Null bila belum dipilih. */
+  idLogger: string | null;
   terkalibrasi: boolean;
   /** True bila koordinat/ambang site ini masih nilai contoh, bukan hasil survei. */
   dataDummy: boolean;
@@ -81,6 +83,7 @@ export function fallbackSite(slug: string): SiteConfig {
     utm: { zone: 50, north: true },
     map: null,
     rotation: null,
+    idLogger: null,
     terkalibrasi: false,
     dataDummy: false,
     aktif: true,
@@ -121,6 +124,7 @@ type SiteRow = {
   pivot_lng: number | null;
   ukur_lat: number | null;
   ukur_lng: number | null;
+  id_logger: string | null;
   terkalibrasi: boolean;
   data_dummy: boolean;
   aktif: boolean;
@@ -178,6 +182,7 @@ export function toSiteConfig(row: SiteRow): SiteConfig {
           ukurLng: row.ukur_lng,
         }
       : null,
+    idLogger: row.id_logger,
     terkalibrasi: row.terkalibrasi,
     dataDummy: row.data_dummy,
     aktif: row.aktif,
@@ -262,10 +267,18 @@ export async function getSite(slug: string | null | undefined): Promise<SiteConf
  * route dulu memakai "logger ADR pertama" (`LIMIT 1` tanpa ORDER BY) — aman
  * ketika hanya ada satu unit, tapi tidak deterministik begitu ada lebih dari satu.
  *
- * Sumbernya `config_adr` yang kini satu baris per site. Kalau belum ada, jatuh
- * ke logger yang dipakai prisma site tersebut.
+ * Sumbernya `t_site.id_logger` — SATU-SATUNYA tempat relasi ini dinyatakan,
+ * dan satu-satunya yang juga berlaku untuk site yang belum punya konfigurasi
+ * maupun prisma. Dua sumber lama dipertahankan sebagai cadangan untuk baris
+ * lawas yang kolomnya belum terisi, bukan sebagai sumber setara.
  */
 export async function getLoggerForSite(slug: string): Promise<string | null> {
+  const site = await prisma.site.findUnique({
+    where: { slug },
+    select: { id_logger: true },
+  });
+  if (site?.id_logger) return site.id_logger;
+
   const dariConfig = await prisma.$queryRaw<Array<{ id_logger: number }>>`
     SELECT id_logger FROM config_adr WHERE site = ${slug} LIMIT 1
   `;

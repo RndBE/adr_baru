@@ -18,7 +18,7 @@ import type { SiteRow } from "@/hooks/use-sites";
 type FormState = Record<string, string | boolean>;
 
 const KOSONG: FormState = {
-  slug: "", nama: "", badge_label: "", badge_color: "#303481",
+  slug: "", nama: "", badge_label: "", badge_color: "#303481", id_logger: "",
   geser_normal_max: "50", geser_waspada_max: "100", geser_siaga_max: "200",
   laju_waspada_min: "40", laju_siaga_min: "80", laju_awas_min: "120",
   rts_e: "", rts_n: "", rts_z: "",
@@ -33,6 +33,7 @@ function toForm(row: SiteRow): FormState {
   const s = (v: number | null) => (v === null || v === undefined ? "" : String(v));
   return {
     slug: row.slug, nama: row.nama, badge_label: row.badge_label, badge_color: row.badge_color,
+    id_logger: row.id_logger ?? "",
     geser_normal_max: s(row.geser_normal_max),
     geser_waspada_max: s(row.geser_waspada_max),
     geser_siaga_max: s(row.geser_siaga_max),
@@ -51,8 +52,11 @@ function toForm(row: SiteRow): FormState {
   };
 }
 
+type LoggerPilihan = { id_logger: string; nama_logger: string; nama_lokasi?: string | null };
+
 export function TabSite() {
   const [data, setData] = useState<SiteRow[]>([]);
+  const [loggers, setLoggers] = useState<LoggerPilihan[]>([]);
   const [loading, setLoading] = useState(true);
   const [open, setOpen] = useState(false);
   const [editing, setEditing] = useState<SiteRow | null>(null);
@@ -63,8 +67,12 @@ export function TabSite() {
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const res = await fetch("/api/sites?all=1").then((r) => r.json());
+      const [res, resLogger] = await Promise.all([
+        fetch("/api/sites?all=1").then((r) => r.json()),
+        fetch("/api/loggers").then((r) => r.json()),
+      ]);
       if (res.success) setData(res.data);
+      if (resLogger.success) setLoggers(resLogger.data as LoggerPilihan[]);
     } finally {
       setLoading(false);
     }
@@ -104,6 +112,7 @@ export function TabSite() {
     else alert(res.error || "Gagal menghapus");
   };
 
+  const tanpaLogger = data.filter((s) => !s.id_logger);
   const belumKalibrasi = data.filter((s) => !s.terkalibrasi);
   const dataContoh = data.filter((s) => s.terkalibrasi && s.data_dummy);
 
@@ -119,6 +128,20 @@ export function TabSite() {
             </span>{" "}
             Koordinat referensi RTS dan/atau center peta belum diisi, jadi nilai
             pergeseran untuk site tersebut belum bisa dianggap sahih.
+          </div>
+        </div>
+      )}
+
+      {tanpaLogger.length > 0 && (
+        <div className="mb-4 flex items-start gap-2.5 rounded-xl border border-amber-300 bg-amber-50 px-4 py-3">
+          <AlertTriangle className="mt-0.5 h-4 w-4 flex-shrink-0 text-amber-600" />
+          <div className="text-[12.5px] leading-relaxed text-amber-900">
+            <span className="font-bold">
+              {tanpaLogger.length} site belum punya logger:{" "}
+              {tanpaLogger.map((s) => s.nama).join(", ")}.
+            </span>{" "}
+            Site tanpa logger tidak punya perangkat tujuan, jadi RTS Config tidak
+            bisa disimpan dan seluruh perintahnya tidak akan terkirim.
           </div>
         </div>
       )}
@@ -163,6 +186,7 @@ export function TabSite() {
                   <TableHead className="w-12 text-xs font-bold text-gray-500">#</TableHead>
                   <TableHead className="text-xs font-bold text-gray-500">SITE</TableHead>
                   <TableHead className="text-xs font-bold text-gray-500">SLUG</TableHead>
+                  <TableHead className="text-xs font-bold text-gray-500">LOGGER</TableHead>
                   <TableHead className="text-xs font-bold text-gray-500">AMBANG GESER (mm)</TableHead>
                   <TableHead className="text-xs font-bold text-gray-500">REFERENSI RTS</TableHead>
                   <TableHead className="text-xs font-bold text-gray-500">STATUS</TableHead>
@@ -172,7 +196,7 @@ export function TabSite() {
               <TableBody>
                 {data.length === 0 ? (
                   <TableRow>
-                    <TableCell colSpan={7} className="h-24 text-center text-gray-400 text-sm">
+                    <TableCell colSpan={8} className="h-24 text-center text-gray-400 text-sm">
                       Tidak ada data
                     </TableCell>
                   </TableRow>
@@ -192,6 +216,13 @@ export function TabSite() {
                         </div>
                       </TableCell>
                       <TableCell className="font-mono text-xs text-gray-600">{row.slug}</TableCell>
+                      <TableCell className="text-xs text-gray-600">
+                        {row.id_logger ? (
+                          <span className="font-mono">{row.id_logger}</span>
+                        ) : (
+                          <span className="text-amber-600">belum dipilih</span>
+                        )}
+                      </TableCell>
                       <TableCell className="font-mono text-xs text-gray-600">
                         {row.geser_normal_max} / {row.geser_waspada_max} / {row.geser_siaga_max}
                       </TableCell>
@@ -277,6 +308,30 @@ export function TabSite() {
                   />
                 </F>
               </div>
+              {/* Logger yang melayani site ini.
+                  Satu kolom, jadi satu site tidak bisa punya lebih dari satu
+                  logger. Sebaliknya tidak dibatasi: satu logger boleh melayani
+                  banyak site, dan itu memang lazim — satu unit RTS membidik
+                  beberapa area sekaligus. */}
+              <F
+                label="Logger *"
+                hint="Menentukan perangkat tujuan seluruh perintah site ini. Satu logger boleh dipakai beberapa site."
+              >
+                <select
+                  value={form.id_logger as string}
+                  onChange={(e) => set("id_logger", e.target.value)}
+                  className="h-9 w-full rounded-md border border-gray-200 bg-white px-3 text-[13px] outline-none focus:border-[#303481]"
+                >
+                  <option value="">— belum dipilih —</option>
+                  {loggers.map((l) => (
+                    <option key={l.id_logger} value={l.id_logger}>
+                      {l.id_logger} — {l.nama_logger}
+                      {l.nama_lokasi ? ` (${l.nama_lokasi})` : ""}
+                    </option>
+                  ))}
+                </select>
+              </F>
+
               <div className="grid grid-cols-3 gap-3">
                 <F label="Label Badge">
                   <Input value={form.badge_label as string} onChange={(e) => set("badge_label", e.target.value)} placeholder="PPU" maxLength={20} />

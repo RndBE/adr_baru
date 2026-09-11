@@ -90,27 +90,72 @@ export async function PUT(request: Request) {
     const existing = await prisma.$queryRaw<Array<{ id: number; id_logger: number }>>`
       SELECT id, id_logger FROM config_adr WHERE site = ${site} LIMIT 1
     `;
-    if (existing.length === 0) {
-      return NextResponse.json(
-        { success: false, error: `Konfigurasi untuk site "${site}" belum ada` },
-        { status: 404 }
-      );
-    }
 
-    await prisma.$executeRaw`
-      UPDATE config_adr
-      SET
-        job_name     = ${job_name},
-        prisma_cons  = ${parseFloat(prisma_cons)},
-        ts_high      = ${parseFloat(ts_high)},
-        coor_x       = ${parseFloat(coor_x)},
-        coor_y       = ${parseFloat(coor_y)},
-        coor_z       = ${parseFloat(coor_z)},
-        step_record  = ${parseInt(step_record)},
-        retries      = ${parseInt(retries)},
-        cycle_time   = ${parseInt(cycle_time)}
-      WHERE site = ${site}
-    `;
+    let loggerId: string;
+
+    if (existing.length === 0) {
+      // Barisnya DIBUAT di sini, bukan ditolak.
+      //
+      // Sebelumnya endpoint ini hanya bisa UPDATE dan membalas 404 "belum ada".
+      // Tidak ada satu pun bagian aplikasi yang pernah INSERT ke config_adr —
+      // semua baris yang ada lahir dari migrasi. Akibatnya site yang baru dibuat
+      // lewat Master Data tidak pernah bisa dikonfigurasi sama sekali: RTS
+      // Config gagal dibuka DAN gagal disimpan, dan perintahnya tidak punya
+      // logger tujuan.
+      //
+      // Loggernya diambil dari t_site.id_logger, satu-satunya tempat relasi
+      // site↔logger dinyatakan. Tanpa itu barisnya tidak bisa dibuat, karena
+      // config_adr.id_logger menentukan ke perangkat mana setelan ini dikirim.
+      const siteBaru = await prisma.site.findUnique({
+        where: { slug: site },
+        select: { id_logger: true },
+      });
+      if (!siteBaru) {
+        return NextResponse.json(
+          { success: false, error: `Site "${site}" tidak terdaftar` },
+          { status: 404 }
+        );
+      }
+      if (!siteBaru.id_logger) {
+        return NextResponse.json(
+          {
+            success: false,
+            error:
+              `Site "${site}" belum punya logger. Pilih loggernya dulu di ` +
+              `Master Data → Site, karena setelan ini harus dikirim ke perangkat tertentu.`,
+          },
+          { status: 409 }
+        );
+      }
+
+      await prisma.$executeRaw`
+        INSERT INTO config_adr
+          (id_logger, job_name, prisma_cons, ts_high, coor_x, coor_y, coor_z,
+           step_record, retries, cycle_time, site)
+        VALUES
+          (${parseInt(siteBaru.id_logger, 10)}, ${job_name}, ${parseFloat(prisma_cons)},
+           ${parseFloat(ts_high)}, ${parseFloat(coor_x)}, ${parseFloat(coor_y)},
+           ${parseFloat(coor_z)}, ${parseInt(step_record)}, ${parseInt(retries)},
+           ${parseInt(cycle_time)}, ${site})
+      `;
+      loggerId = siteBaru.id_logger;
+    } else {
+      await prisma.$executeRaw`
+        UPDATE config_adr
+        SET
+          job_name     = ${job_name},
+          prisma_cons  = ${parseFloat(prisma_cons)},
+          ts_high      = ${parseFloat(ts_high)},
+          coor_x       = ${parseFloat(coor_x)},
+          coor_y       = ${parseFloat(coor_y)},
+          coor_z       = ${parseFloat(coor_z)},
+          step_record  = ${parseInt(step_record)},
+          retries      = ${parseInt(retries)},
+          cycle_time   = ${parseInt(cycle_time)}
+        WHERE site = ${site}
+      `;
+      loggerId = String(existing[0].id_logger);
+    }
 
     // Origin RTS juga tersimpan di t_site (dipakai menghitung deformasi).
     // Kalau keduanya dibiarkan berbeda, perangkat memakai titik acuan yang lain
@@ -130,7 +175,6 @@ export async function PUT(request: Request) {
       (selisihMm.N !== 0 || selisihMm.E !== 0 || selisihMm.Z !== 0);
 
     // Logger diturunkan dari baris config site ini, bukan "logger ADR pertama".
-    const loggerId = String(existing[0].id_logger);
 
     const mqttSent = await sendRtsConfig(loggerId, {
       jobName: job_name || "",

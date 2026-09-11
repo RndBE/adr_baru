@@ -157,12 +157,28 @@ interface LoggerRingkas {
  * datanya sudah berhenti berjam-jam. Pola tick ini sama dengan yang dipakai
  * panel instrumen di Dashboard.
  */
-export function useRtsConnectionStatus() {
+/**
+ * Status sambungan satu unit RTS.
+ *
+ * `idLoggerDiminta` menunjuk logger tertentu — dipakai halaman yang terikat
+ * site, karena logger yang melayani sebuah site ditentukan t_site.id_logger.
+ * Tanpa argumen, perilakunya seperti semula: logger RTS pertama yang ditemukan.
+ *
+ * Perbedaannya penting di Kontrol ADR. Dulu halaman itu SELALU memakai logger
+ * RTS pertama apa pun site yang dipilih, sehingga site yang dilayani unit lain
+ * menampilkan status milik unit yang salah — dan berlangganan topik MQTT yang
+ * salah pula, sementara perintahnya dirutekan server ke unit yang benar.
+ */
+export function useRtsConnectionStatus(idLoggerDiminta?: string | null) {
   const { loggers } = useLoggers();
   const rtsLogger = (loggers as LoggerRingkas[] | undefined)?.find(
     (l) => l?.temp_data === "temp_rts"
   );
-  const { detail } = useLoggerDetail(rtsLogger?.id_logger || null);
+  // Yang diminta dipakai APA ADANYA, tidak dicari dulu di daftar: kalau logger
+  // itu tidak ada, hasilnya harus kosong — bukan diam-diam jatuh ke unit lain.
+  const idDipakai =
+    idLoggerDiminta !== undefined ? idLoggerDiminta : rtsLogger?.id_logger || null;
+  const { detail } = useLoggerDetail(idDipakai || null);
 
   const [nowMs, setNowMs] = useState(() => Date.now());
   useEffect(() => {
@@ -188,7 +204,7 @@ export function useRtsConnectionStatus() {
   return {
     isConnected,
     lastUpdate: tempRts?.waktu || null,
-    idLogger: rtsLogger?.id_logger,
+    idLogger: idDipakai ?? undefined,
     sensor14: tempRts?.sensor14 ?? 0,
     sensor16: tempRts?.sensor16 ?? 0,
     sensor17: tempRts?.sensor17 ?? 0,

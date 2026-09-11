@@ -55,6 +55,13 @@ export function normalizeBody(body: Record<string, unknown>) {
     map_lng,
     map_zoom: reqNum(body.map_zoom, 16),
 
+    // Logger yang melayani site ini. String kosong berarti "belum dipilih",
+    // BUKAN string kosong — kolomnya nullable supaya site bisa dibuat lebih
+    // dulu dan loggernya ditentukan belakangan.
+    id_logger: body.id_logger === null || body.id_logger === undefined || body.id_logger === ""
+      ? null
+      : String(body.id_logger).trim(),
+
     rotasi_deg: optNum(body.rotasi_deg),
     pivot_e: optNum(body.pivot_e),
     pivot_n: optNum(body.pivot_n),

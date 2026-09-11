@@ -61,6 +61,18 @@ export async function PUT(
         );
     }
 
+    // Tanpa foreign key, site bisa menunjuk logger yang tidak ada — dan seluruh
+    // perintahnya akan dikirim ke topik MQTT yang tidak didengar siapa pun,
+    // tanpa satu pun pesan galat.
+    if (data.id_logger) {
+      const adaLogger = await prisma.logger.findFirst({ where: { id_logger: data.id_logger } });
+      if (!adaLogger)
+        return NextResponse.json(
+          { success: false, error: `Logger "${data.id_logger}" tidak terdaftar di master data` },
+          { status: 400 }
+        );
+    }
+
     const updated = await prisma.site.update({ where: { id: idNum }, data });
     invalidateSiteCache();
     return NextResponse.json({ success: true, data: updated });

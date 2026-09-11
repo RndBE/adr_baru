@@ -422,8 +422,6 @@ const DEFAULT_SCHEDULES: DaySchedule[] = [1, 2, 3, 4, 5, 6, 7].map(d => ({
 
 
 export default function KontrolAdrPage() {
-  const { isConnected, lastUpdate, sensor14, sensor16, sensor5, sensor6, sensor7, idLogger } = useRtsConnectionStatus();
-
   // Tick setiap 60 detik → paksa re-render supaya isConnected (Date.now()) dievaluasi ulang
   // Tanpa ini, status Connected/Disconnected tidak berubah otomatis saat data berhenti masuk
   const [, setTick] = useState(0);
@@ -441,6 +439,19 @@ export default function KontrolAdrPage() {
   const selectedSite = sitePilihan || siteList[0]?.slug || "";
   const setSelectedSite = setSitePilihan;
   const selectedSiteBadge = selectedSite ? siteBadge(selectedSite) : null;
+
+  /**
+   * Logger yang melayani site terpilih — diturunkan dari t_site.id_logger.
+   *
+   * TIDAK ADA cadangan "logger RTS pertama". Cadangan seperti itulah yang dulu
+   * membuat halaman ini memakai unit 30002 untuk site yang sebenarnya dilayani
+   * 30003: perintahnya dirutekan server ke 30003, sementara halaman berlangganan
+   * topik pub_30002 dan menampilkan status milik unit yang salah. Site tanpa
+   * logger sekarang menampilkan ketiadaannya, bukan menebak.
+   */
+  const idLoggerSite = siteList.find((s) => s.slug === selectedSite)?.id_logger ?? null;
+  const { isConnected, lastUpdate, sensor14, sensor16, sensor5, sensor6, sensor7 } =
+    useRtsConnectionStatus(idLoggerSite);
   // Riwayat running site terpilih (4 sesi terakhir).
   const { logs: riwayatLogs } = useLogKontrol(selectedSite || undefined, 4);
   const [showPassword, setShowPassword] = useState(false);
@@ -734,8 +745,18 @@ export default function KontrolAdrPage() {
   const mqttRef = useRef<mqtt.MqttClient | null>(null);
   // Topik mengikuti ID alat, jadi sambungannya dipasang ulang saat ID berubah —
   // dulu topiknya tetap sehingga effect ini cukup jalan sekali.
-  const idAlatAktif = idLogger || "30002";
+  //
+  // Nilai cadangan "30002" yang ditulis langsung di kode DIHAPUS. Ia membuat
+  // halaman ini berlangganan topik milik unit yang kebetulan bernomor itu,
+  // termasuk untuk site yang dilayani unit lain — dan pada instalasi mana pun
+  // yang tidak punya logger 30002, ia berlangganan topik yang tidak ada.
+  const idAlatAktif = idLoggerSite;
   useEffect(() => {
+    // Tanpa logger tidak ada topik yang bisa didengarkan. Menyambung dengan id
+    // kosong berarti berlangganan `pub_` — topik yang tidak pernah menerima apa
+    // pun, tapi terlihat seperti sambungan yang sehat.
+    if (!idAlatAktif) return;
+
     const broker = process.env.NEXT_PUBLIC_MQTT_HOST || "mqtt.beacontelemetry.com";
     const wsPort = process.env.NEXT_PUBLIC_MQTT_WS_PORT || "8083";
     const wsUrl = `wss://${broker}:${wsPort}/mqtt`;
@@ -2106,7 +2127,15 @@ export default function KontrolAdrPage() {
                     {labelStatusRts}
                   </p>
                   <p className="mt-1 text-[11.5px] text-(--ink-3)">
-                    Logger <span className="font-mono tabular-nums">{idLogger ?? "—"}</span>
+                    {idAlatAktif ? (
+                      <>
+                        Logger <span className="font-mono tabular-nums">{idAlatAktif}</span>
+                      </>
+                    ) : (
+                      <span className="text-amber-700">
+                        Site ini belum punya logger — pilih di Master Data → Site
+                      </span>
+                    )}
                   </p>
                 </div>
               </div>
