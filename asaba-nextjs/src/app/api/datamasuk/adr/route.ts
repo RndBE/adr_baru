@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { waktuDbWib } from "@/components/monitoring/format";
 import { prisma } from "@/lib/prisma";
 import { publishMqtt } from "@/lib/mqtt";
+import { sesiTerakhirLogger, sesiUntukSiklus } from "@/lib/log-kontrol";
+import { awalSiklus } from "@/lib/sesi-kontrol";
 
 type PayloadMap = Record<string, string>;
 
@@ -131,22 +133,73 @@ export async function POST(request: NextRequest) {
     console.log("[datamasuk/adr] payload.waktu (raw):", payload.waktu);
     console.log("[datamasuk/adr] waktu (computed):", waktu);
 
+    // ── Sesi running ────────────────────────────────────────────────────────
+    //
+    // Dikerjakan SEBELUM apa pun yang menyentuh `rts` atau `temp_rts`, karena
+    // dua hal di bawah bergantung padanya:
+    //
+    //   1. `id_kontrol` tiap baris `rts` harus menunjuk sesi siklus INI.
+    //   2. Tepi naik sensor16 dibaca dari `temp_rts`, dan tabel itu ditimpa
+    //      payload ini beberapa baris lagi.
+    //
+    // Sebelumnya tidak ada langkah ini sama sekali: sesi hanya lahir dari
+    // tombol Mulai, dan tiap payload ditempelkan ke sesi TERAKHIR logger apa
+    // pun keadaannya. Siklus yang dijalankan jadwal AutoTracking berjalan
+    // langsung di firmware tanpa melewati aplikasi, jadi hasilnya menumpuk di
+    // sesi lama yang sudah selesai — sesi 101109 dibuka 21-11-2025 dan masih
+    // menerima baris bertanggal 26-08-2026. Di riwayat running tidak ada satu
+    // pun sesi baru sejak 2025, padahal pengukurannya jalan terus.
+    const rtsSebelumnya = await prisma.$queryRaw<Array<{ sensor16: number | string | null }>>`
+      SELECT sensor16 FROM temp_rts WHERE code_logger = ${idAlat} LIMIT 1
+    `;
+
+    // Payload yang TIDAK menyebut sensor16 tidak dipakai menyimpulkan apa pun.
+    // buildSensorPayload mengisi medan float yang hilang dengan "0" supaya
+    // MySQL menerimanya, dan nol itu tidak bisa dibedakan dari "instrumen
+    // berhenti" — dibaca sebagai berhenti, ia akan memecah satu siklus yang
+    // sedang berjalan menjadi dua sesi begitu payload berikutnya menyebut 1
+    // lagi. Keadaan sebelumnya dibiarkan berlaku sampai ada laporan sungguhan.
+    const sensor16Dilaporkan =
+      payload.sensor16 !== undefined && payload.sensor16 !== "";
+    const siklusMulai =
+      sensor16Dilaporkan && awalSiklus(sensorData.sensor16, rtsSebelumnya[0]?.sensor16);
+
+    const sesi = siklusMulai
+      ? await sesiUntukSiklus({ idLogger: idAlat, waktuDb: waktu })
+      : await sesiTerakhirLogger(idAlat);
+
+    // Site sesi yang sedang berjalan. Dipakai untuk membatasi update prisma —
+    // `id_prisma` cuma nomor slot RTS yang dipakai ulang tiap site, jadi
+    // meng-update berdasarkan id_prisma saja akan menimpa baris milik site lain.
+    const siteAktif = sesi?.site ?? null;
+    idLog = sesi?.idLog ?? "";
+
+    if (siklusMulai) {
+      console.log(
+        `[datamasuk/adr] siklus mulai di ${idAlat} → sesi ${idLog || "(gagal)"}` +
+          ` site=${siteAktif ?? "?"}` +
+          (sesi && "baru" in sesi && sesi.baru ? " (dibuka logger sendiri)" : " (sesi tombol Mulai)")
+      );
+    }
+
+    // Umumkan siklus yang dimulai logger sendiri, supaya halaman Kontrol ADR
+    // yang sedang terbuka langsung menunjukkan pengukuran sedang berjalan —
+    // tanpa ini operator cuma melihat kartu prisma sesi sebelumnya diam-diam
+    // berubah satu per satu. `site` dan `id_logger` ikut dikirim karena topik
+    // ini tidak ber-scope perangkat: tanpa keduanya, halaman yang sedang
+    // membuka site lain ikut menyala "Running".
+    if (siklusMulai && sesi && "baru" in sesi && sesi.baru) {
+      mqttKontrolSent = await publishMqtt(mqttKontrolTopic, {
+        status: "1",
+        datetime: waktu,
+        site: siteAktif,
+        id_logger: idAlat,
+        dipicu: "logger",
+      });
+    }
+
     if (sensorData.sensor1) {
-      const latestLog = await prisma.$queryRaw<Array<{ id_log: string; site: string | null }>>`
-        SELECT id_log, site
-        FROM log_kontrol
-        WHERE id_logger = ${idAlat}
-        ORDER BY datetime DESC
-        LIMIT 1
-      `;
-
-      // Site sesi yang sedang berjalan. Dipakai untuk membatasi update prisma —
-      // `id_prisma` cuma nomor slot RTS yang dipakai ulang tiap site, jadi
-      // meng-update berdasarkan id_prisma saja akan menimpa baris milik site lain.
-      const siteAktif = latestLog[0]?.site ?? null;
-
-      if (latestLog[0]?.id_log) {
-        idLog = latestLog[0].id_log;
+      if (idLog) {
         await prisma.$executeRaw`
           UPDATE log_kontrol
           SET prisma = ${sensorData.sensor1}
@@ -249,9 +302,15 @@ export async function POST(request: NextRequest) {
           WHERE id_logger = ${idAlat}
         `;
       } else if (kontrol.status_manual === "1" && sensorData.sensor16 === "0") {
+        // `site` dan `id_logger` ikut dikirim dengan alasan yang sama seperti
+        // pada pengumuman "mulai": topik ini dipakai bersama semua perangkat,
+        // jadi tanpa keduanya halaman yang sedang membuka site lain ikut
+        // menganggap pengukurannya selesai.
         const kontrolPayload = {
           status: 0,
           status_manual: 0,
+          site: siteAktif,
+          id_logger: idAlat,
         };
 
         await prisma.$executeRaw`

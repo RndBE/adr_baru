@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { sendRtsStartCommand } from "@/lib/mqtt";
 import { verifikasiKodeAkses } from "@/lib/kode-akses";
+import { buatSesiKontrol } from "@/lib/log-kontrol";
 import { waktuDbWib } from "@/components/monitoring/format";
 
 
@@ -95,18 +96,11 @@ export async function POST(request: NextRequest) {
       WHERE id_logger = ${id_logger}
     `;
 
-    // Reset prisma status_get ke 0 — sama dengan PHP asli.
-    // Di-scope per site, bukan per logger: satu logger bisa melayani beberapa
-    // site, dan mereset semuanya akan menghapus status prisma site lain.
-    const dataPrisma = await prisma.$queryRaw<Array<{ id_prisma: string }>>`
-      SELECT id_prisma FROM t_prisma WHERE site = ${siteSlug}
-    `;
-    for (const p of dataPrisma) {
-      await prisma.$executeRaw`
-        UPDATE temp_prisma SET status_get = 0
-        WHERE id_prisma = ${p.id_prisma} AND site = ${siteSlug}
-      `;
-    }
+    // Reset prisma status_get ke 0 — sama dengan PHP asli — dikerjakan
+    // buatSesiKontrol() di bawah, satu UPDATE ber-scope site menggantikan
+    // perulangan satu query per prisma. Scope site-nya tetap wajib: satu logger
+    // bisa melayani beberapa site, dan mereset semuanya akan menghapus status
+    // prisma site lain.
 
     // Create log_kontrol entry. `site` di-insert eksplisit — mengandalkan default
     // kolom akan menandai semua sesi sebagai 'ccp'.
@@ -115,11 +109,26 @@ export async function POST(request: NextRequest) {
     // id_log memakai jam lokal sedangkan datetime lewat objek Date jadi UTC,
     // sehingga satu baris menyebut dua jam berbeda — itu yang membuat kolom
     // waktu hasil pengukuran terbaca UTC.
-    const idLog = waktuNow.slice(11).replace(/:/g, "");
-    await prisma.$executeRaw`
-      INSERT INTO log_kontrol (id_log, id_logger, datetime, site)
-      VALUES (${idLog}, ${id_logger}, ${waktuNow}, ${siteSlug})
-    `;
+    //
+    // Insert-nya dipindah ke buatSesiKontrol() karena /api/datamasuk/adr
+    // sekarang juga membuka sesi (untuk siklus yang dimulai sendiri logger),
+    // dan dua penulis baris `log_kontrol` harus memakai bentuk id serta daftar
+    // kolom yang sama persis. Dua hal ikut terbawa dari sana:
+    //
+    //   - `prisma` dan `r0` disebut eksplisit. Keduanya NOT NULL tanpa bawaan,
+    //     jadi di server ber-sql_mode STRICT_TRANS_TABLES insert yang lama
+    //     ditolak ("Field 'prisma' doesn't have a default value") — tombol
+    //     Mulai gagal SESUDAH set_tempkontrol disetel dan SEBELUM MQTT dikirim,
+    //     sehingga perintahnya tidak pernah berangkat dan pembukuan kontrol
+    //     tertinggal di keadaan "minta jalan".
+    //   - Tabrakan id_log (jam tanpa tanggal, sementara ia PRIMARY KEY) diberi
+    //     akhiran, bukan dibiarkan jadi galat.
+    const { idLog } = await buatSesiKontrol({
+      idLogger: id_logger,
+      site: siteSlug,
+      waktuDb: waktuNow,
+      asal: "operator",
+    });
 
     // ── Kirim MQTT: hanya AutoTrackingStart ──
     // Config (jobName, prismConst, dll) dikirim dari RTS Config saat save

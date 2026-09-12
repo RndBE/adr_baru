@@ -23,7 +23,7 @@ export async function GET(request: NextRequest) {
     let logs: Array<Record<string, unknown>> = [];
     if (site) {
       logs = await prisma.$queryRaw<Array<Record<string, unknown>>>`
-        SELECT id_log, id_logger, datetime, site, r0, prisma
+        SELECT id_log, id_logger, datetime, site, r0, prisma, dipicu
         FROM log_kontrol
         WHERE site = ${site}
         ORDER BY datetime DESC
@@ -31,7 +31,7 @@ export async function GET(request: NextRequest) {
       `;
     } else {
       logs = await prisma.$queryRaw<Array<Record<string, unknown>>>`
-        SELECT id_log, id_logger, datetime, site, r0, prisma
+        SELECT id_log, id_logger, datetime, site, r0, prisma, dipicu
         FROM log_kontrol
         ORDER BY datetime DESC
         LIMIT ${limit}

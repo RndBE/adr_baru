@@ -478,6 +478,29 @@ export default function KontrolAdrPage() {
   const [prismaLoading, setPrismaLoading] = useState(true);
   const [runningDate, setRunningDate] = useState<string>("-");
   const [isControlRunning, setIsControlRunning] = useState(false);
+  /**
+   * Siapa yang memulai siklus yang sedang berjalan.
+   *
+   * null = tidak diketahui — halaman baru dibuka di tengah siklus, jadi yang
+   * diketahui cuma sensor16, dan itu tidak menyebut asalnya. Dibedakan dari
+   * "operator" supaya keterangannya tidak mengaku tahu hal yang tidak diketahui.
+   */
+  const [asalSesi, setAsalSesi] = useState<"operator" | "logger" | null>(null);
+
+  // ── Jembatan ke handler MQTT ──────────────────────────────────────────────
+  //
+  // Handler MQTT dipasang sekali per logger (dependency [idAlatAktif]), jadi ia
+  // menutup nilai render saat itu. Memanggil `fetchPrisma` langsung dari sana
+  // berarti memanggil versi yang masih memegang site LAMA — dan dua site bisa
+  // berbagi satu logger (ccp dan viewpoint sama-sama 30002), sehingga berpindah
+  // di antara keduanya tidak memasang ulang handler-nya. Akibatnya balasan
+  // untuk site yang sedang dibuka memuat ulang daftar prisma site sebelumnya.
+  //
+  // Ref-nya selalu menunjuk versi terbaru, jadi handler membaca yang berlaku
+  // sekarang tanpa perlu menyambung ulang MQTT tiap ganti site.
+  const siteAktifRef = useRef("");
+  const fetchPrismaRef = useRef<() => void>(() => {});
+  const muatUlangRiwayatRef = useRef<() => void>(() => {});
   const [accessCodeError, setAccessCodeError] = useState("");
   const pollingRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const [totalPrisma, setTotalPrisma] = useState(0);
@@ -829,20 +852,43 @@ export default function KontrolAdrPage() {
           // di topic ini menghentikan running dan memicu refetch. Stage firmware
           // dipastikan TIDAK dikirim ke sini (hanya ke pub_<idAlat>),
           // jadi ini pengaman, bukan penambal masalah yang sedang terjadi.
+          //
+          // Topik ini TIDAK ber-scope perangkat — namanya tetap "kontrol-asaba"
+          // untuk semua logger dan semua site. Selama hanya tombol Mulai yang
+          // menerbitkannya itu tidak terasa, karena yang menekan tombol memang
+          // sedang melihat site itu. Sejak /api/datamasuk/adr ikut mengumumkan
+          // siklus yang dimulai logger sendiri, pesan yang sama bisa datang dari
+          // pengukuran site lain — dan tanpa penyaringan ini halaman yang sedang
+          // membuka site tenang ikut berubah jadi "sedang mengukur".
+          //
+          // Pesan lama tidak membawa `site`/`id_logger`; itu diterima apa adanya
+          // supaya perilaku tidak berubah untuk penerbit yang belum diperbarui.
+          const siteKini = siteAktifRef.current;
+          const bukanUntukHalamanIni =
+            (data.site && siteKini && data.site !== siteKini) ||
+            (data.id_logger && idAlatAktif && String(data.id_logger) !== String(idAlatAktif));
+
           if (data.status === undefined) {
             console.log("[KontrolADR] kontrol-asaba: pesan tanpa status, diabaikan", data);
+          } else if (bukanUntukHalamanIni) {
+            console.log("[KontrolADR] kontrol-asaba: milik site/logger lain, diabaikan", data);
           } else if (data.status === "1" || data.status === 1) {
-            console.log("[KontrolADR] kontrol-asaba: Running", data.datetime);
+            console.log("[KontrolADR] kontrol-asaba: Running", data.datetime, data.dipicu);
             setIsControlRunning(true);
             if (data.datetime) setRunningDate(data.datetime);
+            if (data.dipicu === "logger") setAsalSesi("logger");
             // Set semua prisma ke Running
             setPrismaCards(prev => prev.map(c => ({ ...c, status: "Running..." as const, y: "-", x: "-", z: "-" })));
+            // Sesinya baru saja dibuka server — tarik ulang riwayat supaya
+            // barisnya muncul tanpa perlu memuat ulang halaman.
+            muatUlangRiwayatRef.current();
           } else {
             console.log("[KontrolADR] kontrol-asaba: Done");
             setIsControlRunning(false);
             if (pollingRef.current) { clearInterval(pollingRef.current); pollingRef.current = null; }
             // Refresh data final
-            fetchPrisma();
+            fetchPrismaRef.current();
+            muatUlangRiwayatRef.current();
           }
         } else if (topic.startsWith("Logger_")) {
           // Data prisma individual: {id_prisma: "P1", N1: "...", E1: "...", Z1: "...", ...}
@@ -962,14 +1008,19 @@ export default function KontrolAdrPage() {
               // cuma berarti satu target selesai.
               setProgresTracking(null);
               setIsControlRunning(false);
+              setAsalSesi(null);
               if (pollingRef.current) { clearInterval(pollingRef.current); pollingRef.current = null; }
-              fetchPrisma();
+              fetchPrismaRef.current();
+              // Sesinya sudah tercatat sejak siklus mulai; yang berubah di akhir
+              // adalah jumlah prisma yang terkumpul di dalamnya.
+              muatUlangRiwayatRef.current();
             } else if (kelas === "gagal") {
               // Gerbang firmware menolak dalam ~5 detik dan TIDAK membangunkan
               // instrumen yang mati. Operator harus PowerOn dulu, lalu menunggu
               // "done" — bukan "Success" — sebelum menjalankan tracking lagi.
               setProgresTracking(null);
               setIsControlRunning(false);
+              setAsalSesi(null);
               if (pollingRef.current) { clearInterval(pollingRef.current); pollingRef.current = null; }
               setPowerAlert({
                 type: "error",
@@ -978,7 +1029,27 @@ export default function KontrolAdrPage() {
             } else {
               // "scheduled" ikut menyalakan indikator: siklusnya berjalan
               // sungguhan, cuma dipicu jadwal trackEvery, bukan operator.
-              if (nilai === "start" || nilai === "scheduled") setIsControlRunning(true);
+              //
+              // Kartu prisma DIKOSONGKAN di sini, bukan menunggu sensor16.
+              // sensor16 baru berubah setelah logger mengirim payload berkala
+              // berikutnya — selangnya (`send_data`) boleh sampai jam-jaman —
+              // sedangkan balasan ini datang pada detik siklus dimulai. Tanpa
+              // ini panel Hasil prisma memajang koordinat sesi SEBELUMNYA
+              // berlabel "Berhasil" selama pengukuran baru berjalan, lalu
+              // angkanya berubah satu per satu tanpa pernah ada tanda bahwa
+              // yang terpampang sudah usang.
+              if (nilai === "start" || nilai === "scheduled") {
+                setIsControlRunning(true);
+                setAsalSesi(nilai === "scheduled" ? "logger" : "operator");
+                setPrismaCards((prev) =>
+                  prev.map((c) => ({ ...c, status: "Running..." as const, y: "-", x: "-", z: "-" }))
+                );
+                // Sesinya dibuka server saat payload pertama siklus ini masuk,
+                // jadi barisnya belum tentu ada sekarang. Yang ini menangkap
+                // kasus payload sudah mendahului balasan; sisanya ditangkap
+                // pesan "kontrol-asaba" dan "finished".
+                muatUlangRiwayatRef.current();
+              }
               setProgresTracking((prev) => ({
                 nilai,
                 // `dari` hanya ikut di pesan per target — "homing" dan
@@ -1140,8 +1211,10 @@ export default function KontrolAdrPage() {
             console.log("[KontrolADR] AutoTrack done (protokol lama)");
             setProgresTracking(null);
             setIsControlRunning(false);
+            setAsalSesi(null);
             if (pollingRef.current) { clearInterval(pollingRef.current); pollingRef.current = null; }
-            fetchPrisma();
+            fetchPrismaRef.current();
+            muatUlangRiwayatRef.current();
           }
         }
       } catch {
@@ -1157,7 +1230,10 @@ export default function KontrolAdrPage() {
       if (client) client.end(true);
       mqttRef.current = null;
     };
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+  // Daftar dependensinya sekarang lengkap apa adanya — pengecualian
+  // react-hooks/exhaustive-deps yang dulu ada di sini tidak diperlukan lagi
+  // sejak handler membaca `fetchPrisma`, `muatUlangRiwayat`, dan site yang
+  // sedang dibuka lewat ref, bukan lewat closure yang bisa basi.
   }, [idAlatAktif]);
   const [showRtsConfig, setShowRtsConfig] = useState(false);
   // (state configId dihapus: PUT /api/config-adr sekarang dikunci berdasarkan
@@ -1795,6 +1871,14 @@ export default function KontrolAdrPage() {
     }
   }, [selectedSite, sensor16]);
 
+  // Jaga ref yang dibaca handler MQTT tetap menunjuk versi terbaru. Lihat
+  // alasannya di tempat ref-nya dideklarasikan.
+  useEffect(() => {
+    siteAktifRef.current = selectedSite;
+    fetchPrismaRef.current = fetchPrisma;
+    muatUlangRiwayatRef.current = () => { void muatUlangRiwayat(); };
+  }, [selectedSite, fetchPrisma, muatUlangRiwayat]);
+
   // Sinkronkan isControlRunning dengan sensor16 dari hardware (PENTING untuk saat page di-refresh)
   // sensor16 === "1" → animasi jalan + semua cards jadi Running
   // sensor16 === "0" → fetch prisma dulu (data final), baru stop animasi
@@ -1808,9 +1892,14 @@ export default function KontrolAdrPage() {
       if (pollingRef.current) { clearInterval(pollingRef.current); pollingRef.current = null; }
       fetchPrisma().then(() => {
         setIsControlRunning(false);
+        setAsalSesi(null);
+        // Siklus yang berakhir meninggalkan sesi yang jumlah prismanya baru
+        // lengkap sekarang — termasuk siklus yang dimulai logger sendiri, yang
+        // sesinya dibuat server tanpa halaman ini pernah meminta apa pun.
+        void muatUlangRiwayat();
       });
     }
-  }, [sensor16, fetchPrisma]);
+  }, [sensor16, fetchPrisma, muatUlangRiwayat]);
 
   // Fetch ulang tiap kali site berganti — konfigurasi RTS (job name, prism
   // constant, titik origin) berbeda per site.
@@ -2508,6 +2597,42 @@ export default function KontrolAdrPage() {
               <span>sesi terakhir · koordinat dalam meter</span>
             </PanelHeader>
             <div className="border-t border-(--line) p-4">
+              {/* Keterangan bahwa pengukuran sedang berlangsung.
+
+                  Perlu berdiri sendiri, tidak cukup diwakili kartu prisma yang
+                  berputar: siklus bisa dimulai jadwal AutoTracking di firmware
+                  tanpa ada yang menekan apa pun di halaman ini, dan operator
+                  yang kebetulan sedang membuka halaman perlu tahu bahwa angka di
+                  bawah sedang diperbarui — bukan angka final yang boleh dibaca.
+
+                  Asalnya disebut apa adanya. Kalau halaman baru dibuka di tengah
+                  siklus, satu-satunya yang diketahui adalah sensor16, dan itu
+                  tidak menyebut siapa yang memulai — jadi keterangannya pun
+                  tidak menyebutkannya. */}
+              {isControlRunning && (
+                <div
+                  role="status"
+                  aria-live="polite"
+                  className="mb-3.5 flex flex-wrap items-center gap-x-2.5 gap-y-1 rounded-[10px] border border-(--navy)/20 bg-(--navy)/5 px-3.5 py-2.5"
+                >
+                  <Loader2 className="size-3.5 shrink-0 animate-spin text-(--navy)" />
+                  <span className="text-[12.5px] font-semibold text-(--navy)">
+                    Pengukuran sedang berjalan
+                  </span>
+                  <span className="text-[11.5px] text-(--ink-2)">
+                    {asalSesi === "logger"
+                      ? "· dimulai sendiri oleh logger (jadwal AutoTracking)"
+                      : asalSesi === "operator"
+                        ? "· dijalankan dari halaman ini"
+                        : "· sudah berjalan sebelum halaman dibuka"}
+                  </span>
+                  {totalPrisma > 0 && (
+                    <span className="ml-auto font-mono text-[11.5px] tabular-nums text-(--ink-2)">
+                      {respondedCount} / {totalPrisma} prisma terjawab
+                    </span>
+                  )}
+                </div>
+              )}
               <PrismaGrid
                 cards={prismaCards}
                 loading={prismaLoading}
@@ -2534,6 +2659,7 @@ export default function KontrolAdrPage() {
                       id_log: string;
                       datetime?: string | null;
                       prisma_count?: number;
+                      dipicu?: string | null;
                     }) => (
                       <li
                         key={item.id_log}
@@ -2543,8 +2669,24 @@ export default function KontrolAdrPage() {
                           <span className="block text-[13px] font-semibold text-(--ink)">
                             {fmtTanggal(item.datetime ?? null)}
                           </span>
-                          <span className="font-mono text-[11.5px] tabular-nums text-(--ink-3)">
-                            {fmtJam(item.datetime ?? null)}
+                          <span className="flex flex-wrap items-center gap-x-2 gap-y-0.5">
+                            <span className="font-mono text-[11.5px] tabular-nums text-(--ink-3)">
+                              {fmtJam(item.datetime ?? null)}
+                            </span>
+                            {/* Sesi yang tidak pernah diminta dari halaman ini.
+                                Tanpa penanda, operator melihat running yang
+                                tidak ia jalankan dan wajar menyangkanya salah
+                                catat. "Otomatis", bukan "jadwal": server tidak
+                                bisa membedakan siklus `trackEvery` dari siklus
+                                yang dimulai lewat panel instrumen. */}
+                            {item.dipicu === "logger" && (
+                              <span
+                                title="Dimulai sendiri oleh logger — jadwal AutoTracking atau panel instrumen, bukan tombol Mulai"
+                                className="rounded-full bg-(--paper) px-1.5 py-px text-[10.5px] font-semibold text-(--ink-2) ring-1 ring-(--line)"
+                              >
+                                Otomatis
+                              </span>
+                            )}
                           </span>
                         </span>
                         <span className="flex shrink-0 items-center gap-3 text-[11.5px] text-(--ink-2)">

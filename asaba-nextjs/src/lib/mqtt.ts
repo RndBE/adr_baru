@@ -3,6 +3,7 @@
  * Ported from CI3 Kontrol controller.
  */
 import mqtt from "mqtt";
+import { waktuDbWib } from "@/components/monitoring/format";
 
 interface MqttConfig {
   host: string;
@@ -99,7 +100,17 @@ export async function sendRtsStartCommand(loggerId: string): Promise<boolean> {
   const sendKontrol = {
     status: "1",
     status_manual: "1",
-    datetime: new Date().toISOString(),
+    // Jam dinding WIB, bukan ISO/UTC. Halaman Kontrol ADR memakai nilai ini apa
+    // adanya untuk chip "Running date", sementara SELURUH kolom waktu di basis
+    // data ini jam dinding WIB — ISO string membuat satu-satunya jam yang
+    // terlihat selama sesi berjalan meleset tujuh jam dari semua jam lain di
+    // layar yang sama.
+    datetime: waktuDbWib(),
+    // Topik "kontrol-asaba" dipakai bersama semua perangkat. Tanpa penyebut ini
+    // halaman yang sedang membuka logger lain ikut berubah jadi "sedang
+    // mengukur" saat perangkat mana pun dijalankan.
+    id_logger: loggerId,
+    dipicu: "operator",
   };
 
   const dataMqtt = {
