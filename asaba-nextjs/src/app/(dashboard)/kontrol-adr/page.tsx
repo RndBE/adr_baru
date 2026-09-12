@@ -21,6 +21,7 @@ import {
   Scan,
   Send,
   Timer,
+  Trash2,
   Settings2,
   SlidersHorizontal,
   X,
@@ -466,7 +467,12 @@ export default function KontrolAdrPage() {
     labelRts,
   } = useRtsConnectionStatus(idLoggerSite);
   // Riwayat running site terpilih (4 sesi terakhir).
-  const { logs: riwayatLogs } = useLogKontrol(selectedSite || undefined, 4);
+  const { logs: riwayatLogs, mutate: muatUlangRiwayat } = useLogKontrol(
+    selectedSite || undefined,
+    4
+  );
+  /** id_log yang sedang dihapus — menonaktifkan tombolnya supaya tidak diklik dua kali. */
+  const [hapusJalan, setHapusJalan] = useState<string | null>(null);
   const [showPassword, setShowPassword] = useState(false);
   const [prismaCards, setPrismaCards] = useState<PrismaCard[]>([]);
   const [prismaLoading, setPrismaLoading] = useState(true);
@@ -1381,6 +1387,45 @@ export default function KontrolAdrPage() {
       ...s,
       runs: s.runs.map(r => r.id === runId ? { ...r, time } : r)
     } : s));
+  };
+
+  /**
+   * Hapus satu sesi running berikut baris pengukurannya.
+   *
+   * Jumlah prisma ikut disebut di konfirmasi karena itu satu-satunya petunjuk
+   * seberapa besar yang hilang — tanggal saja tidak membedakan sesi uji coba
+   * dari sesi lapangan yang datanya masih dipakai.
+   *
+   * Penolakan server (sesi acuan R0) ditampilkan apa adanya: kalimatnya sudah
+   * menjelaskan sebabnya dan jalan keluarnya.
+   */
+  const hapusRiwayat = async (item: { id_log: string; datetime?: string | null; prisma_count?: number }) => {
+    const kapan = fmtWaktu(item.datetime ?? null, { detik: true });
+    const jumlah = item.prisma_count ?? 0;
+    if (
+      !confirm(
+        `Hapus sesi running ${kapan}?\n\n` +
+          `${jumlah} prisma beserta seluruh baris pengukurannya ikut terhapus permanen.`
+      )
+    )
+      return;
+
+    setHapusJalan(item.id_log);
+    try {
+      const res = await fetch(`/api/log-kontrol/${encodeURIComponent(item.id_log)}`, {
+        method: "DELETE",
+      });
+      const json = await res.json();
+      if (!json.success) {
+        alert(json.error || "Gagal menghapus sesi running");
+        return;
+      }
+      await muatUlangRiwayat();
+    } catch {
+      alert("Gagal menghubungi server");
+    } finally {
+      setHapusJalan(null);
+    }
   };
 
   // Fetch config saat modal dibuka
@@ -2502,11 +2547,27 @@ export default function KontrolAdrPage() {
                             {fmtJam(item.datetime ?? null)}
                           </span>
                         </span>
-                        <span className="shrink-0 text-[11.5px] text-(--ink-2)">
-                          <span className="font-mono tabular-nums text-(--ink)">
-                            {item.prisma_count ?? 0}
-                          </span>{" "}
-                          prisma
+                        <span className="flex shrink-0 items-center gap-3 text-[11.5px] text-(--ink-2)">
+                          <span>
+                            <span className="font-mono tabular-nums text-(--ink)">
+                              {item.prisma_count ?? 0}
+                            </span>{" "}
+                            prisma
+                          </span>
+                          <button
+                            type="button"
+                            onClick={() => hapusRiwayat(item)}
+                            disabled={hapusJalan === item.id_log}
+                            title="Hapus sesi ini"
+                            aria-label={`Hapus sesi running ${fmtWaktu(item.datetime ?? null)}`}
+                            className="cursor-pointer rounded-md p-1.5 text-red-500 transition-colors hover:bg-red-50 focus-visible:ring-2 focus-visible:ring-red-400 focus-visible:outline-none disabled:cursor-not-allowed disabled:opacity-40"
+                          >
+                            {hapusJalan === item.id_log ? (
+                              <Loader2 className="size-3.5 animate-spin" />
+                            ) : (
+                              <Trash2 className="size-3.5" />
+                            )}
+                          </button>
                         </span>
                       </li>
                     )

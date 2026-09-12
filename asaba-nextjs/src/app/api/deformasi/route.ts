@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
+import { cariAcuanR0 } from "@/lib/log-kontrol";
 import { Prisma } from "@prisma/client";
 import { nfloat, fmt, rotateEN, arah8ID, utm2ll } from "@/lib/coordinates";
 import {
@@ -73,17 +74,9 @@ export async function GET(request: NextRequest) {
     // seperti koordinat sah dan menghasilkan pergeseran raksasa yang palsu.
     const lokasiRts = siteConfig.rts;
 
-    // Get first log (r0=1 or earliest) for baseline
-    let logFirst = await prisma.logKontrol.findFirst({
-      where: { site, r0: 1 },
-    });
-    if (!logFirst) {
-      logFirst = await prisma.logKontrol.findFirst({
-        where: { site },
-        orderBy: { datetime: "asc" },
-      });
-    }
-    const firstLogId = logFirst?.id_log || idLog;
+    // Acuan (R0) lewat cariAcuanR0 — aturan yang sama dipakai guard penghapusan
+    // sesi, supaya yang dilindungi persis yang dipakai menghitung di sini.
+    const firstLogId = (await cariAcuanR0(site)) || idLog;
 
     // Get daily logs
     const dt = log.datetime;
