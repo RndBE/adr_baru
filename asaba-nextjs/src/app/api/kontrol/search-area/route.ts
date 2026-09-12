@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { prisma } from "@/lib/prisma";
 import { publishMqtt, topikPerintah } from "@/lib/mqtt";
 import { getLoggerForSite } from "@/lib/sites";
 import { validasiSearchArea } from "@/lib/protokol-rts";
@@ -14,19 +15,17 @@ import { validasiSearchArea } from "@/lib/protokol-rts";
  * Nama medannya BERBEDA antara permintaan (`Hor`/`Ver`) dan balasan
  * (`horizontal`/`vertical`).
  *
- * Dikirim SENDIRIAN, tidak digabung ke setelan lain di /api/config-adr. Dua
- * alasan:
+ * Dikirim SENDIRIAN, tidak digabung ke setelan lain di /api/config-adr, karena
+ * waktunya berbeda: `auto_search` yang dikirim sendirian memakai apa pun yang
+ * sedang ada di instrumen, dan PowerOn menimpanya dengan 7° yang ter-hardcode.
+ * Jadi rentang ini perlu dikirim TEPAT SEBELUM auto_search, bukan sekali saat
+ * menyimpan konfigurasi.
  *
- * 1. Nilainya tidak disimpan aplikasi. Perangkat sudah melaporkannya balik —
- *    lewat balasan ini dan lewat snapshot ack konfigurasi — jadi menambah kolom
- *    database berarti membuat sumber kebenaran kedua untuk besaran yang sama.
- *    Repo ini sudah punya masalah persis itu pada koordinat origin
- *    (config_adr.coor_* vs t_site.rts_*), dan tidak perlu yang ketiga.
- *
- * 2. Waktunya berbeda. `auto_search` yang dikirim sendirian memakai apa pun
- *    yang sedang ada di instrumen, dan PowerOn menimpanya dengan 7° yang
- *    ter-hardcode. Jadi rentang ini perlu dikirim TEPAT SEBELUM auto_search,
- *    bukan sekali saat menyimpan konfigurasi.
+ * Nilainya DICATAT ke config_adr sesudah perintahnya benar-benar terkirim.
+ * Catatan itu "terakhir dikirim", bukan bukti keadaan instrumen — lihat
+ * migrasi 009 — dan hanya dipakai mengisi kolom di RTS Config supaya operator
+ * tidak selalu disuguhi 15° × 15° apa pun yang barusan ia simpan. Pengiriman
+ * TIDAK boleh dilewatkan hanya karena catatannya sama dengan isi form.
  *
  * Body: { site: string, hor: number, ver: number }
  */
@@ -61,6 +60,17 @@ export async function POST(request: NextRequest) {
       },
     };
     const mqttSent = await publishMqtt(topicTarget, payload);
+
+    // Dicatat hanya kalau perintahnya benar-benar terkirim: kolom yang terisi
+    // padahal publish gagal justru menyesatkan, karena yang dilihat operator
+    // berikutnya bukan angka yang pernah sampai ke instrumen.
+    if (mqttSent) {
+      await prisma.$executeRaw`
+        UPDATE config_adr
+        SET search_area_hor = ${Number(hor)}, search_area_ver = ${Number(ver)}
+        WHERE site = ${site}
+      `;
+    }
 
     return NextResponse.json({
       success: true,

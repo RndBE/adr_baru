@@ -113,18 +113,19 @@ export const STATUS_TARGET_SAH = ["search", "turning", "measure", "done", "faile
 /**
  * Baca satu balasan AutoTracking, dua bentuk sekaligus.
  *
- * Bentuk sekarang — kemajuan per target TIDAK punya `value` sama sekali, dan
+ * Bentuk sekarang membungkus semuanya di `value`, dengan `current`/`total`, dan
+ * `start` ikut membawa `total` serta `retries`:
+ *
+ *   {"AutoTracking":{"value":"start","total":50,"retries":1}}
+ *   {"AutoTracking":{"value":"target","current":1,"total":50,"status":"search"}}
+ *   {"AutoTracking":{"value":"homing"}}
+ *   {"AutoTracking":{"value":"finished"}}
+ *
+ * Bentuk sebelumnya — kemajuan per target TIDAK punya `value` sama sekali, dan
  * nomor targetnya bernama `ke`/`dari`:
  *
  *   {"AutoTracking":{"value":"start"}}
  *   {"AutoTracking":{"ke":1,"dari":50,"status":"search"}}
- *   {"AutoTracking":{"value":"homing"}}
- *   {"AutoTracking":{"value":"finished"}}
- *
- * Bentuk sebelumnya membungkus semuanya di `value`, dengan `current`/`total`:
- *
- *   {"AutoTracking":{"value":"start","total":50,"retries":1}}
- *   {"AutoTracking":{"value":"target","current":1,"total":50,"status":"search"}}
  *
  * Keduanya dinormalkan ke satu bentuk, dan pesan per target diberi `nilai`
  * "target" walau paketnya tidak menyebutkannya. Tanpa itu pembaca yang mencari
@@ -132,8 +133,8 @@ export const STATUS_TARGET_SAH = ["search", "turning", "measure", "done", "faile
  * berhenti di "start" sampai `finished` datang berpuluh menit kemudian, dan
  * tidak ada galat apa pun yang menunjukkan sebabnya.
  *
- * `dari` hanya ikut di pesan per target, jadi pemanggil perlu mempertahankan
- * nilai sebelumnya saat pesan berikutnya tidak membawanya.
+ * Jumlah target tidak ikut di `homing` maupun `finished`, jadi pemanggil perlu
+ * mempertahankan nilai sebelumnya saat pesan berikutnya tidak membawanya.
  */
 export type BalasanTracking = {
   ada: boolean;

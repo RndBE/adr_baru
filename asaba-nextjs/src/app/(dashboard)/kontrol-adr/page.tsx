@@ -1421,6 +1421,20 @@ export default function KontrolAdrPage() {
           autoSearch:  d.auto_search === undefined ? true : Boolean(d.auto_search),
         };
         setRtsConfig(dimuat);
+
+        // Rentang sapuan dan jadwal diisi dari catatan "terakhir dikirim" di
+        // database. Sebelumnya keduanya tidak disimpan sama sekali, sehingga
+        // modal ini SELALU terbuka dengan 15° × 15° dan "Mati" apa pun yang
+        // barusan disimpan operator.
+        //
+        // Yang diisi HANYA kolomnya. dasarSapuanRef/dasarJadwalRef sengaja
+        // dibiarkan null: catatan ini bukan bukti keadaan instrumen — PowerOn
+        // menimpa jendela sapuan AKTIF dengan 7° ter-hardcode, dan jadwal tidak
+        // pernah dilaporkan balik — jadi keduanya tetap WAJIB dikirim ulang.
+        if (d.search_area_hor != null) setSaHor(String(d.search_area_hor));
+        if (d.search_area_ver != null) setSaVer(String(d.search_area_ver));
+        if (d.track_every != null) setTrackEvery(String(d.track_every));
+
         // Kelompok ini BOLEH dilewati kalau tidak diubah: sumber kebenarannya
         // database milik aplikasi ini sendiri, dan isinya dikirim ulang ke
         // instrumen tiap kali alat menyala. Beda dari dua kelompok lain, yang

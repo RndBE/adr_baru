@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { prisma } from "@/lib/prisma";
 import { publishMqtt, topikPerintah } from "@/lib/mqtt";
 import { getLoggerForSite } from "@/lib/sites";
 import { validasiTrackEvery } from "@/lib/protokol-rts";
@@ -14,10 +15,16 @@ import { validasiTrackEvery } from "@/lib/protokol-rts";
  * `error_trackEvery`, tapi divalidasi di sini juga supaya penolakannya punya
  * kalimat yang bisa dibaca operator.
  *
- * Dikirim SENDIRIAN, tidak digabung ke /api/config-adr. Setelan ini tidak
- * disimpan aplikasi: nilainya dilaporkan balik perangkat lewat snapshot ack
- * konfigurasi, jadi menambah kolom database berarti membuat sumber kebenaran
- * kedua untuk besaran yang sama.
+ * Dikirim SENDIRIAN, tidak digabung ke /api/config-adr, karena akhirannya
+ * berbeda: setelan lain ditunggu ack-nya, yang ini justru WAJAR tidak dijawab
+ * di unit non-`_timeScheduled`. Dicampur jadi satu, diamnya perangkat tidak
+ * bisa lagi dibedakan dari ack konfigurasi yang hilang.
+ *
+ * Nilainya DICATAT ke config_adr sesudah perintahnya terkirim. Beda dari
+ * setelan lain, jadwal ini TIDAK ikut di snapshot ack — perangkat tidak pernah
+ * melaporkannya balik sama sekali — jadi database satu-satunya tempat nilainya
+ * bisa diingat. Karena itu pula catatan ini tidak bisa dicocokkan dengan
+ * keadaan perangkat, dan tidak boleh dipakai untuk melewatkan pengiriman.
  *
  * Perintah ini hanya ada di varian firmware `_timeScheduled`. Unit lain
  * mengabaikannya TANPA balasan apa pun — tidak ada balasan bukan berarti
@@ -50,6 +57,15 @@ export async function POST(request: NextRequest) {
     const mqttSent = await publishMqtt(topikPerintah(id_logger), {
       [`set_${id_logger}`]: { command: "set_rts", trackEvery: Number(menit) },
     });
+
+    // Perangkat non-`_timeScheduled` mengabaikan perintah ini TANPA balasan,
+    // jadi yang dicatat memang cuma "sudah dikirim" — tidak ada konfirmasi yang
+    // bisa ditunggu. Publish yang gagal tidak dicatat.
+    if (mqttSent) {
+      await prisma.$executeRaw`
+        UPDATE config_adr SET track_every = ${Number(menit)} WHERE site = ${site}
+      `;
+    }
 
     return NextResponse.json({
       success: true,

@@ -407,6 +407,18 @@ model ConfigAdr {
   /// nilainya bertahan di EEPROM instrumen DAN selalu ikut di snapshot ack
   /// konfigurasi, jadi bisa dicocokkan, bukan ditebak.
   auto_search Boolean @default(true)
+  /// Rentang sapuan (`SearchArea`) dan jadwal AutoTracking (`trackEvery`),
+  /// dicatat sebagai "terakhir dikirim" — bukan bukti keadaan instrumen.
+  ///
+  /// Keduanya tetap dikirim ulang tiap kali Simpan ditekan walau kolomnya tidak
+  /// disentuh: PowerOn menimpa jendela sapuan AKTIF di instrumen dengan 7° yang
+  /// ter-hardcode, dan jadwal tidak pernah dilaporkan balik sama sekali. Jangan
+  /// pakai kolom ini untuk melewatkan pengiriman; lihat migrasi 009.
+  ///
+  /// FLOAT, bukan INT: sudut sahnya kelipatan 1,5 derajat.
+  search_area_hor Float @default(15) @db.Float
+  search_area_ver Float @default(15) @db.Float
+  track_every     Int   @default(0)
   /// Konfigurasi RTS bersifat per-site, bukan per-logger: satu unit RTS bisa
   /// dipakai di beberapa site dengan job name dan titik origin yang berbeda.
   ///
