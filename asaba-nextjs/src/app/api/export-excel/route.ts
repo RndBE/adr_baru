@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getSite } from "@/lib/sites";
 import ExcelJS from "exceljs";
+import { fmtDate } from "@/components/monitoring/format";
 
 function nfloat(v: unknown): number {
   if (v === null || v === undefined) return 0;
@@ -55,7 +56,12 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const datetime = log.datetime ? String(log.datetime) : new Date().toISOString();
+    // fmtDate, bukan String(): nilai DB adalah jam dinding WIB, dan String()
+    // pada objek Date merendernya lewat zona proses sehingga maju tujuh jam.
+    // Dulu kebetulan benar karena penulisnya menyimpan UTC — dua kesalahan yang
+    // saling meniadakan. Begitu penulisnya dibetulkan, ini ikut wajib berubah.
+    // fmtDate menerima Date maupun string, jadi aman apa pun bentuk dari driver.
+    const datetime = fmtDate((log.datetime as string | Date | null) ?? new Date(), { detik: true });
 
     // Get R0 (first measurement)
     const r0Rows = await prisma.$queryRaw<Array<Record<string, unknown>>>`

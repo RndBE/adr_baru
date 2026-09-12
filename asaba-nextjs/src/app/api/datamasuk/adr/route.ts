@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { waktuDbWib } from "@/components/monitoring/format";
 import { prisma } from "@/lib/prisma";
 import { publishMqtt } from "@/lib/mqtt";
 
@@ -37,14 +38,10 @@ function getWaktu(payload: PayloadMap): string {
     return `${payload.tanggal} ${payload.jam}`.trim();
   }
 
-  const now = new Date();
-  const yyyy = now.getFullYear();
-  const mm = String(now.getMonth() + 1).padStart(2, "0");
-  const dd = String(now.getDate()).padStart(2, "0");
-  const hh = String(now.getHours()).padStart(2, "0");
-  const mi = String(now.getMinutes()).padStart(2, "0");
-  const ss = String(now.getSeconds()).padStart(2, "0");
-  return `${yyyy}-${mm}-${dd} ${hh}:${mi}:${ss}`;
+  // Jam server dipakai HANYA kalau logger tidak menyertakan waktunya sendiri.
+  // Lewat waktuDbWib supaya hasilnya tetap jam dinding WIB walau zona proses
+  // bukan WIB — getHours() dulu diam-diam ikut zona sistem.
+  return waktuDbWib();
 }
 
 // Sensor yang kolom-nya FLOAT di MySQL — tidak boleh string kosong.

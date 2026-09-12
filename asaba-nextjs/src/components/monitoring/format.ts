@@ -59,6 +59,28 @@ export function waktuMsWib(w: string | Date | null | undefined): number | null {
   return isNaN(ms) ? null : ms;
 }
 
+/**
+ * Kebalikan `waktuMsWib`: Date → "YYYY-MM-DD HH:MM:SS" jam dinding WIB, bentuk
+ * yang dipakai SEMUA kolom waktu di database ini.
+ *
+ * Dibutuhkan karena menyerahkan objek Date ke Prisma menyimpannya sebagai UTC —
+ * baris log_kontrol yang dibuat jam 11:33 WIB tersimpan 04:33, tujuh jam
+ * meleset, sementara `id_log` di baris yang sama dibangun dari jam lokal
+ * sehingga keduanya saling bertentangan di satu tabel.
+ *
+ * Pergeseran dilakukan di epoch lalu dibaca lewat medan UTC, BUKAN lewat
+ * getFullYear()/getHours() yang mengikuti zona proses. Hasilnya sama walau
+ * server atau runtime kebetulan tidak berzona WIB — dan itu bukan kemungkinan
+ * teoretis: proses Node di server tidak menyetel TZ sama sekali, jadi ia cuma
+ * mewarisi zona sistem yang bisa berubah tanpa ada yang menyadarinya.
+ */
+export function waktuDbWib(d: Date = new Date()): string {
+  return new Date(d.getTime() + 7 * 60 * 60 * 1000)
+    .toISOString()
+    .slice(0, 19)
+    .replace("T", " ");
+}
+
 export function parseNum(v: unknown): number | null {
   if (v === null || v === undefined || v === "") return null;
   const n = typeof v === "number" ? v : Number(String(v).replace(",", "."));

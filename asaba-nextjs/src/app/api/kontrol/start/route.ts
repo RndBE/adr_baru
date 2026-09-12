@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { sendRtsStartCommand } from "@/lib/mqtt";
 import { verifikasiKodeAkses } from "@/lib/kode-akses";
+import { waktuDbWib } from "@/components/monitoring/format";
 
 
 /**
@@ -82,10 +83,15 @@ export async function POST(request: NextRequest) {
     }
 
     // Update set_tempkontrol — sama dengan PHP: WHERE id_logger = '30002'
-    const dateNow = new Date();
+    //
+    // Waktunya diserahkan sebagai STRING jam dinding WIB, bukan objek Date.
+    // Prisma menyimpan Date sebagai UTC, sehingga sesi yang dimulai 11:33 WIB
+    // tercatat 04:33 — tujuh jam meleset dari setiap kolom waktu lain di
+    // database ini, yang semuanya jam dinding WIB.
+    const waktuNow = waktuDbWib();
     await prisma.$executeRaw`
       UPDATE set_tempkontrol 
-      SET status = '1', status_manual = '1', datetime = ${dateNow}
+      SET status = '1', status_manual = '1', datetime = ${waktuNow}
       WHERE id_logger = ${id_logger}
     `;
 
@@ -104,10 +110,15 @@ export async function POST(request: NextRequest) {
 
     // Create log_kontrol entry. `site` di-insert eksplisit — mengandalkan default
     // kolom akan menandai semua sesi sebagai 'ccp'.
-    const idLog = dateNow.toTimeString().slice(0, 8).replace(/:/g, "");
+    //
+    // `id_log` dan `datetime` WAJIB dari sumber jam yang sama. Sebelumnya
+    // id_log memakai jam lokal sedangkan datetime lewat objek Date jadi UTC,
+    // sehingga satu baris menyebut dua jam berbeda — itu yang membuat kolom
+    // waktu hasil pengukuran terbaca UTC.
+    const idLog = waktuNow.slice(11).replace(/:/g, "");
     await prisma.$executeRaw`
       INSERT INTO log_kontrol (id_log, id_logger, datetime, site)
-      VALUES (${idLog}, ${id_logger}, ${dateNow}, ${siteSlug})
+      VALUES (${idLog}, ${id_logger}, ${waktuNow}, ${siteSlug})
     `;
 
     // ── Kirim MQTT: hanya AutoTrackingStart ──
@@ -121,7 +132,7 @@ export async function POST(request: NextRequest) {
         id_log: idLog,
         site: siteSlug,
         mqtt_sent: mqttSuccess,
-        datetime: dateNow.toISOString(),
+        datetime: waktuNow,
       },
     });
   } catch (error) {

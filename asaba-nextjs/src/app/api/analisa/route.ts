@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
+import { waktuDbWib } from "@/components/monitoring/format";
 
 /**
  * GET /api/analisa
@@ -72,8 +73,12 @@ export async function GET(request: NextRequest) {
     // ===== BUILD QUERY BERDASARKAN TYPE =====
     let rawData: Array<Record<string, unknown>> = [];
 
+    // Bawaan "hari ini/bulan ini" dihitung WIB, bukan UTC. Dengan toISOString()
+    // rentang pukul 00:00-06:59 WIB masih terbaca tanggal kemarin, sehingga
+    // grafik "hari ini" membuka hari yang salah tiap dini hari — sementara
+    // rts.waktu yang dicocokkan justru jam dinding WIB.
     if (type === "hari") {
-      const tanggal = tgl ?? new Date().toISOString().split("T")[0];
+      const tanggal = tgl ?? waktuDbWib().slice(0, 10);
       rawData = await prisma.$queryRawUnsafe(
         `SELECT waktu, ${kolom} as nilai
          FROM rts
@@ -86,7 +91,7 @@ export async function GET(request: NextRequest) {
       ) as Array<Record<string, unknown>>;
 
     } else if (type === "bulan") {
-      const bulanVal = bulan ?? new Date().toISOString().slice(0, 7);
+      const bulanVal = bulan ?? waktuDbWib().slice(0, 7);
       rawData = await prisma.$queryRawUnsafe(
         `SELECT waktu, ${kolom} as nilai
          FROM rts
@@ -99,7 +104,7 @@ export async function GET(request: NextRequest) {
       ) as Array<Record<string, unknown>>;
 
     } else if (type === "tahun") {
-      const tahunVal = tahun ?? new Date().getFullYear().toString();
+      const tahunVal = tahun ?? waktuDbWib().slice(0, 4);
       rawData = await prisma.$queryRawUnsafe(
         `SELECT waktu, ${kolom} as nilai
          FROM rts
