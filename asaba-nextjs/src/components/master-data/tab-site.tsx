@@ -113,25 +113,14 @@ export function TabSite() {
   };
 
   const tanpaLogger = data.filter((s) => !s.id_logger);
-  const belumKalibrasi = data.filter((s) => !s.terkalibrasi);
-  const dataContoh = data.filter((s) => s.terkalibrasi && s.data_dummy);
+  // Kalibrasi tidak lagi memunculkan peringatan di mana pun: `rts_e/n/z` dan
+  // `map_lat/lng` cuma menentukan posisi marker & center peta, tidak menyentuh
+  // perhitungan pergeseran. Kolom "Koordinat RTS" di tabel bawah tetap
+  // menunjukkan mana yang belum diisi, dan itu sudah cukup.
+  const dataContoh = data.filter((s) => s.data_dummy);
 
   return (
     <>
-      {belumKalibrasi.length > 0 && (
-        <div className="mb-4 flex items-start gap-2.5 rounded-xl border border-amber-300 bg-amber-50 px-4 py-3">
-          <AlertTriangle className="mt-0.5 h-4 w-4 flex-shrink-0 text-amber-600" />
-          <div className="text-[12.5px] leading-relaxed text-amber-900">
-            <span className="font-bold">
-              {belumKalibrasi.length} site belum dikalibrasi:{" "}
-              {belumKalibrasi.map((s) => s.nama).join(", ")}.
-            </span>{" "}
-            Koordinat referensi RTS dan/atau center peta belum diisi, jadi nilai
-            pergeseran untuk site tersebut belum bisa dianggap sahih.
-          </div>
-        </div>
-      )}
-
       {tanpaLogger.length > 0 && (
         <div className="mb-4 flex items-start gap-2.5 rounded-xl border border-amber-300 bg-amber-50 px-4 py-3">
           <AlertTriangle className="mt-0.5 h-4 w-4 flex-shrink-0 text-amber-600" />
@@ -235,17 +224,18 @@ export function TabSite() {
                       </TableCell>
                       <TableCell>
                         <div className="flex flex-col gap-1">
-                          {!row.terkalibrasi ? (
-                            <span className="inline-flex w-fit items-center gap-1 rounded-full bg-amber-100 px-2 py-[2px] text-[10px] font-bold text-amber-700">
-                              <AlertTriangle className="h-3 w-3" /> Belum dikalibrasi
-                            </span>
-                          ) : row.data_dummy ? (
+                          {/* Kalibrasi tidak lagi jadi status lulus/gagal: koordinat
+                              referensi dan center peta boleh kosong, dan angka
+                              pergeserannya tetap sah. Kolom "Referensi RTS" di kiri
+                              sudah menunjukkan mana yang belum diisi. Yang tersisa di
+                              sini cuma keadaan yang benar-benar mempengaruhi angka. */}
+                          {row.data_dummy ? (
                             <span className="inline-flex w-fit items-center gap-1 rounded-full bg-orange-100 px-2 py-[2px] text-[10px] font-bold text-orange-700">
                               <AlertTriangle className="h-3 w-3" /> Data contoh
                             </span>
                           ) : (
                             <span className="inline-flex w-fit items-center gap-1 rounded-full bg-emerald-100 px-2 py-[2px] text-[10px] font-bold text-emerald-700">
-                              <CheckCircle2 className="h-3 w-3" /> Terkalibrasi
+                              <CheckCircle2 className="h-3 w-3" /> Siap pakai
                             </span>
                           )}
                           {!row.aktif && (
@@ -279,9 +269,9 @@ export function TabSite() {
           <DialogHeader>
             <DialogTitle>{editing ? `Edit Site — ${editing.nama}` : "Tambah Site"}</DialogTitle>
             <DialogDescription className="text-[12px]">
-              Kolom koordinat boleh dikosongkan. Site tanpa koordinat referensi RTS
-              atau center peta ditandai <b>belum dikalibrasi</b> dan diberi peringatan
-              di seluruh aplikasi.
+              Kolom koordinat boleh dikosongkan — pergeseran dihitung dari selisih
+              antar sesi, bukan dari koordinat ini. Yang terpengaruh cuma tampilan
+              peta: tanpa center, peta memakai rata-rata posisi prisma.
             </DialogDescription>
           </DialogHeader>
 

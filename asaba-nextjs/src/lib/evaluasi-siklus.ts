@@ -153,10 +153,12 @@ export async function evaluasiSiklus(opsi: {
       console.log(`${tag} ${site}: belum terdaftar di t_site — dilewati`);
       return;
     }
-    if (!cfg.terkalibrasi) {
-      console.log(`${tag} ${site}: belum dikalibrasi — dilewati`);
-      return;
-    }
+    // Kalibrasi BUKAN gerbang. Sempat iya, dan itu keliru: `rts_e/n/z` dan
+    // `map_lat/lng` tidak pernah masuk pergeseranMm() — yang dihitung selisih
+    // dua baris `rts` terhadap sesi acuan R0. Site yang center petanya belum
+    // diisi tetap menghasilkan angka yang sah, dan menahan peringatannya berarti
+    // diam justru untuk pergeseran sungguhan. Di produksi gerbang ini menahan
+    // SELURUH peringatan, karena site di sana memang belum diisi center petanya.
     if (cfg.dataDummy) {
       console.log(`${tag} ${site}: memakai DATA CONTOH — dilewati`);
       return;

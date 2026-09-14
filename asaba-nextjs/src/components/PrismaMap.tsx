@@ -77,7 +77,11 @@ export default function PrismaMap({ markers, site }: Props) {
       ? [siteRow.map_lat, siteRow.map_lng]
       : markerCenter ?? [0, 0];
   const zoom = siteRow?.map_lat != null ? siteRow.map_zoom : markerCenter ? 16 : 2;
-  const belumTerkalibrasi = !siteRow || !siteRow.terkalibrasi;
+  // Hanya site yang TIDAK TERDAFTAR yang diperingatkan. Center peta yang belum
+  // diisi bukan masalah: fallback di atas memakai rata-rata posisi marker, dan
+  // itu justru menunjukkan tempat yang benar. Kalibrasi juga tidak menyentuh
+  // nilai pergeserannya sama sekali.
+  const tidakTerdaftar = !siteRow;
   const dataDummy = !!siteRow?.data_dummy;
 
   useEffect(() => {
@@ -423,18 +427,15 @@ export default function PrismaMap({ markers, site }: Props) {
         <div className="text-[13px] font-extrabold text-[#303481]">{siteLabel}</div>
       </div>
 
-      {/* Peringatan — posisi/nilai site ini belum bisa dipercaya */}
-      {(belumTerkalibrasi || dataDummy) && (
+      {/* Peringatan — nilai site ini belum bisa dipercaya */}
+      {(tidakTerdaftar || dataDummy) && (
         <div className="absolute z-[1000] top-3 left-1/2 -translate-x-1/2 flex items-start gap-2 max-w-[380px] bg-amber-50/95 backdrop-blur-sm border border-amber-300 rounded-lg shadow-lg px-3 py-2">
           <AlertTriangle className="w-4 h-4 text-amber-600 flex-shrink-0 mt-[1px]" />
           <div className="text-[11.5px] leading-snug text-amber-900">
-            {belumTerkalibrasi ? (
+            {tidakTerdaftar ? (
               <>
-                <span className="font-bold">Site belum dikalibrasi.</span>{" "}
-                {siteRow
-                  ? "Center peta belum diisi — tampilan memakai rata-rata posisi prisma."
-                  : `Site "${site ?? "?"}" belum terdaftar di Master Data → Site.`}{" "}
-                Posisi dan nilai pergeseran belum bisa dianggap sahih.
+                <span className="font-bold">Site belum terdaftar.</span>{" "}
+                {`Site "${site ?? "?"}" belum ada di Master Data → Site, jadi ambang bahayanya memakai default paling ketat.`}
               </>
             ) : (
               <>

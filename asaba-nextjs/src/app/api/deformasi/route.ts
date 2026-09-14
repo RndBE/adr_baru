@@ -11,9 +11,14 @@ import {
 } from "@/lib/sites";
 
 /**
- * Peringatan yang harus terlihat operator. Angka deformasi dari site yang
- * belum dikalibrasi tetap dihitung, tapi tidak boleh dianggap sahih — jadi
- * peringatannya ikut di response, bukan hanya di log server.
+ * Peringatan yang harus terlihat operator, ikut di response dan bukan hanya di
+ * log server.
+ *
+ * "Belum dikalibrasi" DIHAPUS dari daftar ini. Kalibrasi tidak pernah masuk
+ * perhitungan: pergeseran adalah selisih dua baris `rts` terhadap sesi acuan
+ * R0, sementara `site.rts` cuma dikembalikan sebagai `posisi_rts` untuk marker
+ * peta di bawah. Pesannya menyatakan "nilai pergeseran belum bisa dianggap
+ * sahih" atas angka yang sebenarnya sah.
  */
 function buildPeringatan(site: SiteConfig): string[] {
   const pesan: string[] = [];
@@ -21,11 +26,6 @@ function buildPeringatan(site: SiteConfig): string[] {
     pesan.push(
       `Site "${site.slug}" belum terdaftar di Master Data → Site. ` +
         `Perhitungan memakai ambang default paling ketat dan tanpa koreksi rotasi.`
-    );
-  } else if (!site.terkalibrasi) {
-    pesan.push(
-      `Site "${site.nama}" belum dikalibrasi — koordinat referensi RTS dan/atau ` +
-        `center peta belum diisi. Nilai pergeseran belum bisa dianggap sahih.`
     );
   } else if (site.dataDummy) {
     // Field-nya lengkap, tapi isinya nilai contoh — tanpa peringatan ini

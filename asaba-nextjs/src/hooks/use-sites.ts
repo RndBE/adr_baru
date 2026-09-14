@@ -67,15 +67,28 @@ export interface SiteBadge {
   peringatan: string | null;
 }
 
-/** Alasan kenapa angka sebuah site belum bisa dipercaya. */
+/**
+ * Alasan kenapa angka sebuah site belum bisa dipercaya.
+ *
+ * "Belum dikalibrasi" SENGAJA bukan salah satunya, walau dulu iya. Kalibrasi
+ * (`rts_e/n/z` + `map_lat/lng`) tidak pernah masuk perhitungan pergeseran:
+ * pergeseran adalah selisih dua baris `rts` terhadap sesi acuan R0, dan
+ * koordinat RTS cuma dikembalikan /api/deformasi sebagai `posisi_rts` untuk
+ * marker peta. Peringatan lama menyatakan "hasilnya belum bisa dipakai
+ * mengambil keputusan" untuk angka yang sebenarnya sah — dan peringatan yang
+ * salah lebih mahal daripada tidak ada peringatan, karena yang membacanya
+ * berhenti mempercayai peringatan berikutnya juga.
+ *
+ * Dua yang tersisa memang mempengaruhi angkanya. Site tak terdaftar berarti
+ * ambang bahayanya tidak diketahui; `data_dummy` ditandai manual justru untuk
+ * bilang "koordinat ini karangan".
+ */
 function alasanPeringatan(
   nama: string,
-  terkalibrasi: boolean,
   dataDummy: boolean,
   terdaftar: boolean
 ): string | null {
   if (!terdaftar) return `Site "${nama}" belum terdaftar di Master Data`;
-  if (!terkalibrasi) return `${nama} — belum dikalibrasi`;
   if (dataDummy) return `${nama} — DATA CONTOH, bukan hasil survei`;
   return null;
 }
@@ -90,7 +103,7 @@ export function fallbackBadge(slug: string | null | undefined): SiteBadge {
     nama,
     terkalibrasi: false,
     dataDummy: false,
-    peringatan: alasanPeringatan(nama, false, false, false),
+    peringatan: alasanPeringatan(nama, false, false),
   };
 }
 
@@ -125,12 +138,7 @@ export function useSites(includeInactive = false, withLogger = false) {
         nama: found.nama,
         terkalibrasi: found.terkalibrasi,
         dataDummy: found.data_dummy,
-        peringatan: alasanPeringatan(
-          found.nama,
-          found.terkalibrasi,
-          found.data_dummy,
-          true
-        ),
+        peringatan: alasanPeringatan(found.nama, found.data_dummy, true),
       };
     },
     [sites]
