@@ -171,6 +171,37 @@ BacaanHaVa bacaManualHaVa(dynamic paket) {
   );
 }
 
+// ── getTilt (Bagian C) ──────────────────────────────────────────────────────
+//
+//   {"set_30002":{"command":"set_rts","getTilt":true}}
+//   → {"data_tilt":{"tilt1":"-0.00732","tilt2":"0.0198"}}
+//
+// Nama balasannya `data_tilt`, BUKAN `getTilt` maupun `Tilt`. `Tilt` adalah hal
+// LAIN: pesan diagnostik kegagalan komunikasi, sebentuk dengan `Rotate` dan
+// `Idle`. Salah membacanya berarti menampilkan kegagalan sebagai kemiringan.
+//
+// Nilainya dibiarkan STRING. Instrumen mengirimkannya begitu, dan mengubahnya
+// jadi angka membuat "0" hasil pembacaan tidak bisa dibedakan dari 0 bawaan.
+
+class BacaanTilt {
+  const BacaanTilt({required this.ada, this.tilt1 = '', this.tilt2 = ''});
+  final bool ada;
+  final String tilt1, tilt2;
+}
+
+BacaanTilt bacaBalasanTilt(dynamic paket) {
+  if (paket is! Map) return const BacaanTilt(ada: false);
+  final o = Map<String, dynamic>.from(paket);
+  if (!o.containsKey('tilt1') && !o.containsKey('tilt2')) {
+    return const BacaanTilt(ada: false);
+  }
+  return BacaanTilt(
+    ada: true,
+    tilt1: _s(o, 'tilt1') ?? '',
+    tilt2: _s(o, 'tilt2') ?? '',
+  );
+}
+
 // ── turning_target / Go To Target ───────────────────────────────────────────
 
 enum KelasBalasan { bukan, kemajuan, selesai, gagal }

@@ -67,6 +67,25 @@ void main() {
     });
   });
 
+  group('getTilt', () {
+    test('balasannya bernama data_tilt', () {
+      final b = bacaBalasanTilt({'tilt1': '-0.00732', 'tilt2': '0.0198'});
+      expect(b.ada, true);
+      // Dibiarkan string: "0" hasil pembacaan harus bisa dibedakan dari 0
+      // bawaan, dan mengangkakannya menghapus perbedaan itu.
+      expect(b.tilt1, '-0.00732');
+      expect(b.tilt2, '0.0198');
+    });
+
+    test('pesan Tilt (diagnostik) bukan pembacaan kemiringan', () {
+      // `Tilt` adalah diagnostik kegagalan komunikasi, sebentuk dengan `Rotate`
+      // dan `Idle`. Membacanya sebagai kemiringan berarti menampilkan kegagalan
+      // sebagai angka.
+      expect(bacaBalasanTilt({'value': 'failed'}).ada, false);
+      expect(bacaBalasanTilt(null).ada, false);
+    });
+  });
+
   group('turning_target', () {
     test('"bad target" itu penolakan, bukan kemajuan', () {
       expect(

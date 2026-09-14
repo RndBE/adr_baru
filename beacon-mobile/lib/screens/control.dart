@@ -1,7 +1,9 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import '../core/theme.dart';
 import '../core/widgets.dart';
 import '../data/beacon_api.dart';
+import '../data/protokol_rts.dart';
 import '../data/repository.dart';
 import '../data/models.dart';
 
@@ -122,22 +124,15 @@ class ControlPage extends StatelessWidget {
                 children: [
                   Expanded(
                     child: OutlinedButton.icon(
-                      // Perintahnya dikirim, nilainya TIDAK ikut pulang.
-                      //
-                      // `/api/kontrol/get-tilt` hanya menerbitkan perintah ke
-                      // `sub_<idAlat>`; jawabannya datang di `pub_<idAlat>`,
-                      // topik yang di web di-subscribe langsung oleh peramban
-                      // lewat WSS. Aplikasi ini belum punya klien MQTT, jadi
-                      // menampilkan angka di sini berarti mengarang. Yang
-                      // ditampilkan karena itu status pengirimannya saja.
+                      // Membuka lembar yang MENUNGGU balasan `data_tilt` di
+                      // `pub_<idAlat>`, bukan sekadar melaporkan perintah
+                      // terkirim.
                       onPressed: !site.powered || busy
                           ? null
-                          : () => attemptAsync(
+                          : () => sheet(
                               context,
-                              repo.bacaTilt,
-                              success:
-                                  'Perintah baca tilt dikirim. Hasilnya dibaca '
-                                  'lewat balasan alat di halaman web.',
+                              'Pembacaan tilt',
+                              TiltSheet(repo: repo),
                             ),
                       icon: const Icon(Icons.screen_rotation_alt, size: 16),
                       label: const Text('Baca tilt'),
@@ -763,6 +758,110 @@ class _ScheduleFormState extends State<ScheduleForm> {
             child: const Text('Simpan jadwal'),
           ),
         ),
+      ],
+    );
+  }
+}
+
+class TiltSheet extends StatefulWidget {
+  const TiltSheet({super.key, required this.repo});
+  final BeaconRepository repo;
+  @override
+  State<TiltSheet> createState() => _TiltSheetState();
+}
+
+/// Menunggu balasan `data_tilt`, bukan melaporkan perintah terkirim.
+///
+/// Perintahnya tidak menggerakkan apa pun: yang dibaca adalah nilai terakhir
+/// yang tersimpan di logger, disegarkan sendiri tiap menit. Jadi aman dipanggil
+/// kapan saja, dan diamnya berarti tidak sampai — bukan sedang bekerja.
+class _TiltSheetState extends State<TiltSheet> {
+  BacaanTilt? hasil;
+  String? error;
+  bool menunggu = true;
+  StreamSubscription<Map<String, dynamic>>? _langganan;
+  Timer? _timeout;
+
+  @override
+  void initState() {
+    super.initState();
+    _langganan = widget.repo.balasan.listen((data) {
+      // Nama balasannya `data_tilt`, BUKAN `getTilt` maupun `Tilt` — yang
+      // terakhir itu diagnostik kegagalan komunikasi, bukan kemiringan.
+      final b = bacaBalasanTilt(data['data_tilt']);
+      if (!b.ada || !mounted) return;
+      _timeout?.cancel();
+      setState(() {
+        hasil = b;
+        menunggu = false;
+      });
+    });
+    unawaited(_minta());
+  }
+
+  Future<void> _minta() async {
+    try {
+      await widget.repo.bacaTilt();
+    } catch (e) {
+      _gagal(e.toString().replaceFirst('Bad state: ', ''));
+      return;
+    }
+    _timeout = Timer(const Duration(seconds: 15), () {
+      if (menunggu) {
+        _gagal(
+          'Alat tidak menjawab dalam 15 detik. Periksa koneksi logger, lalu '
+          'coba lagi.',
+        );
+      }
+    });
+  }
+
+  void _gagal(String pesan) {
+    if (!mounted) return;
+    setState(() {
+      error = pesan;
+      menunggu = false;
+    });
+  }
+
+  @override
+  void dispose() {
+    _langganan?.cancel();
+    _timeout?.cancel();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (menunggu) {
+      return const Padding(
+        padding: EdgeInsets.symmetric(vertical: 24),
+        child: Row(
+          children: [
+            SizedBox(
+              width: 18,
+              height: 18,
+              child: CircularProgressIndicator(strokeWidth: 2),
+            ),
+            SizedBox(width: 12),
+            Text('Menunggu balasan alat…'),
+          ],
+        ),
+      );
+    }
+    if (error != null) {
+      return Padding(
+        padding: const EdgeInsets.symmetric(vertical: 16),
+        child: Text(error!, style: const TextStyle(color: danger)),
+      );
+    }
+    // Nilainya ditampilkan APA ADANYA: instrumen mengirimnya sebagai string,
+    // dan mengangkakannya membuat "0" hasil pembacaan tidak bisa dibedakan dari
+    // 0 bawaan.
+    return Column(
+      children: [
+        LabelValue('Tilt X', hasil!.tilt1.isEmpty ? '—' : hasil!.tilt1),
+        LabelValue('Tilt Y', hasil!.tilt2.isEmpty ? '—' : hasil!.tilt2),
       ],
     );
   }
