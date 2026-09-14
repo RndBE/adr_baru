@@ -84,12 +84,70 @@ void main() {
               'N1': 0,
               'E1': 0,
               'Z1': 0,
+              'DN': '0.000000',
+              'DE': '0.000000',
+              'DZ': '0.000000',
             },
           },
         ],
       });
       expect(r.single.success, false);
       expect(r.single.displacement, 0);
+    });
+
+    test('acuan R0 kosong TIDAK jadi pergeseran ribuan kilometer', () {
+      // Bentuk asli dari produksi: prisma yang belum punya acuan R0. Backend
+      // menolak menyatakan angka — DN/DE/DZ nol, arah "-". Menghitung sendiri
+      // `N1 - N0` di sini menghasilkan koordinat UTM utuh dalam milimeter:
+      // satu prisma terbaca bergeser 9.150 km.
+      final r = pembacaanDariDeformasi({
+        'data_pengukuran': [
+          {
+            'id_prisma': 'P1',
+            'temp_tembak': {
+              'nama_prisma': 'BS1',
+              'N0': 0,
+              'E0': 0,
+              'Z0': 0,
+              'N1': 444376.5419,
+              'E1': 9139557.1118,
+              'Z1': 204.4625,
+              'DN': '0.000000',
+              'DE': '0.000000',
+              'DZ': '0.000000',
+            },
+          },
+        ],
+      });
+      expect(r.single.displacement, 0);
+      expect(r.single.linear3d, 0);
+      // Koordinat terukur tetap ditampilkan apa adanya.
+      expect(r.single.n, closeTo(444376.5419, 1e-6));
+    });
+
+    test('selisih diambil dari DN/DE/DZ, bukan dihitung dari N1-N0', () {
+      final r = pembacaanDariDeformasi({
+        'data_pengukuran': [
+          {
+            'id_prisma': 'P1',
+            'temp_tembak': {
+              'nama_prisma': 'BS_1',
+              'N0': 401306.514,
+              'E0': 525919.314,
+              'Z0': 63.835,
+              'N1': 401306.5261514441,
+              'E1': 525919.3105601738,
+              'Z1': 63.8373,
+              'DN': '0.012151',
+              'DE': '-0.003440',
+              'DZ': '0.002300',
+            },
+          },
+        ],
+      });
+      expect(r.single.dn, closeTo(12.151, 1e-6));
+      expect(r.single.de, closeTo(-3.44, 1e-6));
+      expect(r.single.dz, closeTo(2.3, 1e-6));
     });
 
     test('konfigurasi bolak-balik memakai nama kolom backend', () {
@@ -324,6 +382,9 @@ void main() {
         ha: 0,
         va: 90,
         sd: 10,
+        dn: 3,
+        de: 4,
+        dz: 0,
       );
       expect(reading.displacement, closeTo(5, 1e-6));
       expect(reading.bearing, closeTo(53.1301, .001));

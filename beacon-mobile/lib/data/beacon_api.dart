@@ -162,6 +162,13 @@ List<Reading> pembacaanDariDeformasi(Map<String, dynamic> data) {
         ha: nfloat(tt['HA1']),
         va: nfloat(tt['VA1']),
         sd: nfloat(tt['SD1']),
+        // Selisih DIAMBIL dari backend, bukan dihitung ulang dari N1-N0.
+        // Backend mengembalikan nol untuk prisma yang acuan R0-nya belum ada,
+        // dan pengurangan sendiri akan menghasilkan koordinat UTM utuh sebagai
+        // "pergeseran". DN/DE/DZ bersatuan meter.
+        dn: nfloat(tt['DN']) * 1000,
+        de: nfloat(tt['DE']) * 1000,
+        dz: nfloat(tt['DZ']) * 1000,
         success: berhasil,
       ),
     );

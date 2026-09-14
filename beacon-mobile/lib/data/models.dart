@@ -39,7 +39,23 @@ class Reading {
   final int slot;
   final String name;
   final double n, e, z, n0, e0, z0, ha, va, sd;
+
+  /// Selisih terhadap acuan R0, MILIMETER, DARI BACKEND.
+  ///
+  /// Dulu dihitung di sini sebagai `(n - n0) * 1000`. Itu salah pada data yang
+  /// acuannya belum ada: di produksi `N0`/`E0` bisa 0, dan pengurangan itu
+  /// menghasilkan koordinat UTM utuh dalam milimeter — satu prisma terbaca
+  /// bergeser 9.150 km. Backend sendiri menolak menyatakan angka dalam keadaan
+  /// itu: `/api/deformasi` mengembalikan `DN`/`DE`/`DZ` = "0.000000",
+  /// `linear` = 0, dan `arah_pergeseran` = "-".
+  ///
+  /// Jadi nilainya diambil, bukan diturunkan ulang. `n`/`e`/`z` tetap koordinat
+  /// terukur apa adanya supaya kolom "Hasil N / E / Z" menunjukkan yang benar-
+  /// benar dibaca alat.
+  final double dn, de, dz;
+
   final bool success;
+
   Reading({
     required this.slot,
     required this.name,
@@ -52,11 +68,11 @@ class Reading {
     required this.ha,
     required this.va,
     required this.sd,
+    required this.dn,
+    required this.de,
+    required this.dz,
     this.success = true,
   });
-  double get dn => (n - n0) * 1000;
-  double get de => (e - e0) * 1000;
-  double get dz => (z - z0) * 1000;
   double get displacement => math.sqrt(dn * dn + de * de);
   double get linear3d => math.sqrt(dn * dn + de * de + dz * dz);
   double get bearing => (math.atan2(de, dn) * 180 / math.pi + 360) % 360;
@@ -72,6 +88,9 @@ class Reading {
     'ha': ha,
     'va': va,
     'sd': sd,
+    'dn': dn,
+    'de': de,
+    'dz': dz,
     'success': success,
   };
   factory Reading.fromJson(Map<String, dynamic> j) => Reading(
@@ -86,6 +105,9 @@ class Reading {
     ha: (j['ha'] as num).toDouble(),
     va: (j['va'] as num).toDouble(),
     sd: (j['sd'] as num).toDouble(),
+    dn: (j['dn'] as num).toDouble(),
+    de: (j['de'] as num).toDouble(),
+    dz: (j['dz'] as num).toDouble(),
     success: j['success'],
   );
 }
