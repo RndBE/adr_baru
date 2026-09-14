@@ -1,0 +1,3 @@
+# Sampah Finder macOS. Repo ini belum punya .gitignore di root, jadi berkas
+# ini muncul sebagai untracked di tiap folder yang pernah dibuka Finder.
+.DS_Store

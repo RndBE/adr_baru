@@ -9,15 +9,20 @@
  * `slug` harus sama persis dengan nilai kolom `log_kontrol.site`.
  */
 import { prisma } from "@/lib/prisma";
+import {
+  type AmbangSite,
+  type StatusLabel,
+  statusPergeseran as aturanPergeseran,
+  statusKecepatan as aturanKecepatan,
+} from "@/lib/ambang";
 
 // ─── Tipe ───────────────────────────────────────────────────────────────────
 
-export interface SiteThresholds {
-  /** Batas atas tiap level status pergeseran, dalam mm. */
-  geser: { normalMax: number; waspadaMax: number; siagaMax: number };
-  /** Batas bawah tiap level status kecepatan, dalam mm/hari. */
-  laju: { waspadaMin: number; siagaMin: number; awasMin: number };
-}
+/**
+ * Bentuknya sama persis dengan AmbangSite di `@/lib/ambang` — dijadikan alias,
+ * bukan disalin, supaya tidak ada dua definisi yang bisa bergeser sendiri.
+ */
+export type SiteThresholds = AmbangSite;
 
 export interface SiteRotation {
   /** Sudut rotasi dalam derajat. */
@@ -318,7 +323,7 @@ export async function getLoggerForCommand(site?: string | null): Promise<string 
 
 // ─── Penentuan status ───────────────────────────────────────────────────────
 
-export type StatusLabel = "Normal" | "Waspada" | "Siaga" | "Awas";
+export type { StatusLabel } from "@/lib/ambang";
 
 export interface StatusResult {
   label: StatusLabel;
@@ -337,20 +342,19 @@ function hasil(label: StatusLabel): StatusResult {
   return { label, class: STATUS_CLASS[label] };
 }
 
-/** Status pergeseran berdasarkan nilai mm dan ambang milik site. */
+/**
+ * Status pergeseran berdasarkan nilai mm dan ambang milik site.
+ *
+ * Perbandingannya sendiri ada di `@/lib/ambang`; di sini hanya ditambahkan
+ * kelas Tailwind untuk badge. Dulu aturannya ditulis ulang di sini DAN di
+ * components/monitoring/status.ts — dua salinan yang bisa lepas sinkron tanpa
+ * ada yang menyadarinya.
+ */
 export function statusPergeseran(mm: number, site: SiteConfig): StatusResult {
-  const { normalMax, waspadaMax, siagaMax } = site.thresholds.geser;
-  if (mm < normalMax) return hasil("Normal");
-  if (mm < waspadaMax) return hasil("Waspada");
-  if (mm < siagaMax) return hasil("Siaga");
-  return hasil("Awas");
+  return hasil(aturanPergeseran(mm, site.thresholds));
 }
 
 /** Status kecepatan berdasarkan nilai mm/hari dan ambang milik site. */
 export function statusKecepatan(mmPerDay: number, site: SiteConfig): StatusResult {
-  const { waspadaMin, siagaMin, awasMin } = site.thresholds.laju;
-  if (mmPerDay > awasMin) return hasil("Awas");
-  if (mmPerDay > siagaMin) return hasil("Siaga");
-  if (mmPerDay > waspadaMin) return hasil("Waspada");
-  return hasil("Normal");
+  return hasil(aturanKecepatan(mmPerDay, site.thresholds));
 }
