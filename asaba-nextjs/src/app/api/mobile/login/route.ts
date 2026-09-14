@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { compare } from "bcryptjs";
 import crypto from "crypto";
+import { buatTokenMobile, MASA_BERLAKU_TOKEN } from "@/lib/mobile-auth";
 
 async function verifyPassword(inputPassword: string, storedHash: string) {
   try {
@@ -45,9 +46,18 @@ async function authenticate(username: string, password: string) {
     );
   }
 
+  // Token DITANDATANGANI, bukan diundi. Versi sebelumnya mengembalikan
+  // `crypto.randomBytes(24)` yang tidak disimpan ke mana pun, jadi tidak ada
+  // satu pun endpoint yang bisa memverifikasinya. Lihat src/lib/mobile-auth.ts.
   const payload = {
     id_user: user.id_user,
-    token: crypto.randomBytes(24).toString("hex"),
+    token: await buatTokenMobile({
+      id_user: user.id_user,
+      username: user.username,
+      nama: user.nama ?? "",
+      level: user.level_user ?? "",
+    }),
+    kedaluwarsa: MASA_BERLAKU_TOKEN,
     username: user.username,
     nama: user.nama,
     level: user.level_user,

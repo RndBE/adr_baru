@@ -21,6 +21,7 @@
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 import { getToken } from "next-auth/jwt";
+import { tokenDariHeader, verifikasiTokenMobile } from "@/lib/mobile-auth";
 
 /**
  * Jalur yang WAJIB tetap terbuka.
@@ -60,6 +61,22 @@ export async function proxy(request: NextRequest) {
   // Mencoba keduanya juga membuat penjaga ini selamat kalau AUTH_URL nanti
   // dibetulkan ke https: nama cookie-nya berubah, penjaga ini tidak perlu ikut
   // diubah.
+  // Aplikasi native tidak punya cookie Auth.js: alur credentials Auth.js
+  // berjalan di peramban (CSRF + Set-Cookie), bukan di klien HTTP biasa. Jadi
+  // `Authorization: Bearer <token>` dari /api/mobile/login diterima sebagai
+  // pengganti cookie — hanya untuk /api, karena halaman HTML tetap dipakai
+  // peramban dan tidak pernah mengirim header ini.
+  //
+  // Verifikasinya tanda tangan HS256 saja, tanpa basis data: penjaga ini
+  // dijalankan pada SETIAP permintaan, dan satu query per permintaan hanya
+  // untuk memeriksa token adalah ongkos yang tidak perlu dibayar.
+  if (pathname.startsWith("/api/")) {
+    const bearer = tokenDariHeader(request.headers.get("authorization"));
+    if (bearer && (await verifikasiTokenMobile(bearer))) {
+      return NextResponse.next();
+    }
+  }
+
   const namaKandidat = ["__Secure-authjs.session-token", "authjs.session-token"];
   let token = null;
   for (const namaCookie of namaKandidat) {
