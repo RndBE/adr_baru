@@ -3,7 +3,7 @@ import 'package:flutter/material.dart';
 import '../core/charts.dart';
 import '../core/theme.dart';
 import '../core/widgets.dart';
-import '../data/demo_repository.dart';
+import '../data/repository.dart';
 import '../data/models.dart';
 import 'results.dart';
 
@@ -13,7 +13,7 @@ class DashboardPage extends StatefulWidget {
     required this.repo,
     required this.onNavigate,
   });
-  final DemoRepository repo;
+  final BeaconRepository repo;
   final ValueChanged<int> onNavigate;
   @override
   State<DashboardPage> createState() => _DashboardPageState();
@@ -21,7 +21,7 @@ class DashboardPage extends StatefulWidget {
 
 class _DashboardPageState extends State<DashboardPage> {
   String? selectedSession;
-  DemoRepository get repo => widget.repo;
+  BeaconRepository get repo => widget.repo;
   void onNavigate(int index) => widget.onNavigate(index);
   @override
   Widget build(BuildContext context) {
@@ -40,18 +40,6 @@ class _DashboardPageState extends State<DashboardPage> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        const Text(
-          'PEMANTAUAN DEFORMASI',
-          style: TextStyle(
-            fontSize: 10,
-            fontWeight: FontWeight.w700,
-            letterSpacing: 1.6,
-            color: muted,
-          ),
-        ),
-        const SizedBox(height: 8),
-        Text('Kondisi lapangan,\ndalam jangkauan.', style: display(29)),
-        const SizedBox(height: 18),
         Surface(
           color: ink,
           child: Column(
@@ -82,25 +70,23 @@ class _DashboardPageState extends State<DashboardPage> {
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
+                        // Nama pos jadi judul, id logger jadi keterangan.
+                        //
+                        // Yang dikenali operator adalah posnya; id logger itu
+                        // alamat perangkat — perlu terbaca, tapi bukan yang
+                        // dicari mata lebih dulu.
                         Text(
-                          site.logger,
+                          site.location,
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
                           style: display(28, color: Colors.white),
                         ),
                         const SizedBox(height: 6),
                         Text(
-                          site.location,
+                          site.logger,
                           style: const TextStyle(
                             color: Colors.white70,
                             fontSize: 12,
-                          ),
-                        ),
-                        const SizedBox(height: 12),
-                        const Text(
-                          'SIMULASI PERANGKAT',
-                          style: TextStyle(
-                            color: Color(0xFFB9C3EE),
-                            fontSize: 9,
-                            letterSpacing: 1,
                           ),
                         ),
                       ],
@@ -118,7 +104,7 @@ class _DashboardPageState extends State<DashboardPage> {
                   Expanded(
                     child: Metric(
                       'Baterai',
-                      site.powered ? '87' : '—',
+                      site.battery?.toStringAsFixed(1) ?? '—',
                       unit: '%',
                       dark: true,
                     ),
@@ -126,7 +112,7 @@ class _DashboardPageState extends State<DashboardPage> {
                   Expanded(
                     child: Metric(
                       'Suhu',
-                      site.powered ? '28.4' : '—',
+                      site.temperature?.toStringAsFixed(1) ?? '—',
                       unit: '°C',
                       dark: true,
                     ),

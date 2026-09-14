@@ -31,7 +31,16 @@ class SectionHeading extends StatelessWidget {
   final VoidCallback? onTap;
   @override
   Widget build(BuildContext context) => Padding(
-    padding: const EdgeInsets.only(top: 24, bottom: 12),
+    // Jarak disesuaikan dengan ADA-TIDAKNYA tombol aksi.
+    //
+    // `TextButton` membawa tinggi sentuh ~36 px sementara teksnya hanya ~20,
+    // jadi selisihnya menambah ruang kosong di atas dan bawah baris ini. Dengan
+    // padding yang sama untuk kedua kasus, judul bertombol terlihat melayang
+    // jauh dari komponen di atasnya.
+    padding: EdgeInsets.only(
+      top: action == null ? 22 : 12,
+      bottom: action == null ? 10 : 4,
+    ),
     child: Row(
       children: [
         Expanded(child: Text(title, style: display(18))),
@@ -238,6 +247,26 @@ void attempt(BuildContext context, VoidCallback action, {String? success}) {
   }
 }
 
+/// Versi `attempt` untuk perintah yang menyeberang jaringan.
+///
+/// Perintah instrumen kini berjalan lewat HTTP, jadi galatnya baru diketahui
+/// setelah jeda. `context.mounted` diperiksa karena lembar bawah tempat tombol
+/// itu berada bisa sudah ditutup saat balasan tiba.
+Future<void> attemptAsync(
+  BuildContext context,
+  Future<void> Function() action, {
+  String? success,
+}) async {
+  try {
+    await action();
+    if (success != null && context.mounted) message(context, success);
+  } catch (e) {
+    if (context.mounted) {
+      message(context, e.toString().replaceFirst('Bad state: ', ''));
+    }
+  }
+}
+
 class LabelValue extends StatelessWidget {
   const LabelValue(this.label, this.value, {super.key});
   final String label, value;
@@ -248,13 +277,22 @@ class LabelValue extends StatelessWidget {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Expanded(
+          flex: 4,
           child: Text(
             label,
             style: const TextStyle(color: muted, fontSize: 12),
           ),
         ),
         const SizedBox(width: 12),
-        Flexible(
+        // Expanded, BUKAN Flexible.
+        //
+        // `Flexible` menciutkan kotak teks selebar isinya, jadi
+        // `TextAlign.end` tidak punya ruang untuk bekerja: nilai pendek
+        // menempel di kiri kolom sementara nilai banyak baris kebetulan
+        // terlihat rata kanan. Kolom nilainya harus memenuhi sisa lebar baris
+        // supaya semuanya rata pada tepi yang sama.
+        Expanded(
+          flex: 5,
           child: Text(value, textAlign: TextAlign.end, style: mono(12)),
         ),
       ],

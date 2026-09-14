@@ -2,14 +2,14 @@ import 'package:flutter/material.dart';
 import '../core/theme.dart';
 import '../core/widgets.dart';
 import '../core/charts.dart';
-import '../data/demo_repository.dart';
+import '../data/repository.dart';
 import '../data/export_service.dart';
 import '../data/models.dart';
 import 'dashboard.dart';
 
 class ResultsPage extends StatefulWidget {
   const ResultsPage({super.key, required this.repo});
-  final DemoRepository repo;
+  final BeaconRepository repo;
   @override
   State<ResultsPage> createState() => _ResultsPageState();
 }
@@ -68,14 +68,14 @@ class _ResultsPageState extends State<ResultsPage> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text('Hasil pengukuran', style: display(28)),
-        const SizedBox(height: 6),
-        const Text(
-          'Dari satu sesi hingga riwayat setiap prisma.',
-          style: TextStyle(color: muted, fontSize: 13),
-        ),
-        const SizedBox(height: 18),
         Surface(
+          // Padding vertikal dipangkas dari 18 yang seragam.
+          //
+          // Baris atas berakhir dengan IconButton dan baris bawah dengan
+          // TextButton; keduanya sudah membawa padding sentuh 8–12 px sendiri.
+          // Ditumpuk di atas padding kartu, jaraknya jadi dua kali lipat di
+          // atas dan di bawah sementara isinya rapat di tengah.
+          padding: const EdgeInsets.fromLTRB(18, 8, 18, 4),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
@@ -120,6 +120,9 @@ class _ResultsPageState extends State<ResultsPage> {
                   ),
                   onDeleted: () => setState(() => range = null),
                 ),
+              // Label mengambang "Pilih sesi" duduk DI ATAS garis atas kotak,
+              // jadi tanpa jarak ini ia menempel pada baris judul.
+              if (sessions.isNotEmpty) const SizedBox(height: 10),
               if (sessions.isNotEmpty)
                 DropdownButtonFormField<String>(
                   key: ValueKey('${site.id}-${selected?.id}'),
@@ -483,7 +486,7 @@ class PrismResultCard extends StatelessWidget {
   }
 }
 
-void openPrism(BuildContext context, DemoRepository repo, int slot) {
+void openPrism(BuildContext context, BeaconRepository repo, int slot) {
   Navigator.push(
     context,
     MaterialPageRoute<void>(
@@ -494,7 +497,7 @@ void openPrism(BuildContext context, DemoRepository repo, int slot) {
 
 class PrismDetailPage extends StatefulWidget {
   const PrismDetailPage({super.key, required this.repo, required this.slot});
-  final DemoRepository repo;
+  final BeaconRepository repo;
   final int slot;
   @override
   State<PrismDetailPage> createState() => _PrismDetailPageState();
@@ -545,17 +548,8 @@ class _PrismDetailPageState extends State<PrismDetailPage> {
         appBar: AppBar(title: const Text('Detail prisma')),
         body: SafeArea(
           child: ListView(
-            padding: const EdgeInsets.fromLTRB(20, 0, 20, 28),
+            padding: const EdgeInsets.fromLTRB(20, 16, 20, 28),
             children: [
-              const Text(
-                'DATA SIMULASI',
-                style: TextStyle(
-                  color: amber,
-                  fontSize: 10,
-                  fontWeight: FontWeight.w700,
-                ),
-              ),
-              const SizedBox(height: 10),
               DropdownButtonFormField<int>(
                 key: ValueKey(slot),
                 initialValue: slot,
@@ -667,7 +661,7 @@ class _PrismDetailPageState extends State<PrismDetailPage> {
                       ),
                       const SizedBox(height: 14),
                       Text(
-                        'Ambang demo: normal < ${site.warning} mm · awas ≥ ${site.danger} mm',
+                        'Ambang: normal < ${site.warning} mm · awas ≥ ${site.danger} mm',
                         style: const TextStyle(fontSize: 10, color: muted),
                       ),
                     ],

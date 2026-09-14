@@ -54,7 +54,13 @@ ThemeData beaconTheme() => ThemeData(
   ),
   inputDecorationTheme: InputDecorationTheme(
     filled: true,
-    fillColor: paper,
+    // Putih, sewarna pemilih site.
+    //
+    // `paper` adalah warna latar layar, jadi field yang diisi `paper` melebur
+    // dengan halaman dan hanya dibatasi garis tipis. Putih membuatnya terbaca
+    // sebagai bidang yang bisa diisi. Di atas kartu yang juga putih, batasnya
+    // tetap terjaga oleh `enabledBorder` di bawah.
+    fillColor: Colors.white,
     contentPadding: const EdgeInsets.all(16),
     border: OutlineInputBorder(
       borderRadius: BorderRadius.circular(12),

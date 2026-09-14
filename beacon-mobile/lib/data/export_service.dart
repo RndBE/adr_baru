@@ -12,7 +12,7 @@ Uint8List measurementWorkbook(
   final book = Excel.createExcel();
   book.rename('Sheet1', 'Pengukuran');
   final tab = book['Pengukuran'];
-  tab.appendRow([TextCellValue('BEACON · DATA SIMULASI · ${site.name}')]);
+  tab.appendRow([TextCellValue('BEACON · ${site.name}')]);
   tab.appendRow(
     [
       'Sesi',
@@ -70,7 +70,7 @@ Future<void> exportMeasurements(
 }) async {
   final bytes = measurementWorkbook(site, sessions, slot: slot);
   final box = context.findRenderObject() as RenderBox?;
-  final name = 'beacon-demo-${site.id}${slot == null ? '' : '-P$slot'}.xlsx';
+  final name = 'beacon-${site.id}${slot == null ? '' : '-P$slot'}.xlsx';
   await SharePlus.instance.share(
     ShareParams(
       files: [
@@ -82,7 +82,7 @@ Future<void> exportMeasurements(
         ),
       ],
       fileNameOverrides: [name],
-      title: 'Pengukuran ${site.name} (simulasi)',
+      title: 'Pengukuran ${site.name}',
       sharePositionOrigin: box == null
           ? null
           : box.localToGlobal(Offset.zero) & box.size,

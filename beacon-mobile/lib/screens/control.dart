@@ -1,12 +1,13 @@
 import 'package:flutter/material.dart';
 import '../core/theme.dart';
 import '../core/widgets.dart';
-import '../data/demo_repository.dart';
+import '../data/beacon_api.dart';
+import '../data/repository.dart';
 import '../data/models.dart';
 
 class ControlPage extends StatelessWidget {
   const ControlPage({super.key, required this.repo});
-  final DemoRepository repo;
+  final BeaconRepository repo;
   @override
   Widget build(BuildContext context) {
     final site = repo.site;
@@ -14,14 +15,11 @@ class ControlPage extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text('Kontrol ADR', style: display(28)),
-        const SizedBox(height: 6),
-        const Text(
-          'Atur instrumen. Jalankan pengukuran.',
-          style: TextStyle(color: muted, fontSize: 13),
-        ),
-        const SizedBox(height: 18),
         Surface(
+          // Baris tombol menutup kartu, dan tombol bertinggi 48 px sudah
+          // membawa ruang kosongnya sendiri di atas dan bawah teks. Padding
+          // penuh 18 di bawahnya menjadikannya dua kali lipat.
+          padding: const EdgeInsets.fromLTRB(18, 18, 18, 8),
           child: Column(
             children: [
               Row(
@@ -32,7 +30,17 @@ class ControlPage extends StatelessWidget {
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Text(site.logger, style: display(24)),
+                        Text(
+                          site.location,
+                          style: display(24),
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                        const SizedBox(height: 4),
+                        Text(
+                          site.logger,
+                          style: const TextStyle(fontSize: 12, color: muted),
+                        ),
                         const SizedBox(height: 8),
                         StatusPill(
                           busy
@@ -40,11 +48,6 @@ class ControlPage extends StatelessWidget {
                               : site.powered
                               ? 'Siap'
                               : 'Daya mati',
-                        ),
-                        const SizedBox(height: 8),
-                        const Text(
-                          'Perintah lokal · mode demo',
-                          style: TextStyle(color: muted, fontSize: 11),
                         ),
                       ],
                     ),
@@ -58,7 +61,7 @@ class ControlPage extends StatelessWidget {
                     child: OutlinedButton.icon(
                       onPressed: busy || site.powered
                           ? null
-                          : () => attempt(context, () => repo.power(true)),
+                          : () => attemptAsync(context, () => repo.power(true)),
                       icon: const Icon(Icons.power_settings_new, size: 18),
                       label: const Text('Nyalakan'),
                     ),
@@ -72,11 +75,11 @@ class ControlPage extends StatelessWidget {
                               if (await confirm(
                                     context,
                                     'Matikan RTS?',
-                                    'Daya instrumen demo akan dimatikan.',
+                                    'Daya instrumen akan dimatikan.',
                                     action: 'Matikan',
                                   ) &&
                                   context.mounted) {
-                                attempt(context, () => repo.power(false));
+                                attemptAsync(context, () => repo.power(false));
                               }
                             },
                       icon: const Icon(Icons.power_settings_new, size: 18),
@@ -90,6 +93,7 @@ class ControlPage extends StatelessWidget {
         ),
         const SectionHeading('Sikap instrumen'),
         Surface(
+          padding: const EdgeInsets.fromLTRB(18, 18, 18, 8),
           child: Column(
             children: [
               Row(
@@ -110,23 +114,27 @@ class ControlPage extends StatelessWidget {
                   ),
                 ],
               ),
-              const SizedBox(height: 14),
+              const SizedBox(height: 6),
               Row(
                 children: [
                   Expanded(
                     child: OutlinedButton.icon(
+                      // Perintahnya dikirim, nilainya TIDAK ikut pulang.
+                      //
+                      // `/api/kontrol/get-tilt` hanya menerbitkan perintah ke
+                      // `sub_<idAlat>`; jawabannya datang di `pub_<idAlat>`,
+                      // topik yang di web di-subscribe langsung oleh peramban
+                      // lewat WSS. Aplikasi ini belum punya klien MQTT, jadi
+                      // menampilkan angka di sini berarti mengarang. Yang
+                      // ditampilkan karena itu status pengirimannya saja.
                       onPressed: !site.powered || busy
                           ? null
-                          : () => sheet(
+                          : () => attemptAsync(
                               context,
-                              'Pembacaan tilt',
-                              const Column(
-                                children: [
-                                  LabelValue('Tilt X', '+0.0012°'),
-                                  LabelValue('Tilt Y', '−0.0008°'),
-                                  LabelValue('Sumber', 'Simulasi instrumen'),
-                                ],
-                              ),
+                              repo.bacaTilt,
+                              success:
+                                  'Perintah baca tilt dikirim. Hasilnya dibaca '
+                                  'lewat balasan alat di halaman web.',
                             ),
                       icon: const Icon(Icons.screen_rotation_alt, size: 16),
                       label: const Text('Baca tilt'),
@@ -207,9 +215,17 @@ class ControlPage extends StatelessWidget {
                 SizedBox(
                   width: double.infinity,
                   child: FilledButton.icon(
+                    // Warna nonaktif DISETEL EKSPLISIT.
+                    //
+                    // `styleFrom(backgroundColor:)` hanya berlaku saat tombol
+                    // aktif; saat nonaktif Flutter jatuh ke `onSurface` 12%
+                    // yang di atas kartu ink nyaris tak terlihat — tombolnya
+                    // tetap memakan tinggi, jadi kartu terlihat berlubang.
                     style: FilledButton.styleFrom(
                       backgroundColor: Colors.white,
                       foregroundColor: navy,
+                      disabledBackgroundColor: Colors.white24,
+                      disabledForegroundColor: Colors.white60,
                     ),
                     onPressed: !site.powered || repo.registered.isEmpty
                         ? null
@@ -249,11 +265,10 @@ class ControlPage extends StatelessWidget {
             OutlinedButton.icon(
               onPressed: busy || !site.powered
                   ? null
-                  : () => attempt(
+                  : () => attemptAsync(
                       context,
                       repo.replay,
-                      success:
-                          'Replay SD demo selesai. Hasil tetap tersedia di riwayat.',
+                      success: 'Perintah replay SD dikirim ke alat.',
                     ),
               icon: const Icon(Icons.replay, size: 18),
               label: const Text('Replay SD'),
@@ -358,12 +373,12 @@ class ControlPage extends StatelessWidget {
                               : () async {
                                   if (await confirm(
                                         context,
-                                        'Hapus sesi demo?',
-                                        'Sesi ${s.id} akan dihapus dari penyimpanan lokal.',
+                                        'Hapus sesi?',
+                                        'Sesi ${s.id} akan dihapus.',
                                         action: 'Hapus',
                                       ) &&
                                       context.mounted) {
-                                    attempt(
+                                    await attemptAsync(
                                       context,
                                       () => repo.deleteSession(s),
                                     );
@@ -390,7 +405,26 @@ class ControlPage extends StatelessWidget {
                   .map(
                     (e) => Padding(
                       padding: const EdgeInsets.only(bottom: 8),
-                      child: Text(e, style: mono(10, color: muted)),
+                      child: Row(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Expanded(
+                            child: Text(
+                              '${dateLabel(e.waktu)} ${timeLabel(e.waktu)} · '
+                              '${e.perintah}',
+                              style: mono(10, color: muted),
+                            ),
+                          ),
+                          // Perintah yang gagal terbit ditandai, bukan
+                          // disembunyikan: itu justru yang perlu terlihat saat
+                          // alat tidak merespons.
+                          if (!e.terkirim)
+                            Text(
+                              'gagal kirim',
+                              style: mono(10, color: danger),
+                            ),
+                        ],
+                      ),
                     ),
                   )
                   .toList(),
@@ -405,7 +439,7 @@ class ControlPage extends StatelessWidget {
 
 class StartForm extends StatefulWidget {
   const StartForm({super.key, required this.repo});
-  final DemoRepository repo;
+  final BeaconRepository repo;
   @override
   State<StartForm> createState() => _StartFormState();
 }
@@ -413,6 +447,7 @@ class StartForm extends StatefulWidget {
 class _StartFormState extends State<StartForm> {
   final code = TextEditingController();
   String? error;
+  bool jalan = false;
   @override
   void dispose() {
     code.dispose();
@@ -433,7 +468,6 @@ class _StartFormState extends State<StartForm> {
         keyboardType: TextInputType.number,
         decoration: InputDecoration(
           labelText: 'Kode akses',
-          helperText: 'Kode demo: 123456',
           errorText: error,
         ),
       ),
@@ -441,18 +475,32 @@ class _StartFormState extends State<StartForm> {
       SizedBox(
         width: double.infinity,
         child: FilledButton.icon(
-          onPressed: () {
-            try {
-              widget.repo.start(code.text);
-              Navigator.pop(context);
-            } catch (e) {
-              setState(
-                () => error = e.toString().replaceFirst('Bad state: ', ''),
-              );
-            }
-          },
+          onPressed: jalan
+              ? null
+              : () async {
+                  setState(() {
+                    jalan = true;
+                    error = null;
+                  });
+                  final nav = Navigator.of(context);
+                  try {
+                    await widget.repo.start(code.text);
+                    if (nav.canPop()) nav.pop();
+                  } catch (e) {
+                    if (mounted) {
+                      setState(
+                        () => error = e.toString().replaceFirst(
+                          'Bad state: ',
+                          '',
+                        ),
+                      );
+                    }
+                  } finally {
+                    if (mounted) setState(() => jalan = false);
+                  }
+                },
           icon: const Icon(Icons.play_arrow),
-          label: const Text('Jalankan sesi demo'),
+          label: Text(jalan ? 'Mengirim…' : 'Jalankan sesi'),
         ),
       ),
     ],
@@ -461,7 +509,7 @@ class _StartFormState extends State<StartForm> {
 
 class HomeForm extends StatefulWidget {
   const HomeForm({super.key, required this.repo});
-  final DemoRepository repo;
+  final BeaconRepository repo;
   @override
   State<HomeForm> createState() => _HomeFormState();
 }
@@ -492,13 +540,14 @@ class _HomeFormState extends State<HomeForm> {
         ),
         const SizedBox(height: 20),
         FilledButton(
-          onPressed: () {
-            if (form.currentState!.validate()) {
-              attempt(context, () {
-                widget.repo.setHome(name.text.trim());
-                Navigator.pop(context);
-              });
-            }
+          onPressed: () async {
+            if (!form.currentState!.validate()) return;
+            final nav = Navigator.of(context);
+            await attemptAsync(
+              context,
+              () => widget.repo.setHome(name.text.trim()),
+            );
+            if (nav.canPop()) nav.pop();
           },
           child: const Text('Simpan home'),
         ),
@@ -509,7 +558,7 @@ class _HomeFormState extends State<HomeForm> {
 
 class ConfigForm extends StatefulWidget {
   const ConfigForm({super.key, required this.repo});
-  final DemoRepository repo;
+  final BeaconRepository repo;
   @override
   State<ConfigForm> createState() => _ConfigFormState();
 }
@@ -518,7 +567,7 @@ class _ConfigFormState extends State<ConfigForm> {
   final form = GlobalKey<FormState>();
   late final fields = Map.fromEntries(
     widget.repo.site.config.entries
-        .where((e) => e.key != 'Auto search')
+        .where((e) => e.key != labelAutoSearch)
         .map((e) => MapEntry(e.key, TextEditingController(text: e.value))),
   );
   late bool auto = widget.repo.site.config['Auto search'] == 'true';
@@ -568,16 +617,19 @@ class _ConfigFormState extends State<ConfigForm> {
         SizedBox(
           width: double.infinity,
           child: FilledButton(
-            onPressed: () {
-              if (form.currentState!.validate()) {
-                widget.repo.site.config = {
-                  for (final e in fields.entries) e.key: e.value.text,
-                  'Auto search': '$auto',
-                };
-                widget.repo.save();
-                Navigator.pop(context);
-                message(context, 'Konfigurasi demo disimpan.');
-              }
+            onPressed: () async {
+              if (!form.currentState!.validate()) return;
+              final config = {
+                for (final e in fields.entries) e.key: e.value.text,
+                labelAutoSearch: '$auto',
+              };
+              final nav = Navigator.of(context);
+              await attemptAsync(
+                context,
+                () => widget.repo.simpanKonfigurasi(config),
+                success: 'Konfigurasi disimpan.',
+              );
+              if (nav.canPop()) nav.pop();
             },
             child: const Text('Simpan konfigurasi'),
           ),
@@ -589,118 +641,126 @@ class _ConfigFormState extends State<ConfigForm> {
 
 class ScheduleForm extends StatefulWidget {
   const ScheduleForm({super.key, required this.repo});
-  final DemoRepository repo;
+  final BeaconRepository repo;
   @override
   State<ScheduleForm> createState() => _ScheduleFormState();
 }
 
+/// Jadwal mengikuti bentuk `scheduling_task` di backend: BEBERAPA waktu
+/// running per hari, masing-masing bisa dinyalakan sendiri.
+///
+/// Sebelumnya formulir ini memodelkan satu pasang jam nyala/mati per hari.
+/// Basis data tidak menyimpan hal seperti itu, jadi jadwal apa pun yang diisi
+/// operator tidak akan pernah punya tempat untuk disimpan.
 class _ScheduleFormState extends State<ScheduleForm> {
-  late final days = widget.repo.site.schedule
+  late final runs = widget.repo.site.schedule
       .map((d) => Map<String, dynamic>.from(d))
       .toList();
-  String? error;
-  Future<void> pick(int day, String key) async {
-    final parts = (days[day][key] as String).split(':');
-    final result = await showTimePicker(
+
+  static const namaHari = [
+    'Senin',
+    'Selasa',
+    'Rabu',
+    'Kamis',
+    'Jumat',
+    'Sabtu',
+    'Minggu',
+  ];
+
+  List<Map<String, dynamic>> hari(int d) =>
+      runs.where((r) => (r['days'] as num?)?.toInt() == d).toList();
+
+  Future<void> pick(Map<String, dynamic> run) async {
+    final parts = (run['time'] ?? '00:00').toString().split(':');
+    final hasil = await showTimePicker(
       context: context,
       initialTime: TimeOfDay(
-        hour: int.parse(parts[0]),
-        minute: int.parse(parts[1]),
+        hour: int.tryParse(parts.first) ?? 0,
+        minute: int.tryParse(parts.length > 1 ? parts[1] : '0') ?? 0,
       ),
     );
-    if (result != null && mounted) {
+    if (hasil != null && mounted) {
       setState(
-        () => days[day][key] =
-            '${result.hour.toString().padLeft(2, '0')}:${result.minute.toString().padLeft(2, '0')}',
+        () => run['time'] =
+            '${hasil.hour.toString().padLeft(2, '0')}:${hasil.minute.toString().padLeft(2, '0')}',
       );
     }
   }
 
   @override
-  Widget build(BuildContext context) => Column(
-    children: [
-      const Text(
-        'Jadwal nyala dan mati daya. Pada demo, jadwal tersimpan lokal dan tidak mengeksekusi alat.',
-        style: TextStyle(fontSize: 12, color: muted),
-      ),
-      const SizedBox(height: 12),
-      ...List.generate(
-        7,
-        (i) => Padding(
-          padding: const EdgeInsets.only(bottom: 10),
-          child: Surface(
-            color: paper,
-            padding: const EdgeInsets.all(12),
-            child: Column(
-              children: [
-                SwitchListTile(
-                  contentPadding: EdgeInsets.zero,
-                  dense: true,
-                  title: Text(
-                    [
-                      'Senin',
-                      'Selasa',
-                      'Rabu',
-                      'Kamis',
-                      'Jumat',
-                      'Sabtu',
-                      'Minggu',
-                    ][i],
+  Widget build(BuildContext context) {
+    if (runs.isEmpty) {
+      return const EmptyState(
+        'Jadwal belum tersedia',
+        'Belum ada jadwal running terdaftar untuk logger ini.',
+        icon: Icons.schedule,
+      );
+    }
+    return Column(
+      children: [
+        const Text(
+          'Waktu running otomatis per hari.',
+          style: TextStyle(fontSize: 12, color: muted),
+        ),
+        const SizedBox(height: 12),
+        ...List.generate(7, (i) {
+          final daftar = hari(i + 1);
+          if (daftar.isEmpty) return const SizedBox.shrink();
+          return Padding(
+            padding: const EdgeInsets.only(bottom: 10),
+            child: Surface(
+              color: paper,
+              padding: const EdgeInsets.all(12),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    namaHari[i],
+                    style: const TextStyle(fontWeight: FontWeight.w700),
                   ),
-                  value: days[i]['enabled'],
-                  onChanged: (v) => setState(() => days[i]['enabled'] = v),
-                ),
-                Row(
-                  children: [
-                    Expanded(
-                      child: OutlinedButton(
-                        onPressed: days[i]['enabled']
-                            ? () => pick(i, 'on')
-                            : null,
-                        child: Text('Nyala ${days[i]['on']}'),
-                      ),
+                  ...daftar.map(
+                    (r) => Row(
+                      children: [
+                        Switch(
+                          value: (r['status'] as num?)?.toInt() == 1,
+                          onChanged: (v) =>
+                              setState(() => r['status'] = v ? 1 : 0),
+                        ),
+                        Expanded(
+                          child: Text(
+                            (r['nama'] ?? '').toString(),
+                            style: const TextStyle(fontSize: 13),
+                          ),
+                        ),
+                        OutlinedButton(
+                          onPressed: () => pick(r),
+                          child: Text((r['time'] ?? '--:--').toString()),
+                        ),
+                      ],
                     ),
-                    const SizedBox(width: 8),
-                    Expanded(
-                      child: OutlinedButton(
-                        onPressed: days[i]['enabled']
-                            ? () => pick(i, 'off')
-                            : null,
-                        child: Text('Mati ${days[i]['off']}'),
-                      ),
-                    ),
-                  ],
-                ),
-              ],
+                  ),
+                ],
+              ),
             ),
+          );
+        }),
+        const SizedBox(height: 12),
+        SizedBox(
+          width: double.infinity,
+          child: FilledButton(
+            onPressed: () async {
+              final nav = Navigator.of(context);
+              await attemptAsync(
+                context,
+                () => widget.repo.simpanJadwal(runs),
+                success: 'Jadwal disimpan.',
+              );
+              if (nav.canPop()) nav.pop();
+            },
+            child: const Text('Simpan jadwal'),
           ),
         ),
-      ),
-      if (error != null) Text(error!, style: const TextStyle(color: danger)),
-      const SizedBox(height: 12),
-      SizedBox(
-        width: double.infinity,
-        child: FilledButton(
-          onPressed: () {
-            if (days.any(
-              (d) =>
-                  d['enabled'] == true &&
-                  (d['on'] as String).compareTo(d['off']) >= 0,
-            )) {
-              setState(
-                () => error =
-                    'Jam mati harus setelah jam nyala pada hari yang sama.',
-              );
-              return;
-            }
-            widget.repo.site.schedule = days;
-            widget.repo.save();
-            Navigator.pop(context);
-            message(context, 'Jadwal demo disimpan.');
-          },
-          child: const Text('Simpan jadwal'),
-        ),
-      ),
-    ],
-  );
+      ],
+    );
+  }
 }

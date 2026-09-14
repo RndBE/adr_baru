@@ -1,22 +1,57 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'core/theme.dart';
 import 'core/widgets.dart';
-import 'data/demo_repository.dart';
+import 'data/api_client.dart';
+import 'data/mqtt_balasan.dart';
+import 'data/repository.dart';
 import 'screens/dashboard.dart';
 import 'screens/control.dart';
 import 'screens/prisms.dart';
 import 'screens/results.dart';
 
+/// Alamat backend. Diganti saat build lewat
+/// `--dart-define=BEACON_API=https://...`; bawaannya dev server di mesin yang
+/// sama, yang juga terjangkau dari simulator iOS.
+const alamatApi = String.fromEnvironment(
+  'BEACON_API',
+  defaultValue: 'http://localhost:3000',
+);
+
+/// Broker balasan alat. Nilai bawaannya sama dengan `NEXT_PUBLIC_MQTT_*` yang
+/// dipakai halaman web, supaya ponsel mendengar topik yang sama.
+const mqttHost = String.fromEnvironment(
+  'BEACON_MQTT_HOST',
+  defaultValue: 'mqtt.beacontelemetry.com',
+);
+const mqttPort = int.fromEnvironment('BEACON_MQTT_WS_PORT', defaultValue: 8083);
+const mqttUser = String.fromEnvironment(
+  'BEACON_MQTT_USER',
+  defaultValue: 'userlog',
+);
+const mqttPass = String.fromEnvironment(
+  'BEACON_MQTT_PASS',
+  defaultValue: 'b34c0n',
+);
+
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  final repo = DemoRepository();
+  final repo = BeaconRepository(
+    api: ApiClient(baseUrl: alamatApi),
+    mqtt: MqttBalasan(
+      host: mqttHost,
+      port: mqttPort,
+      username: mqttUser,
+      password: mqttPass,
+    ),
+  );
   await repo.load();
   runApp(BeaconApp(repo: repo));
 }
 
 class BeaconApp extends StatelessWidget {
   const BeaconApp({super.key, required this.repo});
-  final DemoRepository repo;
+  final BeaconRepository repo;
   @override
   Widget build(BuildContext context) => MaterialApp(
     title: 'Beacon Mobile',
@@ -32,7 +67,7 @@ class BeaconApp extends StatelessWidget {
 
 class LoginPage extends StatefulWidget {
   const LoginPage({super.key, required this.repo});
-  final DemoRepository repo;
+  final BeaconRepository repo;
   @override
   State<LoginPage> createState() => _LoginPageState();
 }
@@ -41,6 +76,7 @@ class _LoginPageState extends State<LoginPage> {
   final user = TextEditingController(), password = TextEditingController();
   final form = GlobalKey<FormState>();
   bool visible = false;
+  bool masuk = false;
   String? error;
   @override
   void dispose() {
@@ -166,41 +202,9 @@ class _LoginPageState extends State<LoginPage> {
                     SizedBox(
                       width: double.infinity,
                       child: FilledButton(
-                        onPressed: login,
-                        child: const Text('Masuk'),
+                        onPressed: masuk ? null : login,
+                        child: Text(masuk ? 'Menghubungkan…' : 'Masuk'),
                       ),
-                    ),
-                  ],
-                ),
-              ),
-              const SizedBox(height: 16),
-              Surface(
-                color: const Color(0xFFE9EDF8),
-                padding: const EdgeInsets.all(14),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    const Text(
-                      'VERSI DEMO · FRONTEND',
-                      style: TextStyle(
-                        fontSize: 10,
-                        fontWeight: FontWeight.w800,
-                        color: navy,
-                        letterSpacing: .7,
-                      ),
-                    ),
-                    const SizedBox(height: 6),
-                    const Text(
-                      'Akun operator / beacon123\nData contoh. Tidak terhubung ke alat.',
-                      style: TextStyle(fontSize: 12, color: muted),
-                    ),
-                    TextButton(
-                      onPressed: () {
-                        user.text = 'operator';
-                        password.text = 'beacon123';
-                        login();
-                      },
-                      child: const Text('Jelajahi demo →'),
                     ),
                   ],
                 ),
@@ -218,24 +222,38 @@ class _LoginPageState extends State<LoginPage> {
       ),
     ),
   );
-  void login() {
+  Future<void> login() async {
     FocusManager.instance.primaryFocus?.unfocus();
-    if (form.currentState!.validate()) {
-      try {
-        widget.repo.login(user.text, password.text);
-      } catch (e) {
+    if (!form.currentState!.validate() || masuk) return;
+    setState(() {
+      masuk = true;
+      error = null;
+    });
+    try {
+      await widget.repo.login(user.text, password.text);
+    } catch (e) {
+      if (mounted) {
         setState(() => error = e.toString().replaceFirst('Bad state: ', ''));
       }
+    } finally {
+      if (mounted) setState(() => masuk = false);
     }
   }
 }
 
 class HomeShell extends StatefulWidget {
   const HomeShell({super.key, required this.repo});
-  final DemoRepository repo;
+  final BeaconRepository repo;
   @override
   State<HomeShell> createState() => _HomeShellState();
 }
+
+const judulHalaman = [
+  'Ringkasan',
+  'Kontrol ADR',
+  'Prism Config',
+  'Hasil pengukuran',
+];
 
 class _HomeShellState extends State<HomeShell> {
   int index = 0;
@@ -256,55 +274,22 @@ class _HomeShellState extends State<HomeShell> {
     final repo = widget.repo;
     return Scaffold(
       appBar: AppBar(
-        toolbarHeight: 76,
         titleSpacing: 20,
         backgroundColor: Colors.white,
         surfaceTintColor: Colors.transparent,
         scrolledUnderElevation: 0,
         elevation: 0,
         shape: const Border(bottom: BorderSide(color: line, width: 0.7)),
-        title: const Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              'Monitoring',
-              style: TextStyle(
-                fontSize: 22,
-                fontWeight: FontWeight.w700,
-                letterSpacing: -0.6,
-                color: ink,
-              ),
-            ),
-            SizedBox(height: 3),
-            Text(
-              'Beacon Mobile',
-              style: TextStyle(
-                fontSize: 11,
-                fontWeight: FontWeight.w400,
-                color: muted,
-                letterSpacing: 0.2,
-              ),
-            ),
-          ],
+        title: Text(
+          judulHalaman[index],
+          style: const TextStyle(
+            fontSize: 22,
+            fontWeight: FontWeight.w700,
+            letterSpacing: -0.6,
+            color: ink,
+          ),
         ),
         actions: [
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 5),
-            decoration: BoxDecoration(
-              color: paper,
-              borderRadius: BorderRadius.circular(20),
-            ),
-            child: const Text(
-              'Demo',
-              style: TextStyle(
-                fontSize: 9,
-                fontWeight: FontWeight.w600,
-                color: muted,
-              ),
-            ),
-          ),
-          const SizedBox(width: 8),
           IconButton(
             tooltip: 'Akun dan informasi',
             style: IconButton.styleFrom(
@@ -314,7 +299,7 @@ class _HomeShellState extends State<HomeShell> {
             ),
             onPressed: () => sheet(
               context,
-              'Operator demo',
+              'Operator',
               Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
@@ -322,23 +307,11 @@ class _HomeShellState extends State<HomeShell> {
                     'Beacon Mobile · v1.0.0',
                     style: TextStyle(fontWeight: FontWeight.w700),
                   ),
-                  const SizedBox(height: 10),
-                  const Text(
-                    'Frontend Flutter dengan data lokal. Seluruh perintah instrumen disimulasikan.',
-                  ),
                   const SizedBox(height: 16),
-                  OutlinedButton(
-                    onPressed: () {
-                      Navigator.pop(context);
-                      repo.refresh(fail: true);
-                    },
-                    child: const Text('Coba kondisi gagal memuat'),
-                  ),
-                  const SizedBox(height: 10),
                   FilledButton.icon(
                     onPressed: () {
                       Navigator.pop(context);
-                      repo.logout();
+                      unawaited(repo.logout());
                     },
                     icon: const Icon(Icons.logout),
                     label: const Text('Keluar'),
@@ -444,7 +417,7 @@ class _HomeShellState extends State<HomeShell> {
                   Padding(
                     padding: const EdgeInsets.symmetric(horizontal: 20),
                     child: TextButton(
-                      onPressed: repo.save,
+                      onPressed: repo.refresh,
                       child: Text(
                         repo.storageError!,
                         style: const TextStyle(color: danger),

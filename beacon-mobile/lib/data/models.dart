@@ -121,9 +121,25 @@ class RunSession {
   );
 }
 
+/// Satu perintah yang dikirim ke alat, dari `GET /api/log-aktivitas`.
+class Aktivitas {
+  Aktivitas({
+    required this.perintah,
+    required this.waktu,
+    required this.terkirim,
+  });
+  final String perintah;
+  final DateTime waktu;
+  /// Perintah yang GAGAL terbit ke MQTT ikut tercatat — justru itu yang perlu
+  /// terlihat saat alat tidak merespons.
+  final bool terkirim;
+}
+
 class SiteData {
   final String id, name, location, logger;
   final double warning, alert, danger;
+  /// Ambang laju (mm/hari) milik site, dari kolom `laju_*_min`.
+  final double speedWarning, speedAlert, speedDanger;
   final List<Prism> prisms;
   final List<RunSession> sessions;
   Map<String, String> config;
@@ -131,6 +147,8 @@ class SiteData {
   bool powered;
   double ha, va;
   String home;
+  /// Null berarti alat belum melaporkannya — ditampilkan sebagai "—", bukan 0.
+  double? battery, temperature;
   SiteData({
     required this.id,
     required this.name,
@@ -141,6 +159,9 @@ class SiteData {
     this.warning = 5,
     this.alert = 8,
     this.danger = 10,
+    this.speedWarning = 1,
+    this.speedAlert = 2,
+    this.speedDanger = 3,
     this.powered = true,
     this.ha = 124.5,
     this.va = 89.2,
@@ -177,11 +198,17 @@ class SiteData {
       : mm >= warning
       ? 'Waspada'
       : 'Normal';
-  String speedStatus(double mm) => mm > 3
+  /// Mengikuti `statusKecepatan()` di `asaba-nextjs/src/lib/ambang.ts`:
+  /// perbandingan `>` yang sama, memakai ambang milik site.
+  ///
+  /// Sebelumnya angkanya dipatok 1/2/3 mm/hari — nilai contoh dari versi demo.
+  /// Site ccp sesungguhnya memakai 50/100/150, jadi pil status laju di ponsel
+  /// melompat ke "Awas" pada pergerakan yang menurut web masih Normal.
+  String speedStatus(double mm) => mm > speedDanger
       ? 'Awas'
-      : mm > 2
+      : mm > speedAlert
       ? 'Siaga'
-      : mm > 1
+      : mm > speedWarning
       ? 'Waspada'
       : 'Normal';
   Map<String, dynamic> toJson() => {
@@ -192,6 +219,9 @@ class SiteData {
     'warning': warning,
     'alert': alert,
     'danger': danger,
+    'speedWarning': speedWarning,
+    'speedAlert': speedAlert,
+    'speedDanger': speedDanger,
     'prisms': prisms.map((p) => p.toJson()).toList(),
     'sessions': sessions.map((s) => s.toJson()).toList(),
     'config': config,
@@ -209,6 +239,9 @@ class SiteData {
     warning: (j['warning'] as num).toDouble(),
     alert: (j['alert'] as num? ?? 8).toDouble(),
     danger: (j['danger'] as num).toDouble(),
+    speedWarning: (j['speedWarning'] as num? ?? 1).toDouble(),
+    speedAlert: (j['speedAlert'] as num? ?? 2).toDouble(),
+    speedDanger: (j['speedDanger'] as num? ?? 3).toDouble(),
     prisms: (j['prisms'] as List)
         .map((e) => Prism.fromJson(Map<String, dynamic>.from(e)))
         .toList(),
