@@ -6,7 +6,7 @@
       "runtimeExecutable": "/bin/sh",
       "runtimeArgs": [
         "-c",
-        "cd /Users/tessa/Documents/demo-adr/asaba-nextjs && exec /opt/homebrew/bin/node node_modules/next/dist/bin/next dev"
+        "cd /Users/user/Documents/WEBSITE/BEACON/adr_baru/asaba-nextjs && exec npm run dev"
       ],
       "port": 3000
     }
