@@ -108,6 +108,7 @@ function HasilPengukuranContent() {
     logs,
     isLoading: logsLoading,
     isError: logsError,
+    mutate: muatUlangSesi,
   } = useLogKontrol(siteFilter || undefined, BATAS_SESI, { withPrisma: false });
   const daftar = logs as LogKontrolRow[];
 
@@ -123,6 +124,7 @@ function HasilPengukuranContent() {
     deformasi,
     isLoading: defLoading,
     isError: defError,
+    mutate: muatUlangDeformasi,
   } = useDeformasi(logAktif?.id_log ?? null, { keepPreviousData: true });
 
   const baris = useMemo(
@@ -172,6 +174,13 @@ function HasilPengukuranContent() {
     const slug = logAktif?.site ?? null;
     return daftar.find((l) => Number(l.r0) === 1 && l.site === slug) ?? null;
   }, [daftar, logAktif]);
+
+  // Kandidat acuan: sesi milik site yang sedang dilihat saja. Menawarkan sesi
+  // site lain akan memindahkan acuan site yang tidak sedang dibuka.
+  const sesiSiteAktif = useMemo(
+    () => daftar.filter((l) => l.site === (logAktif?.site ?? null)),
+    [daftar, logAktif]
+  );
 
   const totalHalaman = Math.max(1, Math.ceil(daftar.length / PER_HALAMAN));
   const halamanAman = Math.min(halaman, totalHalaman);
@@ -615,7 +624,14 @@ function HasilPengukuranContent() {
         onOpenChange={setR0Open}
         siteNama={namaSiteAktif}
         r0Log={r0Log}
-        jumlahSesi={Math.max(0, daftar.filter((l) => l.site === logAktif?.site).length - 1)}
+        jumlahSesi={Math.max(0, sesiSiteAktif.length - 1)}
+        sesiSite={sesiSiteAktif}
+        onSaved={() => {
+          // Keduanya: daftar sesi membawa tanda R0-nya, dan /api/deformasi
+          // menghitung ulang setiap pergeseran terhadap acuan yang baru.
+          void muatUlangSesi();
+          void muatUlangDeformasi();
+        }}
       />
     </div>
   );
