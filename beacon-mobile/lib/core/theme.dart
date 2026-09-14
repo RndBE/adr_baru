@@ -9,7 +9,13 @@ const ink = Color(0xFF192443),
     muted = Color(0xFF66728A),
     danger = Color(0xFFBC3646);
 Color statusColor(String status) => switch (status) {
-  'Normal' || 'Berhasil' || 'Selesai' => teal,
+  // Label instrumen dari status_rts.dart ikut di sini supaya "Menyala, siap"
+  // tidak tampil abu-abu seolah keadaan tak dikenal.
+  'Normal' ||
+  'Berhasil' ||
+  'Selesai' ||
+  'Menyala, siap' ||
+  'Sedang mengukur' => teal,
   'Waspada' => amber,
   'Siaga' => const Color(0xFFCF5C22),
   'Awas' || 'Gagal' => danger,

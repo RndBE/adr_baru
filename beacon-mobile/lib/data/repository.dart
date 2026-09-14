@@ -22,6 +22,7 @@ import 'api_client.dart';
 import 'beacon_api.dart';
 import 'models.dart';
 import 'mqtt_balasan.dart';
+import 'status_rts.dart';
 
 const _kunciToken = 'beacon.token.v1';
 
@@ -67,6 +68,14 @@ class BeaconRepository extends ChangeNotifier {
   List<SiteData> sites = [];
   int selected = 0;
   bool loggedIn = false, loading = false, unlocked = false;
+
+  /// Fakta yang TERPISAH dari `site.powered`: logger bisa melapor rajin dengan
+  /// instrumen mati, dan sebaliknya.
+  bool loggerTerhubung = false;
+
+  /// Label status seragam dengan website: "Sedang mengukur" / "Menyala, siap" /
+  /// "Tidak aktif".
+  String labelRts = 'Tidak aktif';
   String? error, storageError;
   String? activeSiteId;
   int completed = 0, totalTargets = 0;
@@ -248,13 +257,19 @@ class BeaconRepository extends ChangeNotifier {
   }
 
   void _terapkanDashboard(SiteData s, Map<String, dynamic> d) {
+    // Aturannya milik status_rts.dart, bukan ditebak di sini. Versi sebelumnya
+    // membaca `Power_RTS` sebagai keadaan daya — parameter itu memetakan
+    // sensor23, salah satu kolom tilt bernilai pecahan, jadi instrumen yang
+    // menyala terbaca mati di ponsel sementara website menyebutnya siap.
+    final status = statusRtsDariDashboard(d);
+    loggerTerhubung = status.loggerTerhubung;
+    s.powered = status.rtsAktif;
+    labelRts = status.label;
+    activeSiteId = status.rtsMengukur ? s.id : null;
+
     final rts = d['data_rts'];
     if (rts is Map) {
       double nilai(String k) => nfloat((rts[k] as Map?)?['nilai']);
-      // Power_RTS dan RTS_Running adalah dua fakta berbeda: alat bisa menyala
-      // tanpa sedang mengukur. Menyatukannya membuat tombol Mulai hilang saat
-      // alat idle.
-      s.powered = nilai('Power_RTS') > 0;
       s.ha = nilai('HA');
       s.va = nilai('VA');
       // Nol dari alat yang belum pernah melapor tidak sama dengan nol volt.
@@ -267,7 +282,6 @@ class BeaconRepository extends ChangeNotifier {
 
       s.battery = opsional('Battery_Logger');
       s.temperature = opsional('Temperature_Logger');
-      activeSiteId = nilai('RTS_Running') > 0 ? s.id : null;
     }
     final cfg = d['config_adr'];
     if (cfg is Map) {

@@ -72,12 +72,18 @@ class StatusPill extends StatelessWidget {
             color: color,
           ),
           const SizedBox(width: 6),
-          Text(
-            text,
-            style: TextStyle(
-              fontSize: 11,
-              fontWeight: FontWeight.w700,
-              color: color,
+          // Flexible + ellipsis: label instrumen ("Sedang mengukur") jauh lebih
+          // panjang daripada label status prisma, dan pil ini dipakai di kolom
+          // sempit. Tanpa ini barisnya meluber di layar 320 px.
+          Flexible(
+            child: Text(
+              text,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(
+                fontSize: 11,
+                fontWeight: FontWeight.w700,
+                color: color,
+              ),
             ),
           ),
         ],

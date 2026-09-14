@@ -42,13 +42,16 @@ class ControlPage extends StatelessWidget {
                           style: const TextStyle(fontSize: 12, color: muted),
                         ),
                         const SizedBox(height: 8),
-                        StatusPill(
-                          busy
-                              ? 'Mengukur'
-                              : site.powered
-                              ? 'Siap'
-                              : 'Daya mati',
-                        ),
+                        // Label dari status_rts.dart, sama persis dengan web.
+                        StatusPill(repo.labelRts),
+                        if (!repo.loggerTerhubung)
+                          const Padding(
+                            padding: EdgeInsets.only(top: 6),
+                            child: Text(
+                              'Logger belum melapor dalam sejam terakhir.',
+                              style: TextStyle(fontSize: 11, color: amber),
+                            ),
+                          ),
                       ],
                     ),
                   ),

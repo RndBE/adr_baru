@@ -60,7 +60,7 @@ class _DashboardPageState extends State<DashboardPage> {
                       ),
                     ),
                   ),
-                  StatusPill(site.powered ? 'Siap' : 'Daya mati', dark: true),
+                  StatusPill(repo.labelRts, dark: true),
                 ],
               ),
               const SizedBox(height: 16),

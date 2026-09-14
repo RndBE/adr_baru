@@ -184,8 +184,13 @@ MockClient backendPalsu({
         'status_logger': true,
         'jumlah_prisma': 2,
         'data_rts': {
-          'Power_RTS': s(1),
+          // Nama parameter asli dari `parameter_sensor`. Cek_RTS memetakan
+          // sensor14 (menyala); Power_RTS memetakan sensor23 — kolom tilt, dan
+          // sengaja diberi nilai pecahan di sini supaya ketahuan kalau ada yang
+          // memakainya lagi sebagai keadaan daya.
+          'Cek_RTS': s(1),
           'RTS_Running': s(0),
+          'Power_RTS': s(-0.03),
           'HA': s('124,50,00'),
           'VA': s('089,20,00'),
         },
