@@ -184,11 +184,6 @@ void main() {
       expect(r.site.logger, '30002');
       // Ambang diambil dari kolom site, bukan nilai bawaan model.
       expect(r.site.warning, 100);
-      // Ambang laju juga milik site, bukan angka contoh 1/2/3 mm/hari.
-      expect(r.site.speedWarning, 50);
-      expect(r.site.speedStatus(40), 'Normal');
-      expect(r.site.speedStatus(120), 'Siaga');
-      expect(r.site.speedStatus(200), 'Awas');
       expect(jejak.jalur, contains('GET /api/sites'));
     });
 
@@ -359,6 +354,77 @@ void main() {
   });
 
   group('aturan yang tetap milik aplikasi', () {
+    test('ambang pergeseran sama persis dengan ambang.ts', () {
+      // statusPergeseran(): `< normalMax` Normal, `< waspadaMax` Waspada,
+      // `< siagaMax` Siaga, sisanya Awas. Dipakai hanya untuk pembacaan satu
+      // sesi — website tidak punya padanannya di sana.
+      final s = siteDariApi({
+        'slug': 'x',
+        'nama': 'X',
+        'geser_normal_max': 100,
+        'geser_waspada_max': 200,
+        'geser_siaga_max': 400,
+      });
+      expect(s.status(99.9), 'Normal');
+      expect(s.status(100), 'Waspada');
+      expect(s.status(199.9), 'Waspada');
+      expect(s.status(200), 'Siaga');
+      expect(s.status(399.9), 'Siaga');
+      expect(s.status(400), 'Awas');
+    });
+
+    test('status dan laju harian DIAMBIL dari backend', () async {
+      final r = await masuk();
+      addTearDown(r.dispose);
+      final bacaan = r.latest!.readings;
+      final adaHarian = bacaan.firstWhere((b) => b.slot == 1);
+      expect(adaHarian.geserHarianMm, 12.6);
+      expect(adaHarian.lajuHarianMmd, 0.4);
+      expect(adaHarian.statusGeserHarian, 'Normal');
+      expect(adaHarian.statusUntuk(r.site), 'Normal');
+
+      // count 0 → tidak ada angka harian, dan statusnya jatuh ke ambang site
+      // atas pembacaan sesi ini. P2 gagal ditembak, jadi "Gagal".
+      final tanpaHarian = bacaan.firstWhere((b) => b.slot == 2);
+      expect(tanpaHarian.geserHarianMm, isNull);
+      expect(tanpaHarian.statusLajuHarian, isNull);
+      expect(tanpaHarian.statusUntuk(r.site), 'Gagal');
+    });
+
+    test('prisma tanpa acuan R0 tidak dinyatakan Normal', () {
+      // Keadaan nyata di produksi: N0/E0 nol karena prisma belum diikat ke sesi
+      // acuan. Pergeserannya tidak diketahui, bukan nol.
+      final r = pembacaanDariDeformasi({
+        'data_pengukuran': [
+          {
+            'id_prisma': 'P1',
+            'temp_tembak': {
+              'nama_prisma': 'BS1',
+              'N0': 0,
+              'E0': 0,
+              'Z0': 0,
+              'N1': 444376.5419,
+              'E1': 9139557.1118,
+              'Z1': 204.4625,
+              'DN': '0.000000',
+              'DE': '0.000000',
+              'DZ': '0.000000',
+            },
+            'daily': {'count': 0},
+          },
+        ],
+      });
+      final site = siteDariApi({
+        'slug': 'x',
+        'nama': 'X',
+        'geser_normal_max': 100,
+        'geser_waspada_max': 200,
+        'geser_siaga_max': 400,
+      });
+      expect(r.single.punyaAcuan, false);
+      expect(r.single.statusUntuk(site), 'Belum ada acuan');
+    });
+
     test('konfigurasi divalidasi menurut satuan protokol', () {
       expect(validateConfig('Retries', '0'), isNotNull);
       expect(validateConfig('Retries', '15'), isNull);

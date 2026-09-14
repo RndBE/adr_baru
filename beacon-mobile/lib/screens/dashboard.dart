@@ -32,7 +32,7 @@ class _DashboardPageState extends State<DashboardPage> {
     final rows = latest?.readings ?? <Reading>[];
     final valid = rows.where((r) => r.success).toList();
     final attention = valid
-        .where((r) => site.status(r.displacement) != 'Normal')
+        .where((r) => r.statusUntuk(site) != 'Normal')
         .toList();
     final max = valid.isEmpty
         ? 0.0
@@ -314,7 +314,7 @@ class _DashboardPageState extends State<DashboardPage> {
                             ),
                             const SizedBox(width: 10),
                             StatusPill(
-                              r.success ? site.status(r.displacement) : 'Gagal',
+                              r.statusUntuk(site),
                             ),
                             const Icon(
                               Icons.chevron_right,

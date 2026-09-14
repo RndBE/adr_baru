@@ -101,9 +101,6 @@ SiteData siteDariApi(
     warning: nfloat(j['geser_normal_max']),
     alert: nfloat(j['geser_waspada_max']),
     danger: nfloat(j['geser_siaga_max']),
-    speedWarning: nfloat(j['laju_waspada_min']),
-    speedAlert: nfloat(j['laju_siaga_min']),
-    speedDanger: nfloat(j['laju_awas_min']),
     prisms: prisms ?? List.generate(50, (i) => Prism(i + 1)),
     sessions: sessions ?? [],
   );
@@ -149,6 +146,18 @@ List<Reading> pembacaanDariDeformasi(Map<String, dynamic> data) {
     final n0 = nfloat(tt['N0']), e0 = nfloat(tt['E0']), z0 = nfloat(tt['Z0']);
     // Prisma yang gagal ditembak tidak punya koordinat hasil sama sekali.
     final berhasil = n1 != 0 || e1 != 0;
+
+    // `daily` boleh kosong: `count` 0 berarti tidak ada pembacaan hari itu yang
+    // bisa dibandingkan dengan acuan R0. Statusnya diambil dari `label`, bukan
+    // dihitung ulang dari ambang site.
+    final d = j['daily'];
+    final harian = d is Map ? Map<String, dynamic>.from(d) : null;
+    final adaHarian = ((harian?['count'] as num?)?.toInt() ?? 0) > 0;
+    String? label(String kunci) {
+      final v = harian?[kunci];
+      return v is Map ? v['label']?.toString() : v?.toString();
+    }
+
     hasil.add(
       Reading(
         slot: slot,
@@ -170,6 +179,13 @@ List<Reading> pembacaanDariDeformasi(Map<String, dynamic> data) {
         de: nfloat(tt['DE']) * 1000,
         dz: nfloat(tt['DZ']) * 1000,
         success: berhasil,
+        // Pasangan N0/E0 yang dua-duanya nol berarti prisma ini belum diikat ke
+        // sesi acuan, bukan berarti tidak bergeser.
+        punyaAcuan: n0 != 0 || e0 != 0,
+        geserHarianMm: adaHarian ? nfloat(harian?['pergeseran_mm']) : null,
+        lajuHarianMmd: adaHarian ? nfloat(harian?['kecepatan_mmd']) : null,
+        statusGeserHarian: adaHarian ? label('status_pergeseran') : null,
+        statusLajuHarian: adaHarian ? label('status_kecepatan') : null,
       ),
     );
   }

@@ -56,6 +56,25 @@ class Reading {
 
   final bool success;
 
+  /// Angka HARIAN dari `daily` milik `/api/deformasi`, apa adanya.
+  ///
+  /// Backend sudah menghitung pergeseran harian, lajunya, dan kedua statusnya
+  /// memakai ambang milik site. Menurunkannya ulang di sini berarti salinan
+  /// aturan yang bisa lepas sinkron — dan kalau angka di ponsel berbeda dari
+  /// angka di layar web, operator berhenti mempercayai keduanya.
+  ///
+  /// Null berarti tidak ada data harian yang bisa dibandingkan dengan acuan R0;
+  /// web menuliskannya "—", bukan nol.
+  final double? geserHarianMm, lajuHarianMmd;
+  final String? statusGeserHarian, statusLajuHarian;
+
+  /// Apakah prisma ini punya acuan R0 sama sekali.
+  ///
+  /// Di produksi ada prisma dengan `N0`/`E0` = 0: belum pernah diikat ke sesi
+  /// acuan. Pergeserannya bukan nol — melainkan TIDAK DIKETAHUI, dan menyebutnya
+  /// "Normal" adalah pernyataan yang tidak pernah diukur siapa pun.
+  final bool punyaAcuan;
+
   Reading({
     required this.slot,
     required this.name,
@@ -72,8 +91,28 @@ class Reading {
     required this.de,
     required this.dz,
     this.success = true,
+    this.punyaAcuan = true,
+    this.geserHarianMm,
+    this.lajuHarianMmd,
+    this.statusGeserHarian,
+    this.statusLajuHarian,
   });
   double get displacement => math.sqrt(dn * dn + de * de);
+
+  /// Status yang dipakai SELURUH layar: filter, kartu, denah, dan Ringkasan.
+  ///
+  /// Jawaban backend didahulukan. Ia hanya ada untuk agregat harian; untuk satu
+  /// sesi tunggal — yang dipakai denah dan mode Event — website tidak punya
+  /// padanannya sama sekali (petanya tidak mewarnai menurut status). Di situ
+  /// ambang milik site diterapkan di sini, memakai perbandingan yang sama
+  /// dengan `statusPergeseran()` di `src/lib/ambang.ts`.
+  ///
+  /// Satu fungsi supaya keempat tempat itu tidak bisa lagi menjawab berbeda
+  /// untuk pembacaan yang sama.
+  String statusUntuk(SiteData site) => !success
+      ? 'Gagal'
+      : statusGeserHarian ??
+            (punyaAcuan ? site.status(displacement) : 'Belum ada acuan');
   double get linear3d => math.sqrt(dn * dn + de * de + dz * dz);
   double get bearing => (math.atan2(de, dn) * 180 / math.pi + 360) % 360;
   Map<String, dynamic> toJson() => {
@@ -159,9 +198,12 @@ class Aktivitas {
 
 class SiteData {
   final String id, name, location, logger;
+  /// Ambang pergeseran (mm), dari kolom `geser_*_max`.
+  ///
+  /// Ambang LAJU tidak ikut disimpan: statusnya datang jadi dari backend
+  /// (`daily.status_kecepatan`), jadi menyimpan angkanya di sini hanya
+  /// mengundang orang menghitungnya sendiri lagi.
   final double warning, alert, danger;
-  /// Ambang laju (mm/hari) milik site, dari kolom `laju_*_min`.
-  final double speedWarning, speedAlert, speedDanger;
   final List<Prism> prisms;
   final List<RunSession> sessions;
   Map<String, String> config;
@@ -181,9 +223,6 @@ class SiteData {
     this.warning = 5,
     this.alert = 8,
     this.danger = 10,
-    this.speedWarning = 1,
-    this.speedAlert = 2,
-    this.speedDanger = 3,
     this.powered = true,
     this.ha = 124.5,
     this.va = 89.2,
@@ -220,19 +259,6 @@ class SiteData {
       : mm >= warning
       ? 'Waspada'
       : 'Normal';
-  /// Mengikuti `statusKecepatan()` di `asaba-nextjs/src/lib/ambang.ts`:
-  /// perbandingan `>` yang sama, memakai ambang milik site.
-  ///
-  /// Sebelumnya angkanya dipatok 1/2/3 mm/hari — nilai contoh dari versi demo.
-  /// Site ccp sesungguhnya memakai 50/100/150, jadi pil status laju di ponsel
-  /// melompat ke "Awas" pada pergerakan yang menurut web masih Normal.
-  String speedStatus(double mm) => mm > speedDanger
-      ? 'Awas'
-      : mm > speedAlert
-      ? 'Siaga'
-      : mm > speedWarning
-      ? 'Waspada'
-      : 'Normal';
   Map<String, dynamic> toJson() => {
     'id': id,
     'name': name,
@@ -241,9 +267,6 @@ class SiteData {
     'warning': warning,
     'alert': alert,
     'danger': danger,
-    'speedWarning': speedWarning,
-    'speedAlert': speedAlert,
-    'speedDanger': speedDanger,
     'prisms': prisms.map((p) => p.toJson()).toList(),
     'sessions': sessions.map((s) => s.toJson()).toList(),
     'config': config,
@@ -261,9 +284,6 @@ class SiteData {
     warning: (j['warning'] as num).toDouble(),
     alert: (j['alert'] as num? ?? 8).toDouble(),
     danger: (j['danger'] as num).toDouble(),
-    speedWarning: (j['speedWarning'] as num? ?? 1).toDouble(),
-    speedAlert: (j['speedAlert'] as num? ?? 2).toDouble(),
-    speedDanger: (j['speedDanger'] as num? ?? 3).toDouble(),
     prisms: (j['prisms'] as List)
         .map((e) => Prism.fromJson(Map<String, dynamic>.from(e)))
         .toList(),

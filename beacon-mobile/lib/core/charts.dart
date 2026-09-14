@@ -198,7 +198,7 @@ class SitePlan extends StatelessWidget {
                                 decoration: BoxDecoration(
                                   color: readings[i].success
                                       ? statusColor(
-                                          site.status(readings[i].displacement),
+                                          readings[i].statusUntuk(site),
                                         )
                                       : muted,
                                   shape: BoxShape.circle,
@@ -396,7 +396,7 @@ class _CompassPainter extends CustomPainter {
     _text(c, 'T', center + Offset(radius + 8, -6), muted, 10);
     for (final r in valid) {
       final end = center + Offset(r.de / max * radius, -r.dn / max * radius);
-      final color = statusColor(site.status(r.displacement));
+      final color = statusColor(r.statusUntuk(site));
       c.drawLine(
         center,
         end,

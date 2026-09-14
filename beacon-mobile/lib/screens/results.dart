@@ -60,9 +60,7 @@ class _ResultsPageState extends State<ResultsPage> {
           (r) =>
               (r.name.toLowerCase().contains(query.toLowerCase()) ||
                   'p${r.slot}'.contains(query.toLowerCase())) &&
-              (status == 'Semua' ||
-                  (r.success ? site.status(r.displacement) : 'Gagal') ==
-                      status),
+              (status == 'Semua' || r.statusUntuk(site) == status),
         )
         .toList();
     return Column(
@@ -304,7 +302,6 @@ class _ResultsPageState extends State<ResultsPage> {
                   : PrismResultCard(
                       reading: r,
                       site: site,
-                      velocity: dailyVelocity(daySessions, r.slot),
                       onTap: () => openPrism(context, widget.repo, r.slot),
                     ),
             ),
@@ -366,19 +363,6 @@ class _ResultsPageState extends State<ResultsPage> {
   );
 }
 
-double? dailyVelocity(List<RunSession> sessions, int slot) {
-  final pairs = <({DateTime time, Reading reading})>[];
-  for (final s in sessions) {
-    for (final r in s.readings.where((r) => r.slot == slot && r.success)) {
-      pairs.add((time: s.time, reading: r));
-    }
-  }
-  pairs.sort((a, b) => a.time.compareTo(b.time));
-  if (pairs.isEmpty) return null;
-  // Website /api/deformasi uses the absolute first-to-last delta per day.
-  return (pairs.last.reading.displacement - pairs.first.reading.displacement)
-      .abs();
-}
 
 class PrismResultCard extends StatelessWidget {
   const PrismResultCard({
@@ -386,16 +370,18 @@ class PrismResultCard extends StatelessWidget {
     required this.reading,
     required this.site,
     required this.onTap,
-    this.velocity,
   });
   final Reading reading;
   final SiteData site;
   final VoidCallback onTap;
-  final double? velocity;
   @override
   Widget build(BuildContext context) {
     final r = reading;
-    final status = r.success ? site.status(r.displacement) : 'Gagal';
+    // Status HARIAN dari backend. Ambangnya milik site dan perhitungannya sudah
+    // dikerjakan `/api/deformasi`; menurunkannya lagi di sini membuat angka di
+    // ponsel bisa berbeda dari angka di layar web tanpa ada yang salah menurut
+    // dirinya sendiri.
+    final status = r.statusUntuk(site);
     return Material(
       color: Colors.white,
       borderRadius: BorderRadius.circular(16),
@@ -452,20 +438,26 @@ class PrismResultCard extends StatelessWidget {
                   Expanded(
                     child: Metric(
                       'Pergeseran',
-                      r.success ? r.displacement.toStringAsFixed(2) : '—',
+                      // "—" saat tidak ada pembacaan harian yang bisa
+                      // dibandingkan dengan acuan R0, sama seperti web.
+                      r.success
+                          ? r.geserHarianMm?.toStringAsFixed(2) ?? '—'
+                          : '—',
                       unit: 'mm',
                     ),
                   ),
                   Expanded(
                     child: Metric(
                       'Kecepatan',
-                      r.success ? velocity?.toStringAsFixed(2) ?? '—' : '—',
+                      r.success
+                          ? r.lajuHarianMmd?.toStringAsFixed(2) ?? '—'
+                          : '—',
                       unit: 'mm/hari',
                     ),
                   ),
                 ],
               ),
-              if (velocity != null && r.success) ...[
+              if (r.success && r.statusLajuHarian != null) ...[
                 const SizedBox(height: 10),
                 Row(
                   children: [
@@ -474,7 +466,7 @@ class PrismResultCard extends StatelessWidget {
                       style: TextStyle(fontSize: 11, color: muted),
                     ),
                     const SizedBox(width: 8),
-                    StatusPill(site.speedStatus(velocity!)),
+                    StatusPill(r.statusLajuHarian!),
                   ],
                 ),
               ],
@@ -585,7 +577,7 @@ class _PrismDetailPageState extends State<PrismDetailPage> {
                             ),
                           ),
                           StatusPill(
-                            r.success ? site.status(r.displacement) : 'Gagal',
+                            r.statusUntuk(site),
                             dark: true,
                           ),
                         ],

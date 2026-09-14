@@ -154,6 +154,14 @@ MockClient backendPalsu({
               'DE': '-0.003440',
               'DZ': '0.002300',
             },
+            'daily': {
+              'count': 5,
+              'pergeseran_mm': 12.6,
+              'kecepatan_mmd': 0.4,
+              'status_pergeseran': {'label': 'Normal'},
+              'status_kecepatan': {'label': 'Normal'},
+              'series': [],
+            },
           },
           {
             'id_prisma': 'P2',
@@ -172,6 +180,16 @@ MockClient backendPalsu({
               'DN': '0.000000',
               'DE': '0.000000',
               'DZ': '0.000000',
+            },
+            // count 0: tidak ada pembacaan hari itu yang bisa dibandingkan
+            // dengan acuan R0. Web menuliskannya "—", bukan nol.
+            'daily': {
+              'count': 0,
+              'pergeseran_mm': null,
+              'kecepatan_mmd': null,
+              'status_pergeseran': null,
+              'status_kecepatan': null,
+              'series': [],
             },
           },
         ],
