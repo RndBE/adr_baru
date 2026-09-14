@@ -566,3 +566,50 @@ model Site {
   @@index([id_logger])
   @@map("t_site")
 }
+
+/// Keadaan peringatan per prisma, bertahan antar siklus.
+/// Tabelnya dibuat oleh prisma/migrations/011_peringatan_pergeseran.sql, yang
+/// BELUM dijalankan di basis data mana pun. Sampai itu dilakukan, seluruh
+/// kueri ke model ini akan gagal — dan evaluasi-siklus.ts memang menelan
+/// kegagalannya, karena peringatan tidak boleh menjatuhkan jalur ingestion.
+model StatusPrisma {
+  site      String @db.VarChar(50)
+  id_prisma String @db.VarChar(20)
+
+  /// Tingkat yang sudah diakui, bukan yang barusan terukur.
+  tingkat       String  @default("Normal") @db.VarChar(10)
+  /// Tingkat yang menunggu konfirmasi, dan berapa siklus beruntun ia terlihat.
+  tingkat_calon String? @db.VarChar(10)
+  hitung_calon  Int     @default(0) @db.UnsignedTinyInt
+
+  /// Pergeseran linier 2D terhadap acuan R0, dalam mm.
+  nilai_mm        Float?    @db.Double
+  siklus_terakhir String?   @db.VarChar(20)
+  /// Dasar jeda antar pesan — waktu dinding, bukan hitungan siklus.
+  kirim_terakhir  DateTime? @db.DateTime(0)
+  /// Siklus beruntun prisma ini gagal ditembak (N1/E1/Z1 semuanya nol).
+  gagal_beruntun  Int       @default(0) @db.UnsignedSmallInt
+
+  @@id([site, id_prisma])
+  @@map("status_prisma")
+}
+
+/// Riwayat perubahan tingkat yang SUDAH terkonfirmasi. Calon yang gugur di
+/// tengah tidak masuk sini.
+model LogPeringatan {
+  id        Int      @id @default(autoincrement())
+  site      String   @db.VarChar(50)
+  id_prisma String   @db.VarChar(20)
+  /// Siklus pemicunya — log_kontrol.id_log.
+  id_log    String   @db.VarChar(20)
+  dari      String   @db.VarChar(10)
+  ke        String   @db.VarChar(10)
+  nilai_mm  Float    @db.Double
+  waktu     DateTime @db.DateTime(0)
+  /// Membedakan "tidak ada peringatan" dari "peringatan gagal berangkat".
+  terkirim  Boolean  @default(false)
+  galat     String?  @db.VarChar(255)
+
+  @@index([site, waktu], map: "log_peringatan_site_waktu_idx")
+  @@map("log_peringatan")
+}

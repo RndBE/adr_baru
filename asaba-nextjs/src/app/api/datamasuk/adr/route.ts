@@ -1,9 +1,10 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextRequest, NextResponse, after } from "next/server";
 import { waktuDbWib } from "@/components/monitoring/format";
 import { prisma } from "@/lib/prisma";
 import { publishMqtt } from "@/lib/mqtt";
 import { sesiTerakhirLogger, sesiUntukSiklus } from "@/lib/log-kontrol";
 import { awalSiklus } from "@/lib/sesi-kontrol";
+import { evaluasiSiklus } from "@/lib/evaluasi-siklus";
 
 type PayloadMap = Record<string, string>;
 
@@ -320,6 +321,20 @@ export async function POST(request: NextRequest) {
         `;
 
         mqttKontrolSent = await publishMqtt(mqttKontrolTopic, kontrolPayload);
+
+        // Siklus tuntas — seluruh prisma sudah ditembak sekali putar. Inilah
+        // satu-satunya titik di mana pergeseran bisa dinilai atas potret yang
+        // konsisten: satu nilai per prisma, satu cap waktu. Menilainya per
+        // payload akan memberi sepuluh pemeriksaan terpisah untuk satu putaran
+        // yang sama.
+        //
+        // after() supaya logger tidak menunggu: evaluasi menyentuh basis data
+        // dan bisa berakhir dengan panggilan HTTP ke Telegram. Respons ke
+        // perangkat tidak boleh bergantung pada keduanya.
+        //
+        // Tidak di-await dan tidak dibungkus try/catch di sini — evaluasiSiklus
+        // sudah menelan galatnya sendiri, dengan alasan yang sama.
+        after(() => evaluasiSiklus({ site: siteAktif, idLog, waktuDb: waktu }));
       }
     }
 
