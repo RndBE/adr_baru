@@ -1,0 +1,19 @@
+{
+  "name": "Beacon Mobile",
+  "short_name": "Beacon Mobile",
+  "start_url": ".",
+  "display": "standalone",
+  "background_color": "#303481",
+  "theme_color": "#303481",
+  "description": "Pemantauan deformasi dan kontrol ADR.",
+  "orientation": "portrait-primary",
+  "prefer_related_applications": false,
+  "icons": [
+    {
+      "src": "beacon-icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    }
+  ]
+}
