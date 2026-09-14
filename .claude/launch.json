@@ -3,12 +3,18 @@
   "configurations": [
     {
       "name": "asaba-dev",
-      "runtimeExecutable": "/bin/sh",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["--prefix", "asaba-nextjs", "run", "dev"],
+      "port": 3000
+    },
+    {
+      "name": "beacon-mobile",
+      "runtimeExecutable": "sh",
       "runtimeArgs": [
         "-c",
-        "cd /Users/user/Documents/WEBSITE/BEACON/adr_baru/asaba-nextjs && exec npm run dev"
+        "cd beacon-mobile && exec \"$HOME/flutter/bin/flutter\" run -d web-server --web-hostname=127.0.0.1 --web-port=8080"
       ],
-      "port": 3000
+      "port": 8080
     }
   ]
 }
