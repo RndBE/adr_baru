@@ -10,12 +10,19 @@ import 'screens/control.dart';
 import 'screens/prisms.dart';
 import 'screens/results.dart';
 
-/// Alamat backend. Diganti saat build lewat
-/// `--dart-define=BEACON_API=https://...`; bawaannya dev server di mesin yang
-/// sama, yang juga terjangkau dari simulator iOS.
+/// Alamat backend.
+///
+/// Bawaannya SERVER, bukan localhost. Aplikasi yang dipasang di ponsel operator
+/// tidak punya dev server di sebelahnya; bawaan localhost berarti setiap build
+/// rilis yang lupa memberi flag akan gagal menghubungi apa pun, dan gagalnya
+/// baru ketahuan di lapangan.
+///
+/// Untuk menunjuk dev server saat mengembangkan:
+///
+///   flutter run --dart-define=BEACON_API=http://localhost:3000
 const alamatApi = String.fromEnvironment(
   'BEACON_API',
-  defaultValue: 'http://localhost:3000',
+  defaultValue: 'https://demo-adr.monitoring4system.com',
 );
 
 /// Broker balasan alat. Nilai bawaannya sama dengan `NEXT_PUBLIC_MQTT_*` yang

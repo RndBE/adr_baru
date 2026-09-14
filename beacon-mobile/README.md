@@ -1,53 +1,77 @@
 # Beacon Mobile
 
-Frontend Flutter untuk aplikasi pemantauan deformasi Beacon. Project terpisah dari `asaba/` dan `asaba-nextjs/`. Backend tidak diubah.
+Aplikasi Flutter untuk pemantauan deformasi Beacon. Terpisah dari `asaba-nextjs/`, tapi **tidak berdiri sendiri**: seluruh datanya berasal dari backend itu, dan perintahnya menggerakkan RTS sungguhan di lapangan.
 
-## Mencoba aplikasi
+> **Tombol di menu Kontrol dan Prism Config menggerakkan instrumen nyata.**
+> Daya, jog, Auto Search, Go To Target, uji tembak, dan Mulai pengukuran
+> menerbitkan perintah MQTT ke alat. Tidak ada mode latihan.
 
-- **Android:** APK debug tersedia setelah build di `build/app/outputs/flutter-apk/app-debug.apk`.
-- **Browser:** jalankan `flutter run -d chrome`; tampilan ditujukan untuk ponsel, konten dibatasi lebarnya pada desktop.
-- **Perangkat Android:** jalankan `flutter run` dengan perangkat/emulator terhubung.
+## Menjalankan
 
 ```sh
 cd beacon-mobile
 flutter pub get
-flutter run -d chrome
+flutter run                      # menunjuk server produksi
 ```
 
-Akun demo: **operator / beacon123**. Kode akses kontrol/prisma: **123456**. Tombol **Jelajahi demo** langsung mengisi akun contoh. Data yang ditampilkan, status perangkat, dan balasan instrumen merupakan simulasi. Tidak ada panggilan API/MQTT ke backend atau alat.
+Login memakai akun yang sama dengan website (tabel `t_user`); tidak ada akun contoh. Kode akses konfigurasi dan Mulai pengukuran diverifikasi backend, bukan dicocokkan di aplikasi.
+
+### Menunjuk backend lain
+
+Bawaannya `https://demo-adr.monitoring4system.com`. Untuk dev server di mesin sendiri:
+
+```sh
+flutter run --dart-define=BEACON_API=http://localhost:3000
+```
+
+Broker balasan alat juga bisa diganti — nilai bawaannya sama dengan `NEXT_PUBLIC_MQTT_*` milik website:
+
+```sh
+--dart-define=BEACON_MQTT_HOST=... --dart-define=BEACON_MQTT_WS_PORT=8083
+--dart-define=BEACON_MQTT_USER=... --dart-define=BEACON_MQTT_PASS=...
+```
+
+### Yang dibutuhkan backend
+
+- Migrasi `prisma/migrations/013_log_aktivitas.sql` sudah dijalankan, kalau Log aktivitas mau terisi. Tanpa itu pencatatan gagal diam-diam dan perintahnya tetap terkirim.
+- `AUTH_SECRET` terpasang — token mobile ditandatangani dengannya.
 
 ## Fitur
 
-| Menu | Alur frontend |
-|---|---|
-| Login | Validasi isian, pesan akun salah, tampil/sembunyikan password, demo, logout |
-| Ringkasan | Pilih site dan sesi, telemetri demo, status pergeseran, denah 2D dengan detail prisma, arah pergeseran, hasil sesi, profil elevasi, informasi R0 |
-| Kontrol ADR | Daya on/off, baca tilt, simpan home, mulai dengan kode akses, progres hasil, stop, replay SD, konfigurasi instrumen, SearchArea, TrackEvery, jadwal daya mingguan, hapus sesi, log aktivitas |
-| Prism Config | 50 slot/site, akses terkunci, pencarian/filter, tambah/ubah/hapus, BS/FS, tinggi target, Manual HA/VA, jog, Go To Target, Auto Search, uji tembak sebelum simpan |
-| Hasil | Pilih sesi/rentang, Harian/Event/Peta, cari/filter status, atur kelompok kolom, detail prisma, riwayat grafik horizontal/linear/ΔN/ΔE/ΔZ, tabel riwayat, Excel |
-| Kondisi data | Loading, retry setelah error (tersedia dari menu akun), site kosong, pencarian kosong, penyimpanan lokal dan pesan gagal menyimpan |
+| Menu | Isi | Sumber |
+|---|---|---|
+| Login | Validasi isian, pesan galat dari server, tampil/sembunyikan password, logout | `POST /api/mobile/login` |
+| Ringkasan | Pilih site dan sesi, telemetri alat, status pergeseran, denah 2D dengan detail prisma, arah pergeseran, hasil sesi, profil elevasi, informasi R0 | `sites`, `log-kontrol`, `deformasi`, `kontrol/dashboard` |
+| Kontrol ADR | Daya on/off, baca tilt, simpan home, mulai dengan kode akses, progres sesi, stop, replay SD, konfigurasi instrumen, SearchArea, TrackEvery, jadwal running, hapus sesi, log aktivitas | `kontrol/*`, `config-adr`, `scheduling`, `log-aktivitas` |
+| Prism Config | 50 slot/site, akses terkunci, pencarian/filter, tambah/ubah/hapus, BS/FS, tinggi target, Manual HA/VA, jog, Go To Target, Auto Search, uji tembak wajib lulus sebelum simpan | `prism-config`, `kontrol/{measure,jog,auto-search,go-to-target,manual-hava}` |
+| Hasil | Pilih sesi/rentang, Harian/Event/Peta, cari/filter status, atur kelompok kolom, detail prisma, riwayat grafik horizontal/linear/ΔN/ΔE/ΔZ, tabel riwayat, Excel | `log-kontrol`, `deformasi` |
+| Kondisi data | Memuat, coba lagi setelah galat, site kosong, pencarian kosong, sesi berakhir | — |
 
 Master Data dan Visualisasi 3D tidak disertakan. `Linear 3D` pada detail hanya angka/grafik resultan, bukan visualisasi ruang 3D. R0 hanya-baca mengikuti website. Rekap Data/Peta Tambang tidak diikutkan karena menu tersebut dinonaktifkan di sidebar website.
 
 ## Perilaku data
 
-- Site, slot, konfigurasi, jadwal dan sesi disimpan melalui SharedPreferences di namespace `beacon.demo.v1`.
-- Login dan kunci akses tidak dipersistenkan. Berpindah site mengunci kembali konfigurasi.
-- Sesi yang berjalan tetap milik site asal walaupun operator berpindah site. Stop mempertahankan hasil parsial. Sesi R0 tidak dapat dihapus.
-- Instrumen disimulasikan berurutan dengan timer. Jadwal disimpan untuk mencoba formulir; tidak ada scheduler/perintah perangkat sungguhan. Replay menampilkan kembali informasi sesi demo yang sudah ada, bukan membaca kartu SD nyata.
-- Harian memakai pergeseran horizontal E/N dalam **mm**; kecepatan mengikuti rumus website: nilai absolut selisih pertama–terakhir pada hari itu, dengan label **mm/hari**. Event memakai **meter**, dan delta pada detail memakai **mm**.
-- Ambang contoh: Normal <5 mm; Waspada <8 mm; Siaga <10 mm; Awas ≥10 mm. Ambang laju demo 1/2/3 mm/hari menggunakan perbandingan `>` seperti website. Nilai contoh ini bukan ambang operasional lapangan.
-- Ekspor membuat file `.xlsx` sungguhan. Android/iOS membuka lembar bagikan/simpan sistem; web menggunakan Web Share atau download fallback. Tidak ada pengiriman otomatis ke orang lain. Ekspor hasil mencakup sesi terpilih (seluruh sesi hari itu pada mode Harian); ekspor detail dibatasi prisma dan rentang.
+- **Server yang menyimpan.** Site, slot prisma, sesi, pembacaan, konfigurasi RTS, jadwal, dan riwayat perintah semuanya milik backend. Yang tersimpan di perangkat hanya token sesi (`beacon.token.v1`), berlaku 30 hari.
+- **Pembacaan tidak dihitung ulang di aplikasi.** Pergeseran memerlukan rotasi koordinat terhadap acuan R0; rumus itu tinggal di `/api/deformasi`. Menyalinnya ke Dart berarti dua salinan yang akan menyimpang.
+- **Sudut `"331,85,05"` bukan DMS.** Backend mengganti koma jadi titik lalu `parseFloat`, yang berhenti di titik kedua — nilainya 331.85. Ditiru persis di `lib/data/beacon_api.dart`.
+- **Kolom waktu berisi jam dinding WIB** walau diserialkan berakhiran `Z`. Tidak pernah dikonversi zona.
+- **Perintah alat fire-and-forget.** Backend menerbitkan ke `sub_<idAlat>` lalu langsung menjawab; hasilnya datang di `pub_<idAlat>`, yang di-subscribe aplikasi lewat WSS. Tombol yang menunggu hasil memakai timeout dari tabel durasi protokol (Bagian A).
+- **Uji tembak wajib mendapat pantulan** sebelum slot bisa disimpan. Pantulan dengan keempat medan kosong berarti tidak ada prisma di sudut itu — bukan hasil bernilai nol.
+- **Jog bersifat relatif**, satuan derajat desimal. Isian Manual HA/VA menghitung selisihnya terhadap posisi terakhir yang dilaporkan alat.
+- Ekspor membuat `.xlsx` sungguhan dari data yang sudah ditarik. Android/iOS membuka lembar bagikan sistem; web memakai Web Share atau download fallback.
 
 ## Struktur
 
-- `lib/data/`: model bertipe, repository lokal, validasi, pembentukan workbook.
+- `lib/data/api_client.dart`: HTTP + token bearer, amplop `{success, data, error}` dibuka di satu tempat.
+- `lib/data/beacon_api.dart`: penerjemah bentuk balasan backend ke model.
+- `lib/data/repository.dart`: sumber data aplikasi; seluruh perintah alat lewat sini.
+- `lib/data/protokol_rts.dart`: pembaca balasan alat, porting dari `src/lib/protokol-rts.ts` dan `balasan-logger.ts`.
+- `lib/data/mqtt_balasan.dart`: langganan WSS ke `pub_<idAlat>`; transportnya dipisah per platform.
 - `lib/core/`: tema Beacon, komponen, grafik Canvas dan denah 2D.
 - `lib/screens/`: dashboard, kontrol, konfigurasi prisma, hasil/detail.
-- `lib/main.dart`: bootstrap, login, shell dan pemilih site.
-- `docs/ANALYSIS.md`: pemetaan kode website dan kontrak API untuk tahap integrasi berikutnya.
+- `docs/ANALYSIS.md`: catatan tahap frontend. **Sudah usang** — bagian "belum dipanggil" tidak berlaku lagi.
 
-Repository demo adalah sumber data frontend. Integrasi backend nyata belum dilakukan: autentikasi, transport HTTP/MQTT, pembacaan telemetri, dan acknowledgment alat harus diimplementasikan pada tahap integrasi tanpa menganggap balasan simulasi sebagai balasan nyata.
+Aturan yang sudah punya rumah di backend tidak ditulis ulang di sini. Yang diporting ke Dart hanya pembacaan balasan alat, karena balasannya tiba langsung di aplikasi lewat MQTT dan tidak melewati backend sama sekali.
 
 ## Verifikasi
 
