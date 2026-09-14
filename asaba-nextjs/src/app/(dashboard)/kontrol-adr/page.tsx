@@ -75,13 +75,6 @@ import {
   validasiCycleTime,
   validasiRetries,
   validasiSearchArea,
-  bacaDiagnostik,
-  NAMA_DIAGNOSTIK,
-  OPERASI_DIAGNOSTIK,
-  OPERASI_DIAGNOSTIK_RINGKAS,
-  ARTI_ALASAN_DIAGNOSTIK,
-  type Diagnostik,
-  type NamaDiagnostik,
   type BalasanSearchArea,
 } from "@/lib/protokol-rts";
 
@@ -517,7 +510,9 @@ export default function KontrolAdrPage() {
    * Kemiringan instrumen dari `getTilt` → balasan `data_tilt`.
    *
    * Terpisah dari pesan diagnostik `Tilt`: yang itu menandakan pembacaan
-   * kemiringan GAGAL, dan kalau ia muncul, angka di sini bukan hasil ukur.
+   * kemiringan GAGAL, dan kalau ia terbit, angka di sini bukan hasil ukur.
+   * Sejak blok diagnostik dihapus tidak ada lagi yang memperingatkan itu di
+   * layar — angkanya berdiri sendiri tanpa penanda sahih atau tidak.
    */
   const [tilt, setTilt] = useState<BacaanTilt | null>(null);
   const [tiltLoading, setTiltLoading] = useState(false);
@@ -541,15 +536,6 @@ export default function KontrolAdrPage() {
   /** Baris mentah yang sudah terkumpul lintas permintaan bertahap. */
   const [replayRows, setReplayRows] = useState<string[]>([]);
   const [replayInfo, setReplayInfo] = useState<BalasanReplay | null>(null);
-
-  /**
-   * Diagnostik instrumen terakhir (Rotate / Idle / Tilt).
-   *
-   * `Rotate` datang dari SETIAP jalur rotasi — jog, turning_target, pulang ke
-   * home, dan tiap target di AutoTracking. Jadi ini sinyal lintas perintah,
-   * bukan milik satu tombol, dan tempatnya di panel yang selalu terlihat.
-   */
-  const [diagnostik, setDiagnostik] = useState<Diagnostik | null>(null);
 
   const [setHomeStatus, setSetHomeStatus] = useState<"idle" | "waiting" | "done">("idle");
   const [setHomeJawaban, setSetHomeJawaban] = useState<string | null>(null);
@@ -1126,22 +1112,18 @@ export default function KontrolAdrPage() {
           // berbahaya daripada tidak menerjemahkannya: ini titik acuan pulang
           // teleskop, dan tafsir yang salah tidak akan terkoreksi sendiri.
 
-          // {"Rotate":{"value":"ok","ms":1840}}
-          // {"Rotate":{"value":"failed","reason":"no_response","ms":3001,"raw":""}}
-          // {"Idle":…} / {"Tilt":…} — bentuk sama, operasi berbeda.
-          for (const nd of NAMA_DIAGNOSTIK) {
-            const d = bacaDiagnostik(nd, data[nd]);
-            if (d.ada) {
-              console.log(`[KontrolADR] ${nd}:`, d.ok ? "ok" : d.alasan, d.ms, d.raw);
-              setDiagnostik(d);
-            }
-          }
-
           // {"data_tilt":{"tilt1":"-0.00732","tilt2":"0.0198"}}
           //
           // Nama balasan `getTilt` adalah `data_tilt`. Pesan `Tilt` yang
-          // ditangani blok diagnostik di atas adalah hal lain: itu penanda
+          // sebentuk dengan `Rotate`/`Idle` adalah hal LAIN: itu penanda
           // pembacaan kemiringan GAGAL.
+          //
+          // Ketiga pesan diagnostik itu TIDAK lagi dibaca di sini. `Rotate`
+          // terbit dari setiap jalur rotasi — jog, turning_target, pulang ke
+          // home, dan tiap target AutoTracking — jadi di lapangan ia membanjiri
+          // topik balasan (terlihat 14 September 2026) sementara tidak ada yang
+          // menindaklanjutinya. Pembacaannya tetap utuh di `bacaDiagnostik()`
+          // kalau suatu saat dibutuhkan lagi.
           const bTilt = bacaBalasanTilt(data.data_tilt);
           if (bTilt.ada) {
             console.log("[KontrolADR] data_tilt:", bTilt.tilt1, bTilt.tilt2);
@@ -2110,55 +2092,6 @@ export default function KontrolAdrPage() {
               Logger {isConnected ? "terhubung" : "terputus"}
             </span>
 
-            {/* Diagnostik instrumen terakhir (Rotate / Idle / Tilt).
-                Tempatnya di sini, bukan di dalam panel Sikap instrumen: pesan ini
-                muncul dan hilang sendiri mengikuti perintah yang lewat, dan di
-                dalam panel ia menambah 70–120px tinggi tiap kali muncul. Panel itu
-                seleret dengan dua panel lain yang ikut meregang, jadi satu
-                kegagalan menggeser tata letak tiga kartu sekaligus. Bar ini
-                tingginya tetap.
-
-                Rotate datang dari SETIAP jalur rotasi — jog, turning_target,
-                pulang ke home, dan tiap target AutoTracking — jadi ini memang
-                sinyal milik halaman, bukan milik satu panel.
-
-                Sebab dan `raw` masuk ke `title`, mengikuti chip Logger di
-                sebelahnya. `raw` itu yang membedakan instrumen yang diam sama
-                sekali dari yang menjawab tapi isinya lain — ditampilkan apa
-                adanya, tidak ditafsirkan. */}
-            {diagnostik && (
-              <span
-                className={cn(
-                  "inline-flex h-9 items-center gap-2 rounded-full px-3 text-[12px] font-medium ring-1",
-                  diagnostik.ok
-                    ? "bg-white text-(--ink-2) ring-(--line)"
-                    : "bg-red-50 text-red-800 ring-red-200"
-                )}
-                title={[
-                  `${OPERASI_DIAGNOSTIK[diagnostik.nama as NamaDiagnostik] ?? diagnostik.nama} ${
-                    diagnostik.ok ? "berhasil" : "gagal"
-                  }`,
-                  diagnostik.ms !== null ? `${diagnostik.ms} ms` : "",
-                  !diagnostik.ok && diagnostik.alasan
-                    ? ARTI_ALASAN_DIAGNOSTIK[diagnostik.alasan] ?? diagnostik.alasan
-                    : "",
-                  !diagnostik.ok && diagnostik.raw ? `Balasan mentah: ${diagnostik.raw}` : "",
-                ]
-                  .filter(Boolean)
-                  .join("\n")}
-              >
-                <span
-                  aria-hidden="true"
-                  className="size-2 rounded-full"
-                  style={{ background: diagnostik.ok ? "var(--st-normal)" : "var(--st-awas)" }}
-                />
-                {OPERASI_DIAGNOSTIK_RINGKAS[diagnostik.nama as NamaDiagnostik] ?? diagnostik.nama}{" "}
-                {diagnostik.ok ? "berhasil" : "gagal"}
-                {diagnostik.ms !== null && (
-                  <span className="font-mono tabular-nums opacity-70">{diagnostik.ms} ms</span>
-                )}
-              </span>
-            )}
             {/* Pengaturan — tidak menggerakkan apa pun, jadi tempatnya di bar
                 kontrol, bukan bersama perintah instrumen di bawah. */}
             <button
@@ -2248,10 +2181,7 @@ export default function KontrolAdrPage() {
                 {/* Kemiringan (`getTilt` → `data_tilt`). Nilainya yang terakhir
                     tersimpan di logger, disegarkan sendiri tiap menit — jadi
                     membacanya tidak menyentuh instrumen dan aman kapan saja,
-                    termasuk saat RTS mati.
-
-                    Kalau pesan `Tilt` gagal muncul di blok diagnostik, angka di
-                    sini BUKAN hasil ukur — itulah yang diperingatkan di bawah. */}
+                    termasuk saat RTS mati. */}
                 <div>
                   <dt className="text-[11.5px] text-(--ink-2)">Kemiringan</dt>
                   <dd className="font-mono text-[13px] tabular-nums text-(--ink)">
@@ -2265,11 +2195,6 @@ export default function KontrolAdrPage() {
                       <span className="font-sans text-[12px] text-(--ink-3)">Belum dibaca</span>
                     )}
                   </dd>
-                  {tilt && diagnostik?.nama === "Tilt" && !diagnostik.ok && (
-                    <p className="mt-0.5 text-[11px] leading-snug text-amber-900">
-                      Pembacaan terakhir gagal — bukan hasil ukur.
-                    </p>
-                  )}
                 </div>
               </dl>
 
