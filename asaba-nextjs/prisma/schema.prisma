@@ -119,7 +119,7 @@ model PrismaTarget {
   ///
   /// TIDAK dipakai perhitungan deformasi — di sana semua prisma masih
   /// diperlakukan sama.
-  jenis             String  @default("fs") @db.VarChar(2)
+  jenis String @default("fs") @db.VarChar(2)
 
   @@unique([site, id_prisma], name: "uk_site_prisma")
   @@index([site, jenis])
@@ -365,6 +365,25 @@ model LogKontrol {
   @@map("log_kontrol")
 }
 
+/// Jejak perintah yang dikirim ke alat lewat MQTT. Ditulis di satu tempat —
+/// publishMqtt() — supaya tidak ada jalur perintah yang luput dari catatan.
+/// Lihat prisma/migrations/013_log_aktivitas.sql.
+model LogAktivitas {
+  id        Int      @id @default(autoincrement())
+  id_logger String   @db.VarChar(15)
+  /// Nama perintah pada payload, mis. "measure_fs", "auto_search", "power_on".
+  perintah  String   @db.VarChar(64)
+  payload   String?  @db.Text
+  /// Apakah publish MQTT-nya berhasil. Perintah yang gagal terkirim tetap
+  /// dicatat: justru itu yang perlu terlihat saat alat tidak merespons.
+  terkirim  Boolean  @default(false)
+  /// Jam dinding, bukan UTC — seperti seluruh kolom waktu di basis data ini.
+  waktu     DateTime @db.DateTime(0)
+
+  @@index([id_logger, waktu], map: "log_aktivitas_logger_waktu_idx")
+  @@map("log_aktivitas")
+}
+
 model StatusKontrol {
   id             Int      @id @default(autoincrement())
   id_logger      String   @db.VarChar(25)
@@ -398,27 +417,27 @@ model LogSiaga {
 }
 
 model ConfigAdr {
-  id          Int    @id @default(autoincrement())
-  id_logger   Int
-  job_name    String @db.VarChar(225)
-  prisma_cons Float  @db.Float
-  ts_high     Float  @db.Float
+  id              Int     @id @default(autoincrement())
+  id_logger       Int
+  job_name        String  @db.VarChar(225)
+  prisma_cons     Float   @db.Float
+  ts_high         Float   @db.Float
   /// DOUBLE, bukan FLOAT: koordinat UTM butuh 9-10 digit signifikan sedangkan
   /// single-precision hanya ~7, sehingga northing hemisfer selatan meleset
   /// sampai ratusan milimeter. coor_x = Northing, coor_y = Easting.
-  coor_x      Float
-  coor_y      Float
-  coor_z      Float
-  step_record Int
-  retries     Int
-  cycle_time  Int
+  coor_x          Float
+  coor_y          Float
+  coor_z          Float
+  step_record     Int
+  retries         Int
+  cycle_time      Int
   /// Mode AutoTracking: true = menyapu mencari prisma di tiap target (`*SJ`),
   /// false = langsung putar ke sudut rekaman lalu ukur.
   ///
   /// Disimpan — beda dari SearchArea dan trackEvery yang sengaja tidak — karena
   /// nilainya bertahan di EEPROM instrumen DAN selalu ikut di snapshot ack
   /// konfigurasi, jadi bisa dicocokkan, bukan ditebak.
-  auto_search Boolean @default(true)
+  auto_search     Boolean @default(true)
   /// Rentang sapuan (`SearchArea`) dan jadwal AutoTracking (`trackEvery`),
   /// dicatat sebagai "terakhir dikirim" — bukan bukti keadaan instrumen.
   ///
@@ -428,9 +447,9 @@ model ConfigAdr {
   /// pakai kolom ini untuk melewatkan pengiriman; lihat migrasi 009.
   ///
   /// FLOAT, bukan INT: sudut sahnya kelipatan 1,5 derajat.
-  search_area_hor Float @default(15) @db.Float
-  search_area_ver Float @default(15) @db.Float
-  track_every     Int   @default(0)
+  search_area_hor Float   @default(15) @db.Float
+  search_area_ver Float   @default(15) @db.Float
+  track_every     Int     @default(0)
   /// Konfigurasi RTS bersifat per-site, bukan per-logger: satu unit RTS bisa
   /// dipakai di beberapa site dengan job name dan titik origin yang berbeda.
   ///
@@ -438,7 +457,7 @@ model ConfigAdr {
   /// Northing, coor_y = Easting — penamaannya menyesatkan). Nilai yang sama
   /// juga ada di t_site.rts_n/rts_e/rts_z yang dipakai menghitung deformasi.
   /// Keduanya bisa melenceng; lihat catatan di migration 005.
-  site        String @db.VarChar(50)
+  site            String  @db.VarChar(50)
 
   @@unique([site])
   @@map("config_adr")
@@ -532,7 +551,7 @@ model Site {
   // Tampilan peta. Null = belum dikalibrasi.
   map_lat  Float?
   map_lng  Float?
-  map_zoom Int     @default(16)
+  map_zoom Int    @default(16)
 
   // Rotasi koordinat. Null = tidak ada koreksi rotasi untuk site ini.
   rotasi_deg Float?

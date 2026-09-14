@@ -5,6 +5,7 @@
 import mqtt from "mqtt";
 import { waktuDbLokal } from "@/components/monitoring/format";
 import { offsetLogger } from "@/lib/sites";
+import { catatAktivitas } from "@/lib/log-aktivitas";
 
 interface MqttConfig {
   host: string;
@@ -47,9 +48,23 @@ function getConfig(): MqttConfig {
 }
 
 /**
- * Publish a message to an MQTT topic.
+ * Publish a message to an MQTT topic, lalu catat perintahnya.
+ *
+ * Pencatatan ditaruh DI SINI, bukan di tiap route: seluruh `/api/kontrol/*`
+ * menerbitkan lewat fungsi ini, jadi tidak ada jalur perintah yang bisa luput
+ * dari log — termasuk jalur yang ditambahkan nanti. Perintah yang GAGAL terbit
+ * ikut dicatat; justru itu yang perlu terlihat saat alat tidak merespons.
  */
 export async function publishMqtt(
+  topic: string,
+  message: object | string
+): Promise<boolean> {
+  const terkirim = await terbitkan(topic, message);
+  await catatAktivitas(topic, message, terkirim);
+  return terkirim;
+}
+
+async function terbitkan(
   topic: string,
   message: object | string
 ): Promise<boolean> {
