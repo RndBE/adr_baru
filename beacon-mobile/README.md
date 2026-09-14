@@ -41,7 +41,7 @@ Broker balasan alat juga bisa diganti — nilai bawaannya sama dengan `NEXT_PUBL
 | Menu | Isi | Sumber |
 |---|---|---|
 | Login | Validasi isian, pesan galat dari server, tampil/sembunyikan password, logout | `POST /api/mobile/login` |
-| Ringkasan | Pilih site dan sesi, telemetri alat, status pergeseran, denah 2D dengan detail prisma, arah pergeseran, hasil sesi, profil elevasi, informasi R0 | `sites`, `log-kontrol`, `deformasi`, `kontrol/dashboard` |
+| Dashboard | Pilih site dan sesi, telemetri alat, status pergeseran, denah 2D dengan detail prisma, arah pergeseran, hasil sesi, profil elevasi, informasi R0 | `sites`, `log-kontrol`, `deformasi`, `kontrol/dashboard` |
 | Kontrol ADR | Daya on/off, baca tilt, simpan home, mulai dengan kode akses, progres sesi, stop, replay SD, konfigurasi instrumen, SearchArea, TrackEvery, jadwal running, hapus sesi, log aktivitas | `kontrol/*`, `config-adr`, `scheduling`, `log-aktivitas` |
 | Prism Config | 50 slot/site, akses terkunci, pencarian/filter, tambah/ubah/hapus, BS/FS, tinggi target, Manual HA/VA, jog, Go To Target, Auto Search, uji tembak wajib lulus sebelum simpan | `prism-config`, `kontrol/{measure,jog,auto-search,go-to-target,manual-hava}` |
 | Hasil | Pilih sesi/rentang, Harian/Event/Peta, cari/filter status, atur kelompok kolom, detail prisma, riwayat grafik horizontal/linear/ΔN/ΔE/ΔZ, tabel riwayat, Excel | `log-kontrol`, `deformasi` |

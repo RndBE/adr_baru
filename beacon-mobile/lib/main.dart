@@ -256,7 +256,7 @@ class HomeShell extends StatefulWidget {
 }
 
 const judulHalaman = [
-  'Ringkasan',
+  'Dashboard',
   'Kontrol ADR',
   'Prism Config',
   'Hasil pengukuran',
@@ -491,7 +491,7 @@ class _HomeShellState extends State<HomeShell> {
           NavigationDestination(
             icon: Icon(Icons.space_dashboard_outlined),
             selectedIcon: Icon(Icons.space_dashboard),
-            label: 'Ringkasan',
+            label: 'Dashboard',
           ),
           NavigationDestination(
             icon: Icon(Icons.tune_outlined),

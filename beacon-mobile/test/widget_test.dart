@@ -33,7 +33,7 @@ void main() {
     return repo;
   }
 
-  testWidgets('login memvalidasi isian lalu masuk ke Ringkasan', (tester) async {
+  testWidgets('login memvalidasi isian lalu masuk ke Dashboard', (tester) async {
     await launch(tester, login: false);
     await tester.tap(find.text('Masuk'));
     await tester.pump();
@@ -42,7 +42,7 @@ void main() {
     await tester.enterText(find.byType(TextFormField).last, 'rahasia');
     await tester.tap(find.text('Masuk'));
     await tester.pumpAndSettle();
-    expect(find.widgetWithText(AppBar, 'Ringkasan'), findsOneWidget);
+    expect(find.widgetWithText(AppBar, 'Dashboard'), findsOneWidget);
     expect(tester.takeException(), isNull);
   });
 
@@ -66,13 +66,13 @@ void main() {
     await tester.tap(find.text('Masuk'));
     await tester.pumpAndSettle();
     expect(find.textContaining('Username atau password salah'), findsOneWidget);
-    expect(find.widgetWithText(AppBar, 'Ringkasan'), findsNothing);
+    expect(find.widgetWithText(AppBar, 'Dashboard'), findsNothing);
   });
 
   for (final width in [320.0, 390.0, 600.0]) {
     testWidgets('empat tujuan navigasi muat di lebar $width', (tester) async {
       await launch(tester, size: Size(width, 844));
-      for (final label in ['Ringkasan', 'Kontrol', 'Prisma', 'Hasil']) {
+      for (final label in ['Dashboard', 'Kontrol', 'Prisma', 'Hasil']) {
         await tester.tap(find.text(label).last);
         await tester.pumpAndSettle();
         expect(tester.takeException(), isNull, reason: label);

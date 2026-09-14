@@ -99,7 +99,7 @@ class Reading {
   });
   double get displacement => math.sqrt(dn * dn + de * de);
 
-  /// Status yang dipakai SELURUH layar: filter, kartu, denah, dan Ringkasan.
+  /// Status yang dipakai SELURUH layar: filter, kartu, denah, dan Dashboard.
   ///
   /// Jawaban backend didahulukan. Ia hanya ada untuk agregat harian; untuk satu
   /// sesi tunggal — yang dipakai denah dan mode Event — website tidak punya
