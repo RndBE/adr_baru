@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse, after } from "next/server";
-import { waktuDbWib } from "@/components/monitoring/format";
+import { waktuDbLokal } from "@/components/monitoring/format";
 import { prisma } from "@/lib/prisma";
 import { publishMqtt } from "@/lib/mqtt";
+import { offsetLogger } from "@/lib/sites";
 import { sesiTerakhirLogger, sesiUntukSiklus } from "@/lib/log-kontrol";
 import { awalSiklus } from "@/lib/sesi-kontrol";
 import { evaluasiSiklus } from "@/lib/evaluasi-siklus";
@@ -32,7 +33,7 @@ async function parsePayload(request: NextRequest): Promise<PayloadMap> {
   );
 }
 
-function getWaktu(payload: PayloadMap): string {
+async function getWaktu(payload: PayloadMap, idLogger: string): Promise<string> {
   if (payload.waktu) {
     return payload.waktu;
   }
@@ -42,9 +43,16 @@ function getWaktu(payload: PayloadMap): string {
   }
 
   // Jam server dipakai HANYA kalau logger tidak menyertakan waktunya sendiri.
-  // Lewat waktuDbWib supaya hasilnya tetap jam dinding WIB walau zona proses
-  // bukan WIB — getHours() dulu diam-diam ikut zona sistem.
-  return waktuDbWib();
+  // Lewat waktuDbLokal supaya hasilnya tetap jam dinding walau zona proses lain
+  // — getHours() dulu diam-diam ikut zona sistem.
+  //
+  // Zonanya zona LOGGER, bukan WIB mati: baris cadangan ini masuk ke kolom yang
+  // sama dengan cap waktu kiriman alat, dan dua jam berbeda di satu kolom
+  // membuat selisih waktu apa pun di atasnya tidak bisa dipercaya.
+  //
+  // offsetLogger() baru dipanggil di sini, sesudah dua cabang di atas gagal,
+  // supaya payload normal tidak membayar satu kueri.
+  return waktuDbLokal(new Date(), await offsetLogger(idLogger));
 }
 
 // Sensor yang kolom-nya FLOAT di MySQL — tidak boleh string kosong.
@@ -119,7 +127,7 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const waktu = getWaktu(payload);
+    const waktu = await getWaktu(payload, idAlat);
     const sensorData = buildSensorPayload(payload);
     let idLog = "";
     let mqttPrismaSent = false;

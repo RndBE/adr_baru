@@ -3,7 +3,8 @@ import { prisma } from "@/lib/prisma";
 import { sendRtsStartCommand } from "@/lib/mqtt";
 import { verifikasiKodeAkses } from "@/lib/kode-akses";
 import { buatSesiKontrol } from "@/lib/log-kontrol";
-import { waktuDbWib } from "@/components/monitoring/format";
+import { offsetLogger } from "@/lib/sites";
+import { waktuDbLokal } from "@/components/monitoring/format";
 
 
 /**
@@ -85,11 +86,16 @@ export async function POST(request: NextRequest) {
 
     // Update set_tempkontrol — sama dengan PHP: WHERE id_logger = '30002'
     //
-    // Waktunya diserahkan sebagai STRING jam dinding WIB, bukan objek Date.
-    // Prisma menyimpan Date sebagai UTC, sehingga sesi yang dimulai 11:33 WIB
-    // tercatat 04:33 — tujuh jam meleset dari setiap kolom waktu lain di
-    // database ini, yang semuanya jam dinding WIB.
-    const waktuNow = waktuDbWib();
+    // Waktunya diserahkan sebagai STRING jam dinding, bukan objek Date. Prisma
+    // menyimpan Date sebagai UTC, sehingga sesi yang dimulai 11:33 tercatat
+    // 04:33 — tujuh jam meleset dari setiap kolom waktu lain di database ini.
+    //
+    // Zonanya zona LOGGER, bukan WIB mati. Baris log_kontrol punya DUA penulis:
+    // tombol Mulai di sini, dan /api/datamasuk/adr untuk siklus yang dimulai
+    // alat sendiri — yang memakai cap waktu kiriman alat. Kalau yang satu selalu
+    // WIB sementara yang lain mengikuti alat, satu kolom berisi dua jam berbeda
+    // untuk site yang sama, dan batas 2 jam bolehAdopsiSesi() ikut meleset.
+    const waktuNow = waktuDbLokal(new Date(), await offsetLogger(id_logger));
     await prisma.$executeRaw`
       UPDATE set_tempkontrol 
       SET status = '1', status_manual = '1', datetime = ${waktuNow}

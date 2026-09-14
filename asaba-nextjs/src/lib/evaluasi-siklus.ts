@@ -20,6 +20,7 @@
  * belum dijalankan, jadi setiap kueri ke sana akan gagal sampai itu dilakukan.
  */
 import { prisma } from "@/lib/prisma";
+import { parseWaktuToIso, waktuDateLokal, waktuMsLokal } from "@/components/monitoring/format";
 import { nfloat, rotateEN } from "@/lib/coordinates";
 import { getSite } from "@/lib/sites";
 import { type AmbangSite, type StatusLabel, indeksStatus } from "@/lib/ambang";
@@ -121,7 +122,10 @@ function keadaanDariBaris(r: {
     tingkat: (r.tingkat as StatusLabel) ?? "Normal",
     tingkatCalon: (r.tingkat_calon as StatusLabel) ?? null,
     hitungCalon: Number(r.hitung_calon ?? 0),
-    kirimTerakhirMs: r.kirim_terakhir ? new Date(r.kirim_terakhir).getTime() : null,
+    // waktuMsLokal, bukan getTime(): kolomnya berisi jam dinding WIB, dan Prisma
+    // mengembalikannya sebagai Date yang medan UTC-nya jam itu apa adanya.
+    // getTime() akan membacanya sebagai UTC — tujuh jam meleset dari sisi tulis.
+    kirimTerakhirMs: waktuMsLokal(r.kirim_terakhir),
   };
 }
 
@@ -183,7 +187,10 @@ export async function evaluasiSiklus(opsi: {
     }
 
     const ambang: AmbangSite = cfg.thresholds;
-    const sekarangMs = new Date(waktuDb.replace(" ", "T")).getTime() || Date.now();
+    // waktuMsLokal memancang ke +07:00, jadi hasilnya tidak ikut zona proses —
+    // Node di server tidak menyetel TZ, cuma mewarisi zona sistem. Sama dengan
+    // yang dipakai sesiUntukSiklus() untuk menghitung umur sesi.
+    const sekarangMs = waktuMsLokal(waktuDb) ?? Date.now();
 
     const keadaanLama = await prisma.statusPrisma.findMany({ where: { site } });
     const petaKeadaan = new Map(keadaanLama.map((k) => [k.id_prisma, k]));
@@ -231,7 +238,7 @@ export async function evaluasiSiklus(opsi: {
           hitung_calon: hasil.keadaan.hitungCalon,
           nilai_mm: mm,
           siklus_terakhir: idLog,
-          kirim_terakhir: hasil.keadaan.kirimTerakhirMs ? new Date(hasil.keadaan.kirimTerakhirMs) : null,
+          kirim_terakhir: hasil.keadaan.kirimTerakhirMs ? waktuDateLokal(hasil.keadaan.kirimTerakhirMs) : null,
           gagal_beruntun: 0,
         },
         update: {
@@ -240,7 +247,7 @@ export async function evaluasiSiklus(opsi: {
           hitung_calon: hasil.keadaan.hitungCalon,
           nilai_mm: mm,
           siklus_terakhir: idLog,
-          kirim_terakhir: hasil.keadaan.kirimTerakhirMs ? new Date(hasil.keadaan.kirimTerakhirMs) : null,
+          kirim_terakhir: hasil.keadaan.kirimTerakhirMs ? waktuDateLokal(hasil.keadaan.kirimTerakhirMs) : null,
           gagal_beruntun: 0,
         },
       });
@@ -259,7 +266,7 @@ export async function evaluasiSiklus(opsi: {
 
     if (naik.length === 0 && pulih.length === 0 && hilang.length === 0) {
       if (dicatat.length > 0) {
-        await simpanRiwayat(site, idLog, waktuDb, dicatat, false, "didiamkan peredam");
+        await simpanRiwayat(site, idLog, sekarangMs, dicatat, false, "didiamkan peredam");
       }
       return;
     }
@@ -269,12 +276,14 @@ export async function evaluasiSiklus(opsi: {
       waktu: waktuDb,
       naik, pulih, hilang, tetap,
       acuanR0: r0.id_log,
-      waktuAcuanR0: r0.datetime ? new Date(r0.datetime).toISOString().slice(0, 10) : null,
+      // parseWaktuToIso, bukan new Date().toISOString(): nilainya jam dinding
+      // WIB, dan $queryRaw bisa mengembalikannya sebagai Date ATAU string.
+      waktuAcuanR0: parseWaktuToIso(r0.datetime)?.slice(0, 10) ?? null,
     };
 
     const hasilKirim = await kirimTelegram(site, susunTeks(ringkasan));
     await simpanRiwayat(
-      site, idLog, waktuDb, dicatat,
+      site, idLog, sekarangMs, dicatat,
       hasilKirim.ok,
       hasilKirim.ok ? null : hasilKirim.galat
     );
@@ -294,7 +303,7 @@ export async function evaluasiSiklus(opsi: {
 async function simpanRiwayat(
   site: string,
   idLog: string,
-  waktuDb: string,
+  sekarangMs: number,
   baris: Array<{ idPrisma: string; dari: StatusLabel; ke: StatusLabel; nilaiMm: number; kirim: boolean }>,
   terkirim: boolean,
   galat: string | null
@@ -308,7 +317,10 @@ async function simpanRiwayat(
       dari: b.dari,
       ke: b.ke,
       nilai_mm: b.nilaiMm,
-      waktu: new Date(waktuDb.replace(" ", "T")),
+      // waktuDateLokal supaya kolomnya berisi jam dinding WIB seperti seluruh
+      // kolom waktu lain. Date polos dari string tanpa zona diurai lokal lalu
+      // ditulis Prisma sebagai UTC — di server berzona WIB, tujuh jam meleset.
+      waktu: waktuDateLokal(sekarangMs),
       terkirim: b.kirim ? terkirim : false,
       galat: b.kirim ? galat?.slice(0, 255) ?? null : "tidak dikirim: didiamkan peredam",
     })),

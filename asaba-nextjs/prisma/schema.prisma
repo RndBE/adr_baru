@@ -42,6 +42,13 @@ model Logger {
   kategori_log  String @db.VarChar(10)
   tabel         String @db.VarChar(10)
 
+  /// Zona waktu yang DILAPORKAN alat ini, dalam menit dari UTC. WIB 420,
+  /// WITA 480, WIT 540. Fakta perangkat, bukan geografi site: yang tersimpan di
+  /// kolom waktu adalah jam kiriman logger, dan alat yang terlanjur disetel ke
+  /// zona lain dibetulkan di sini, bukan di lapangan. Lihat
+  /// prisma/migrations/012_zona_waktu_logger.sql.
+  utc_offset_menit Int @default(420) @db.SmallInt
+
   @@map("t_logger")
 }
 

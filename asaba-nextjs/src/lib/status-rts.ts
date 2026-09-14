@@ -24,7 +24,7 @@
  * Menyatukan keduanya jadi satu lampu akan menyembunyikan satu-satunya
  * perbedaan yang menentukan apakah perintah instrumen bisa dijalankan.
  */
-import { waktuMsWib } from "@/components/monitoring/format";
+import { ZONA_BAWAAN_MENIT, waktuMsLokal } from "@/components/monitoring/format";
 
 /**
  * Batas data dianggap segar.
@@ -56,9 +56,22 @@ export function hitungStatusRts(
   waktu: string | Date | null | undefined,
   sensor14: unknown,
   sensor16: unknown,
-  nowMs: number = Date.now()
+  nowMs: number = Date.now(),
+  /**
+   * Zona yang dilaporkan logger ini (`t_logger.utc_offset_menit`).
+   *
+   * SATU-SATUNYA tempat di aplikasi yang benar-benar butuh zona: di sini jam
+   * dinding kiriman alat dibandingkan dengan waktu nyata `Date.now()`. Di
+   * tempat lain kedua sisi perbandingan berasal dari jam dinding yang sama dan
+   * offset-nya saling meniadakan.
+   *
+   * Salah zona di sini tidak memunculkan galat apa pun, cuma menggeser jendela
+   * kesegaran: logger WITA yang dibaca sebagai WIB tampak "terhubung" satu jam
+   * lebih lama daripada seharusnya.
+   */
+  offsetMenit: number = ZONA_BAWAAN_MENIT
 ): StatusRts {
-  const ms = waktuMsWib(waktu);
+  const ms = waktuMsLokal(waktu, offsetMenit);
   const loggerTerhubung = ms !== null && ms >= nowMs - BATAS_DATA_SEGAR_MS;
 
   // Dibandingkan sebagai string: kolom sensor datang sebagai angka dari satu

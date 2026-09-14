@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
+import { parseOffsetMenit } from "@/components/monitoring/format";
 
 /**
  * GET /api/loggers/[id]?site=xxx
@@ -150,9 +151,13 @@ export async function PUT(req: Request, { params }: { params: Promise<{ id: stri
     if (!id_logger || !nama_logger || !lokasi_logger || !kategori_log || !tabel) {
       return NextResponse.json({ success: false, error: "Semua field wajib diisi" }, { status: 400 });
     }
+    const utc_offset_menit = parseOffsetMenit(body.utc_offset_menit);
+    if (utc_offset_menit === null) {
+      return NextResponse.json({ success: false, error: "Zona waktu tidak sah" }, { status: 400 });
+    }
     const updated = await prisma.logger.update({
       where: { id: parseInt(id) },
-      data: { id_logger, nama_logger, lokasi_logger: String(lokasi_logger), kategori_log: String(kategori_log), tabel },
+      data: { id_logger, nama_logger, lokasi_logger: String(lokasi_logger), kategori_log: String(kategori_log), tabel, utc_offset_menit },
     });
     return NextResponse.json({ success: true, data: updated });
   } catch (error) {

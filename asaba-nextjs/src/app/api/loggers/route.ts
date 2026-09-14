@@ -1,11 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
+import { parseOffsetMenit } from "@/components/monitoring/format";
 
 export async function GET() {
   try {
     const loggers = await prisma.$queryRaw`
       SELECT 
         l.id, l.id_logger, l.nama_logger, l.lokasi_logger, l.kategori_log, l.tabel,
+        l.utc_offset_menit,
         lok.nama_lokasi, lok.latitude, lok.longitude,
         kl.nama_kategori, kl.kepanjangan, kl.temp_data, kl.icon_app,
         inf.seri, inf.serial_number, inf.masa_aktif, inf.nosell
@@ -34,11 +36,15 @@ export async function POST(req: NextRequest) {
     if (!id_logger || !nama_logger || !lokasi_logger || !kategori_log || !tabel) {
       return NextResponse.json({ success: false, error: "Semua field wajib diisi" }, { status: 400 });
     }
+    const utc_offset_menit = parseOffsetMenit(body.utc_offset_menit);
+    if (utc_offset_menit === null) {
+      return NextResponse.json({ success: false, error: "Zona waktu tidak sah" }, { status: 400 });
+    }
     const existing = await prisma.logger.findFirst({ where: { id_logger } });
     if (existing) return NextResponse.json({ success: false, error: "ID Logger sudah digunakan" }, { status: 409 });
 
     const created = await prisma.logger.create({
-      data: { id_logger, nama_logger, lokasi_logger: String(lokasi_logger), kategori_log: String(kategori_log), tabel },
+      data: { id_logger, nama_logger, lokasi_logger: String(lokasi_logger), kategori_log: String(kategori_log), tabel, utc_offset_menit },
     });
     return NextResponse.json({ success: true, data: created }, { status: 201 });
   } catch (error) {

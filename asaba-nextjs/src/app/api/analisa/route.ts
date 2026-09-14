@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { waktuDbWib } from "@/components/monitoring/format";
+import { waktuDbLokal } from "@/components/monitoring/format";
 
 /**
  * GET /api/analisa
@@ -78,7 +78,7 @@ export async function GET(request: NextRequest) {
     // grafik "hari ini" membuka hari yang salah tiap dini hari — sementara
     // rts.waktu yang dicocokkan justru jam dinding WIB.
     if (type === "hari") {
-      const tanggal = tgl ?? waktuDbWib().slice(0, 10);
+      const tanggal = tgl ?? waktuDbLokal().slice(0, 10);
       rawData = await prisma.$queryRawUnsafe(
         `SELECT waktu, ${kolom} as nilai
          FROM rts
@@ -91,7 +91,7 @@ export async function GET(request: NextRequest) {
       ) as Array<Record<string, unknown>>;
 
     } else if (type === "bulan") {
-      const bulanVal = bulan ?? waktuDbWib().slice(0, 7);
+      const bulanVal = bulan ?? waktuDbLokal().slice(0, 7);
       rawData = await prisma.$queryRawUnsafe(
         `SELECT waktu, ${kolom} as nilai
          FROM rts
@@ -104,7 +104,7 @@ export async function GET(request: NextRequest) {
       ) as Array<Record<string, unknown>>;
 
     } else if (type === "tahun") {
-      const tahunVal = tahun ?? waktuDbWib().slice(0, 4);
+      const tahunVal = tahun ?? waktuDbLokal().slice(0, 4);
       rawData = await prisma.$queryRawUnsafe(
         `SELECT waktu, ${kolom} as nilai
          FROM rts

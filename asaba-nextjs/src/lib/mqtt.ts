@@ -3,7 +3,8 @@
  * Ported from CI3 Kontrol controller.
  */
 import mqtt from "mqtt";
-import { waktuDbWib } from "@/components/monitoring/format";
+import { waktuDbLokal } from "@/components/monitoring/format";
+import { offsetLogger } from "@/lib/sites";
 
 interface MqttConfig {
   host: string;
@@ -100,12 +101,12 @@ export async function sendRtsStartCommand(loggerId: string): Promise<boolean> {
   const sendKontrol = {
     status: "1",
     status_manual: "1",
-    // Jam dinding WIB, bukan ISO/UTC. Halaman Kontrol ADR memakai nilai ini apa
-    // adanya untuk chip "Running date", sementara SELURUH kolom waktu di basis
-    // data ini jam dinding WIB — ISO string membuat satu-satunya jam yang
+    // Jam dinding zona LOGGER, bukan ISO/UTC. Halaman Kontrol ADR memakai nilai
+    // ini apa adanya untuk chip "Running date", sementara seluruh kolom waktu di
+    // basis data ini jam dinding — ISO string membuat satu-satunya jam yang
     // terlihat selama sesi berjalan meleset tujuh jam dari semua jam lain di
     // layar yang sama.
-    datetime: waktuDbWib(),
+    datetime: waktuDbLokal(new Date(), await offsetLogger(loggerId)),
     // Topik "kontrol-asaba" dipakai bersama semua perangkat. Tanpa penyebut ini
     // halaman yang sedang membuka logger lain ikut berubah jadi "sedang
     // mengukur" saat perangkat mana pun dijalankan.

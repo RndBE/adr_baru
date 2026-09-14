@@ -48,19 +48,81 @@ export function fmtJam(d: string | Date | null | undefined): string {
 }
 
 /**
- * Epoch ms dengan asumsi nilai DB adalah waktu WIB (UTC+7) — cara yang sama
- * dengan Beranda sebelumnya, supaya status Terhubung/Terputus tidak berubah.
+ * Zona waktu yang dipakai kalau tidak ada yang menyebutkan lain: WIB.
+ *
+ * Setiap logger membawa zonanya sendiri di `t_logger.utc_offset_menit`, tapi
+ * bawaan kolom itu 420 — jadi seluruh pemasangan yang sudah jalan berperilaku
+ * persis seperti sebelum kolomnya ada.
  */
-export function waktuMsWib(w: string | Date | null | undefined): number | null {
+export const ZONA_BAWAAN_MENIT = 420;
+
+/**
+ * Zona waktu Indonesia, untuk pilihan di Master Data.
+ *
+ * Cukup tiga dan tetap: Indonesia tidak punya DST dan tidak pernah punya, jadi
+ * offset-nya tidak berubah sepanjang tahun dan tidak perlu basis data zona.
+ */
+export const ZONA_INDONESIA = [
+  { menit: 420, kode: "WIB", label: "WIB — UTC+7" },
+  { menit: 480, kode: "WITA", label: "WITA — UTC+8" },
+  { menit: 540, kode: "WIT", label: "WIT — UTC+9" },
+] as const;
+
+/**
+ * Offset dari masukan pengguna. Bawaan bila tidak disebut, null bila ditolak.
+ *
+ * Rentangnya sengaja lebih luas dari tiga zona Indonesia, bukan dikunci ke
+ * daftar itu: kolom ini juga tombol untuk membetulkan alat yang terlanjur
+ * di-commission dengan jam zona lain, dan mengunci pilihannya berarti kasus
+ * seperti itu tidak punya jalan keluar selain lewat SQL. Batasnya batas offset
+ * UTC yang benar-benar ada di dunia, -12:00 sampai +14:00.
+ */
+export function parseOffsetMenit(v: unknown): number | null {
+  if (v === undefined || v === null || v === "") return ZONA_BAWAAN_MENIT;
+  const n = Number(v);
+  if (!Number.isInteger(n) || n < -720 || n > 840) return null;
+  return n;
+}
+
+/** "WITA" untuk 480. "UTC+5:45" untuk offset yang tidak dikenal. */
+export function kodeZona(menit: number): string {
+  const cocok = ZONA_INDONESIA.find((z) => z.menit === menit);
+  if (cocok) return cocok.kode;
+  const tanda = menit < 0 ? "-" : "+";
+  const abs = Math.abs(menit);
+  const sisa = abs % 60;
+  return `UTC${tanda}${Math.floor(abs / 60)}${sisa ? `:${String(sisa).padStart(2, "0")}` : ""}`;
+}
+
+/**
+ * Epoch ms dari jam dinding yang tersimpan di DB.
+ *
+ * Kolom waktu di basis data ini tidak menyimpan zona apa pun — isinya jam
+ * dinding tempat alat itu berdiri. Untuk membandingkannya dengan `Date.now()`
+ * zona itu harus disebutkan, dan yang menyebutkannya `offsetMenit`.
+ *
+ * Zona dipasang eksplisit, tidak lewat penguraian lokal, supaya hasilnya tidak
+ * ikut zona proses: Node di server tidak menyetel TZ sama sekali, cuma mewarisi
+ * zona sistem yang bisa berubah tanpa ada yang menyadarinya.
+ *
+ * Catatan pemakaian: kalau kedua sisi perbandingan berasal dari jam dinding
+ * yang sama (mis. selisih antar dua cap waktu logger yang sama), offset-nya
+ * saling meniadakan dan bawaan boleh dipakai apa adanya. Yang WAJIB menyebut
+ * offset hanyalah perbandingan terhadap waktu nyata — `Date.now()`.
+ */
+export function waktuMsLokal(
+  w: string | Date | null | undefined,
+  offsetMenit: number = ZONA_BAWAAN_MENIT
+): number | null {
   const iso = parseWaktuToIso(w);
   if (!iso) return null;
   const tanpaZona = iso.replace(/Z$/, "").replace(/[+-]\d{2}:\d{2}$/, "");
-  const ms = new Date(tanpaZona + "+07:00").getTime();
+  const ms = new Date(tanpaZona + "Z").getTime() - offsetMenit * 60_000;
   return isNaN(ms) ? null : ms;
 }
 
 /**
- * Kebalikan `waktuMsWib`: Date → "YYYY-MM-DD HH:MM:SS" jam dinding WIB, bentuk
+ * Kebalikan `waktuMsLokal`: Date → "YYYY-MM-DD HH:MM:SS" jam dinding, bentuk
  * yang dipakai SEMUA kolom waktu di database ini.
  *
  * Dibutuhkan karena menyerahkan objek Date ke Prisma menyimpannya sebagai UTC —
@@ -69,16 +131,30 @@ export function waktuMsWib(w: string | Date | null | undefined): number | null {
  * sehingga keduanya saling bertentangan di satu tabel.
  *
  * Pergeseran dilakukan di epoch lalu dibaca lewat medan UTC, BUKAN lewat
- * getFullYear()/getHours() yang mengikuti zona proses. Hasilnya sama walau
- * server atau runtime kebetulan tidak berzona WIB — dan itu bukan kemungkinan
- * teoretis: proses Node di server tidak menyetel TZ sama sekali, jadi ia cuma
- * mewarisi zona sistem yang bisa berubah tanpa ada yang menyadarinya.
+ * getFullYear()/getHours() yang mengikuti zona proses.
  */
-export function waktuDbWib(d: Date = new Date()): string {
-  return new Date(d.getTime() + 7 * 60 * 60 * 1000)
-    .toISOString()
-    .slice(0, 19)
-    .replace("T", " ");
+export function waktuDbLokal(
+  d: Date = new Date(),
+  offsetMenit: number = ZONA_BAWAAN_MENIT
+): string {
+  return waktuDateLokal(d.getTime(), offsetMenit).toISOString().slice(0, 19).replace("T", " ");
+}
+
+/**
+ * Bentuk Date dari jam dinding yang sama, untuk kolom DateTime lewat client
+ * Prisma berjenis — yang tidak menerima string seperti `waktuDbLokal`.
+ *
+ * Prisma menulis medan UTC sebuah Date ke kolom DATETIME apa adanya. Jadi Date
+ * yang medan UTC-nya SUDAH jam dinding akan mendarat di kolom sebagai jam
+ * dinding, sebaris dengan seluruh kolom waktu lain di basis data ini.
+ * Menyerahkan `new Date("2026-09-14T10:30:00")` begitu saja justru sebaliknya:
+ * string tanpa penanda zona diurai sebagai jam LOKAL proses, lalu ditulis
+ * sebagai UTC — di server berzona WIB kolomnya berisi 03:30.
+ *
+ * Bulat-balik dengan `waktuMsLokal` pada offset yang sama.
+ */
+export function waktuDateLokal(ms: number, offsetMenit: number = ZONA_BAWAAN_MENIT): Date {
+  return new Date(ms + offsetMenit * 60_000);
 }
 
 export function parseNum(v: unknown): number | null {

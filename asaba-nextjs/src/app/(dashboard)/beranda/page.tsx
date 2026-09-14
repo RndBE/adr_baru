@@ -54,6 +54,8 @@ export interface LoggerRow {
   kepanjangan: string;
   temp_data: string;
   tabel: string;
+  /** Zona yang dilaporkan alat ini, menit dari UTC. Undefined = belum ada kolomnya. */
+  utc_offset_menit?: number;
   kategori_log: string;
   lokasi_logger: string;
   icon_app?: string;
@@ -141,7 +143,8 @@ function RtsDashboard({
     tempRts?.waktu,
     tempRts?.sensor14,
     tempRts?.sensor16,
-    nowMs
+    nowMs,
+    logger.utc_offset_menit
   );
   const dataSegar = statusRts.loggerTerhubung;
   const rtsRunning = statusRts.rtsMengukur;

@@ -55,5 +55,31 @@ cek("sensor string \"1\" sama dengan angka 1",
   hitungStatusRts(baru, "1", "0", SEKARANG).labelRts,
   hitungStatusRts(baru, 1, 0, SEKARANG).labelRts);
 
+// ── Zona logger ─────────────────────────────────────────────────────────────
+//
+// SEKARANG = 2026-09-11 19:30 WIB = 12:30 UTC = 20:30 WITA. Logger WITA yang
+// melapor pukul 20:00 waktunya sendiri baru berumur 30 menit — segar. Dibaca
+// sebagai WIB, jam itu terbaca 20:00 WIB = satu jam SESUDAH sekarang, dan
+// jendela satu jamnya efektif jadi dua jam.
+cek("logger WITA dibaca dengan zonanya -> segar",
+  hitungStatusRts("2026-09-11 20:00:00", 1, 0, SEKARANG, 480).loggerTerhubung, true);
+
+// Yang benar-benar dijaga: batas atasnya ikut bergeser, bukan cuma melar.
+// 19:29 WITA = 18:29 WIB, semenit lewat batas — harus terputus.
+cek("WITA semenit lewat batas -> terputus",
+  hitungStatusRts("2026-09-11 19:29:00", 1, 0, SEKARANG, 480).loggerTerhubung, false);
+cek("WITA tepat di batas -> masih segar",
+  hitungStatusRts("2026-09-11 19:30:00", 1, 0, SEKARANG, 480).loggerTerhubung, true);
+
+// Inilah bug-nya kalau zonanya tidak disebut: data yang sudah basi 30 menit
+// masih dilaporkan terhubung.
+cek("WITA dibaca sebagai WIB -> basi tapi mengaku segar",
+  hitungStatusRts("2026-09-11 19:29:00", 1, 0, SEKARANG).loggerTerhubung, true);
+
+// Bawaan tetap WIB — pemanggil lama yang belum mengoper zona tidak berubah.
+cek("tanpa argumen zona = WIB",
+  hitungStatusRts("2026-09-11 18:29:00", 1, 0, SEKARANG).loggerTerhubung,
+  hitungStatusRts("2026-09-11 18:29:00", 1, 0, SEKARANG, 420).loggerTerhubung);
+
 console.log(gagal === 0 ? "\nSEMUA LULUS" : `\n${gagal} GAGAL`);
 process.exit(gagal === 0 ? 0 : 1);

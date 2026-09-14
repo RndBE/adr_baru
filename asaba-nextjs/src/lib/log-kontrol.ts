@@ -13,7 +13,7 @@
  * yang berperilaku beda.
  */
 import { prisma } from "@/lib/prisma";
-import { waktuMsWib } from "@/components/monitoring/format";
+import { waktuMsLokal } from "@/components/monitoring/format";
 import {
   bolehAdopsiSesi,
   pilihSiteSesi,
@@ -160,14 +160,14 @@ export async function sesiUntukSiklus(opsi: {
   waktuDb: string;
 }): Promise<SesiKontrol> {
   const terakhir = await sesiTerakhirLogger(opsi.idLogger);
-  const sekarangMs = waktuMsWib(opsi.waktuDb) ?? Date.now();
+  const sekarangMs = waktuMsLokal(opsi.waktuDb) ?? Date.now();
 
   if (terakhir) {
     const isi = await prisma.$queryRaw<Array<{ ada: number }>>`
       SELECT 1 AS ada FROM rts WHERE id_kontrol = ${terakhir.idLog} LIMIT 1
     `;
     const umurMs = (() => {
-      const ms = waktuMsWib(terakhir.datetime);
+      const ms = waktuMsLokal(terakhir.datetime);
       return ms === null ? null : sekarangMs - ms;
     })();
 

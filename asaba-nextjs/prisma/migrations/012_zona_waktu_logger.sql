@@ -1,0 +1,35 @@
+-- Zona waktu yang DILAPORKAN tiap logger.
+--
+-- BELUM DIJALANKAN DI MANA PUN. Ditulis bersama kodenya; penerapannya keputusan
+-- operator basis data. Berbeda dari 010, migrasi ini aman ditunda: default 420
+-- membuat setiap baris berperilaku persis seperti sekarang.
+--
+-- ── Kenapa di t_logger, bukan t_site ────────────────────────────────────────
+--
+-- Godaannya ke t_site: di sana sudah ada utm_zone, map_lat/lng, rotasi_deg —
+-- semua fakta "site ini di mana". Tiga hal menolaknya.
+--
+--   1. Cap waktunya bukan fakta geografi, tapi fakta PERANGKAT. Lihat getWaktu()
+--      di /api/datamasuk/adr: yang disimpan adalah `payload.waktu` kiriman
+--      logger; jam server cuma cadangan kalau logger diam soal waktu. Jadi yang
+--      perlu dijawab bukan "site ini di zona apa" melainkan "jam alat ini
+--      disetel ke zona apa" — dan itu bisa berbeda dari geografinya kalau alat
+--      terlanjur di-commission dengan jam yang salah. Kolom ini sekaligus jadi
+--      tombol untuk membetulkannya tanpa menyentuh alat di lapangan.
+--
+--   2. Jalur ingestion sering tidak tahu site-nya. pilihSiteSesi() boleh
+--      mengembalikan null — satu logger boleh melayani lebih dari satu site
+--      (30002 melayani ccp dan viewpoint) dan balasan firmware tidak menyebut
+--      site sama sekali. `id_alat` selalu ada.
+--
+--   3. Pembaca yang benar-benar butuh zona juga tidak punya site. Kesegaran data
+--      dihitung useRtsConnectionStatus, yang ber-scope logger; tiga dari lima
+--      pemanggilnya tidak mengoper apa pun dan jatuh ke "logger RTS pertama".
+--
+-- ── Kenapa menit, bukan nama zona IANA ──────────────────────────────────────
+--
+-- Indonesia tidak punya DST dan tidak pernah punya: WIB +420, WITA +480,
+-- WIT +540, tetap sepanjang tahun. Integer menit cukup, dan menghindari
+-- ketergantungan pada basis data zona yang harus ikut diperbarui.
+ALTER TABLE `t_logger`
+  ADD COLUMN `utc_offset_menit` SMALLINT NOT NULL DEFAULT 420;

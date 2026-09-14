@@ -9,6 +9,7 @@
  * `slug` harus sama persis dengan nilai kolom `log_kontrol.site`.
  */
 import { prisma } from "@/lib/prisma";
+import { ZONA_BAWAAN_MENIT } from "@/components/monitoring/format";
 import {
   type AmbangSite,
   type StatusLabel,
@@ -319,6 +320,30 @@ export async function getLoggerForCommand(site?: string | null): Promise<string 
     WHERE kl.nama_kategori LIKE '%ADR%' OR kl.nama_kategori LIKE '%RTS%' LIMIT 1
   `;
   return rows?.[0]?.id_logger ?? null;
+}
+
+/**
+ * Zona waktu yang dilaporkan satu logger, dalam menit dari UTC.
+ *
+ * Dipakai hanya oleh penulis yang MENGARANG cap waktu dari jam server — tombol
+ * Mulai, dan cadangan di /api/datamasuk/adr saat logger tidak menyebut waktunya
+ * sendiri. Payload yang membawa waktunya sendiri tidak lewat sini sama sekali,
+ * jadi jalur ingestion yang normal tidak membayar satu kueri pun.
+ *
+ * Tidak di-cache dengan sengaja: pemanggilnya jarang (tekan tombol, atau payload
+ * yang kehilangan medan waktu), dan cache yang basi sesudah operator membetulkan
+ * zona di Master Data lebih merepotkan daripada satu SELECT yang murah.
+ *
+ * Logger tak dikenal jatuh ke bawaan, bukan galat: perintahnya tetap harus
+ * berangkat, dan yang meleset paling jauh cuma jam yang tertulis.
+ */
+export async function offsetLogger(idLogger: string | null | undefined): Promise<number> {
+  if (!idLogger) return ZONA_BAWAAN_MENIT;
+  const rows = await prisma.$queryRaw<Array<{ utc_offset_menit: number }>>`
+    SELECT utc_offset_menit FROM t_logger WHERE id_logger = ${idLogger} LIMIT 1
+  `;
+  const menit = Number(rows?.[0]?.utc_offset_menit);
+  return Number.isFinite(menit) ? menit : ZONA_BAWAAN_MENIT;
 }
 
 // ─── Penentuan status ───────────────────────────────────────────────────────

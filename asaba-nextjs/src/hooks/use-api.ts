@@ -145,6 +145,7 @@ export function useSensorData(
 interface LoggerRingkas {
   id_logger?: string;
   temp_data?: string;
+  utc_offset_menit?: number;
 }
 
 /**
@@ -192,7 +193,20 @@ export function useRtsConnectionStatus(idLoggerDiminta?: string | null) {
   // Rumusnya TIDAK dihitung di sini lagi. Dulu hook ini dan Beranda menghitung
   // sendiri-sendiri dengan cara yang sedikit berbeda, dan itulah yang membuat
   // dua halaman menjawab berbeda untuk perangkat yang sama.
-  const status = hitungStatusRts(tempRts?.waktu, tempRts?.sensor14, tempRts?.sensor16, nowMs);
+  // Zona yang dilaporkan logger ini. Diambil dari daftar yang sudah di-fetch,
+  // jadi tidak ada permintaan tambahan. Logger yang belum ada di daftar jatuh ke
+  // bawaan WIB — sama dengan perilaku sebelum kolomnya ada.
+  const offsetMenit =
+    (loggers as LoggerRingkas[] | undefined)?.find((l) => l?.id_logger === idDipakai)
+      ?.utc_offset_menit ?? undefined;
+
+  const status = hitungStatusRts(
+    tempRts?.waktu,
+    tempRts?.sensor14,
+    tempRts?.sensor16,
+    nowMs,
+    offsetMenit
+  );
 
   return {
     /** Logger masih mengirim data. BUKAN berarti instrumennya menyala. */

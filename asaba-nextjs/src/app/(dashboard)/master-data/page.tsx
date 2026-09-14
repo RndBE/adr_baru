@@ -14,6 +14,7 @@ import {
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@/components/ui/select";
+import { ZONA_BAWAAN_MENIT, ZONA_INDONESIA, kodeZona } from "@/components/monitoring/format";
 import { TabSite } from "@/components/master-data/tab-site";
 import { TabKodeAkses } from "@/components/master-data/tab-kode-akses";
 
@@ -24,7 +25,7 @@ const toast = { success: (msg: string) => console.log("✅", msg), error: (msg: 
 
 type Lokasi = { idlokasi: number; nama_lokasi: string; latitude: string; longitude: string };
 type UserData = { id_user: number; nama: string; username: string; level_user: string; alamat: string; telp: string; instansi?: string; bidang?: string };
-type LoggerData = { id: number; id_logger: string; nama_logger: string; lokasi_logger: string; kategori_log: string; tabel: string; nama_lokasi?: string; nama_kategori?: string };
+type LoggerData = { id: number; id_logger: string; nama_logger: string; lokasi_logger: string; kategori_log: string; tabel: string; utc_offset_menit?: number; nama_lokasi?: string; nama_kategori?: string };
 type KategoriLogger = { id_katlogger: number; nama_kategori: string; tabel: string };
 
 const TABS = [
@@ -251,7 +252,7 @@ function TabUser() {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {data.length === 0 ? <EmptyRow cols={7} /> : data.map((row, i) => (
+              {data.length === 0 ? <EmptyRow cols={8} /> : data.map((row, i) => (
                 <TableRow key={row.id_user} className="hover:bg-gray-50 border-b border-[#F0F0F0]">
                   <TableCell className="text-xs text-gray-500">{i + 1}</TableCell>
                   <TableCell className="text-sm font-medium text-gray-800">{row.nama}</TableCell>
@@ -326,7 +327,7 @@ function TabLogger() {
   const [open, setOpen] = useState(false);
   const [editing, setEditing] = useState<LoggerData | null>(null);
   const [saving, setSaving] = useState(false);
-  const [form, setForm] = useState({ id_logger: "", nama_logger: "", lokasi_logger: "", kategori_log: "", tabel: "" });
+  const [form, setForm] = useState({ id_logger: "", nama_logger: "", lokasi_logger: "", kategori_log: "", tabel: "", utc_offset_menit: String(ZONA_BAWAAN_MENIT) });
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -349,9 +350,10 @@ function TabLogger() {
   // dan "1", bukan nama lokasi dan nama kategorinya.
   const opsiLokasi = lokasiList.map(l => ({ value: String(l.idlokasi), label: l.nama_lokasi }));
   const opsiKategori = kategoriList.map(k => ({ value: String(k.id_katlogger), label: k.nama_kategori }));
+  const opsiZona = ZONA_INDONESIA.map(z => ({ value: String(z.menit), label: z.label }));
 
-  const openAdd = () => { setEditing(null); setForm({ id_logger: "", nama_logger: "", lokasi_logger: "", kategori_log: "", tabel: "" }); setOpen(true); };
-  const openEdit = (row: LoggerData) => { setEditing(row); setForm({ id_logger: row.id_logger, nama_logger: row.nama_logger, lokasi_logger: String(row.lokasi_logger), kategori_log: String(row.kategori_log), tabel: row.tabel }); setOpen(true); };
+  const openAdd = () => { setEditing(null); setForm({ id_logger: "", nama_logger: "", lokasi_logger: "", kategori_log: "", tabel: "", utc_offset_menit: String(ZONA_BAWAAN_MENIT) }); setOpen(true); };
+  const openEdit = (row: LoggerData) => { setEditing(row); setForm({ id_logger: row.id_logger, nama_logger: row.nama_logger, lokasi_logger: String(row.lokasi_logger), kategori_log: String(row.kategori_log), tabel: row.tabel, utc_offset_menit: String(row.utc_offset_menit ?? ZONA_BAWAAN_MENIT) }); setOpen(true); };
 
   const handleSave = async () => {
     if (!form.id_logger || !form.nama_logger || !form.lokasi_logger || !form.kategori_log || !form.tabel) return toast.error("Semua field wajib diisi");
@@ -385,6 +387,7 @@ function TabLogger() {
                 <TableHead className="text-xs font-bold text-gray-500">LOKASI</TableHead>
                 <TableHead className="text-xs font-bold text-gray-500">KATEGORI</TableHead>
                 <TableHead className="text-xs font-bold text-gray-500">TABEL</TableHead>
+                <TableHead className="text-xs font-bold text-gray-500">ZONA</TableHead>
                 <TableHead className="text-xs font-bold text-gray-500 text-right">AKSI</TableHead>
               </TableRow>
             </TableHeader>
@@ -397,6 +400,7 @@ function TabLogger() {
                   <TableCell className="text-xs text-gray-600">{row.nama_lokasi || row.lokasi_logger}</TableCell>
                   <TableCell className="text-xs text-gray-600">{row.nama_kategori || row.kategori_log}</TableCell>
                   <TableCell className="text-xs font-mono text-gray-600">{row.tabel}</TableCell>
+                  <TableCell className="text-xs text-gray-600">{kodeZona(row.utc_offset_menit ?? ZONA_BAWAAN_MENIT)}</TableCell>
                   <TableCell className="text-right">
                     <ActionButtons onEdit={() => openEdit(row)} onDelete={() => handleDelete(row)} />
                   </TableCell>
@@ -428,6 +432,25 @@ function TabLogger() {
                   {lokasiList.map(l => <SelectItem key={l.idlokasi} value={String(l.idlokasi)}>{l.nama_lokasi}</SelectItem>)}
                 </SelectContent>
               </Select>
+            </Field>
+            <Field label="Zona Waktu *">
+              <Select
+                value={form.utc_offset_menit}
+                onValueChange={v => setForm(f => ({ ...f, utc_offset_menit: v as string }))}
+                items={opsiZona}
+              >
+                <SelectTrigger className="h-9 w-full text-sm border-[#D1D5DB] cursor-pointer"><SelectValue placeholder="Pilih zona" /></SelectTrigger>
+                <SelectContent>
+                  {ZONA_INDONESIA.map(z => <SelectItem key={z.menit} value={String(z.menit)}>{z.label}</SelectItem>)}
+                </SelectContent>
+              </Select>
+              {/* Zona JAM ALAT, bukan zona geografis site. Alat yang terlanjur
+                  disetel ke zona lain dibetulkan di sini — pilih zona yang
+                  benar-benar dilaporkannya, bukan tempat ia berdiri. */}
+              <p className="mt-1 text-[11px] leading-snug text-gray-500">
+                Zona jam yang dilaporkan alat ini. Kalau jam alat terlanjur disetel
+                ke zona lain, pilih zona itu — bukan lokasi fisiknya.
+              </p>
             </Field>
             <Field label="Kategori *">
               {kategoriList.length > 0 ? (
