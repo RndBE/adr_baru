@@ -1,7 +1,11 @@
 -- Peringatan pergeseran: keadaan yang bertahan antar siklus, dan riwayatnya.
 --
--- BELUM DIJALANKAN DI MANA PUN. Ditulis bersama kodenya supaya keduanya tidak
--- lepas, tapi penerapannya keputusan operator basis data.
+-- SUDAH DIJALANKAN di db_demoadr (Server 3) pada 14 September 2026 — cadangan
+-- pra-penerapan ada di /root/backup-demoadr-20260914-1135-pra-migrasi-011-012.sql.gz.
+-- Baris ini sebelumnya berbunyi "BELUM DIJALANKAN DI MANA PUN" dan tidak ikut
+-- diperbarui saat migrasinya diterapkan; catatan yang basi seperti itu menuntun
+-- pembacanya menyimpulkan jalur peringatan mati padahal tabelnya sudah ada.
+-- Kalau migrasi ini diterapkan ke basis data lain, tambahkan di sini.
 --
 -- ── Kenapa tabel BARU, bukan `log_siaga` yang sudah ada ─────────────────────
 --

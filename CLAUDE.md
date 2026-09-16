@@ -32,6 +32,7 @@ No test runner is installed and there is no `npm test`. Two different styles coe
 
 ```bash
 npx tsx src/lib/status-rts.test.ts          # plain assert script, exits 1 on failure
+npx tsx src/lib/kirim-peringatan.test.ts    # penerima, subjek, dan badan pesan peringatan
 npx tsx scripts/regresi-protokol-rts.ts     # same style, protocol regression suite
 npx tsx scripts/regresi-balasan-logger.ts
 npx tsx scripts/regresi-site.ts
@@ -40,9 +41,25 @@ node --test src/lib/mine-network.test.ts    # this one uses node:test
 
 Every file carries its own run command in the header comment. `scripts/test-rts.ts` and `scripts/test-sites.ts` are DB probes, not tests — they need a live MySQL connection.
 
+`scripts/uji-kirim-peringatan.ts [site]` is neither: it reports which alert channels are configured (and, for WhatsApp, whether the session is still linked) and then **actually sends** a sample alert to that site's real recipients (marked UJI COBA). It touches no tables. It exists because a real alert can't be provoked on demand — one only fires after a prism crosses Siaga and holds for three consecutive cycles.
+
 ### Database migrations
 
 `prisma/migrations/*.sql` are **hand-written raw SQL applied manually** — not Prisma Migrate. `prisma db push` syncs `schema.prisma` to the DB; the `.sql` files are the record of intent and each one opens with a long comment explaining why the change was made. Keep both in sync: add the `.sql` file *and* update `schema.prisma`.
+
+## Deployment
+
+This repo is deployed to **`demo-adr.monitoring4system.com`** on Server 3 — pm2 app `demo-adr`, port 4179, app root in the `asaba-nextjs/` subfolder of the deploy path.
+
+Git is handled by **Plesk**, not a `.git` in the docroot: `git log` there fails, which does *not* mean the deploy is untracked. The Plesk repo is named `adr_baru` (no `.git` suffix), branch `main`, mode **manual**, and post-deploy actions are **disabled** — so a pull syncs source only and `next build` is a separate, explicit step.
+
+```bash
+plesk ext git --async-deploy -domain demo-adr.monitoring4system.com -name adr_baru
+```
+
+Build as the vhost user (`monitoring4sys`), never root, and export `PATH=/opt/plesk/node/24/bin:$PATH` before any `pm2` command — `pm2 restart --update-env` inherits the calling shell's environment and will take the app down with `env: 'node': No such file or directory` if node isn't on it.
+
+Full procedure and the pitfalls that have already bitten: `be-server/docs/servers/server-3-runtime.md` and `server-3-projects.md`.
 
 ## Architecture
 
@@ -87,6 +104,12 @@ Several modules exist because the same rule was previously duplicated and drifte
 - `src/lib/status-rts.ts` — `hitungStatusRts()`. "Logger connected" (fresh periodic data, 1-hour window) and "RTS powered on" (`sensor14`) are **two separate facts**; conflating them made Beranda, Kontrol ADR and Prism Config contradict each other for the same device.
 - `src/lib/sites.ts` — per-site behaviour reads from the `t_site` table, replacing scattered `if (site === 'ccp')` branches. `t_site.id_logger` is the only place the site↔logger relation is modelled. `getLoggerForCommand()` falls back to "first ADR logger" with a non-deterministic `LIMIT 1` — always pass `site` or `id_logger` for commands that move hardware.
 - `src/components/monitoring/format.ts` — DB timestamps are **WIB wall-clock**, displayed without timezone conversion. Use `waktuMsWib()` / `fmtDate()`.
+
+### Alert channels
+
+`src/lib/kirim-peringatan.ts` fans one cycle summary out to three independent, individually optional channels — Telegram, email (SMTP), WhatsApp (wwebjs-api on Server 3, documented in `be-server/docs/servers/server-3-wwebjs-api.md`). They run concurrently and **one success is enough** to mark the alert delivered: what matters is whether anyone was told, not whether every path is healthy. Channels that failed while configured are still written to `log_peringatan.galat` even on success, so a silently broken path can't hide behind a working one. A channel that isn't configured at all is marked `mati` and never reported as a failure.
+
+Two traps worth knowing. The WhatsApp API can answer **HTTP 200 with `success:false`** — checking the status code alone records an alert as sent when it never left. And whatsapp-web.js is an unofficial client whose account can be blocked without notice; as of 15 Sep 2026 that server's chat-reading endpoints are already broken upstream. `sendMessage` still works, which is why the channel is usable — but never as the only one.
 
 ### Auth
 
