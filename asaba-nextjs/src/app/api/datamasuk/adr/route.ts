@@ -283,7 +283,7 @@ export async function POST(request: NextRequest) {
     await prisma.$executeRawUnsafe(tempRtsInsert.sql, ...tempRtsInsert.values);
 
     const kontrolRows = await prisma.$queryRaw<
-      Array<{ status: string | null; status_manual: string | null }>
+      Array<{ status: unknown; status_manual: unknown }>
     >`
       SELECT status, status_manual
       FROM set_tempkontrol
@@ -293,16 +293,34 @@ export async function POST(request: NextRequest) {
 
     const kontrol = kontrolRows[0];
 
+    // `set_tempkontrol.status` dan `status_manual` bertipe INT(11) di MySQL, jadi
+    // $queryRaw mengembalikannya sebagai NUMBER — bukan string. Sebelum baris ini
+    // ada, ketiga cabang di bawah membandingkannya dengan `=== "1"`, yang tidak
+    // pernah benar untuk angka 1. Akibatnya seluruh mesin-status ini mati diam:
+    // `set_tempkontrol` membeku (terlihat di lapangan 16 September 2026, baris
+    // logger 30002 tidak berubah sejak 14.12 walau 196 siklus lewat), pengumuman
+    // MQTT "siklus selesai" tidak pernah terbit, dan evaluasiSiklus() tidak
+    // pernah dipanggil sekali pun — jadi peringatan pergeseran tidak mungkin
+    // berangkat, tanpa satu baris galat pun sebagai petunjuk.
+    //
+    // Anotasi tipe `string | null` yang lama ikut menyesatkan: ia klaim tanpa
+    // pemeriksaan, dan TypeScript dengan patuh menyetujui perbandingan yang
+    // selalu salah itu. Sekarang `unknown`, supaya tipenya harus dipersempit.
+    //
+    // Pola yang sama sudah dipakai di /api/kontrol/dashboard dan halaman
+    // Kontrol ADR (`=== "1" || === 1`); rute ini satu-satunya yang terlewat.
+    const bit = (v: unknown): string => String(v ?? "");
+
     if (kontrol) {
-      if (kontrol.status === "1" && sensorData.sensor16 === "1") {
+      if (bit(kontrol.status) === "1" && sensorData.sensor16 === "1") {
         await prisma.$executeRaw`
           UPDATE set_tempkontrol
           SET status = '0', status_manual = '1'
           WHERE id_logger = ${idAlat}
         `;
       } else if (
-        kontrol.status === "0" &&
-        kontrol.status_manual === "0" &&
+        bit(kontrol.status) === "0" &&
+        bit(kontrol.status_manual) === "0" &&
         sensorData.sensor16 === "1"
       ) {
         await prisma.$executeRaw`
@@ -310,7 +328,7 @@ export async function POST(request: NextRequest) {
           SET status_manual = '1'
           WHERE id_logger = ${idAlat}
         `;
-      } else if (kontrol.status_manual === "1" && sensorData.sensor16 === "0") {
+      } else if (bit(kontrol.status_manual) === "1" && sensorData.sensor16 === "0") {
         // `site` dan `id_logger` ikut dikirim dengan alasan yang sama seperti
         // pada pengumuman "mulai": topik ini dipakai bersama semua perangkat,
         // jadi tanpa keduanya halaman yang sedang membuka site lain ikut
