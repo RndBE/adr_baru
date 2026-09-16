@@ -26,8 +26,7 @@ import { getSite } from "@/lib/sites";
 import { type AmbangSite, type StatusLabel, indeksStatus } from "@/lib/ambang";
 import { keadaanAwal, nilaiPeredam, type KeadaanPrisma } from "@/lib/peredam";
 import {
-  kirimTelegram,
-  susunTeks,
+  kirimPeringatan,
   type BarisPerubahan,
   type RingkasanSiklus,
 } from "@/lib/kirim-peringatan";
@@ -283,16 +282,17 @@ export async function evaluasiSiklus(opsi: {
       waktuAcuanR0: parseWaktuToIso(r0.datetime)?.slice(0, 10) ?? null,
     };
 
-    const hasilKirim = await kirimTelegram(site, susunTeks(ringkasan));
-    await simpanRiwayat(
-      site, idLog, sekarangMs, dicatat,
-      hasilKirim.ok,
-      hasilKirim.ok ? null : hasilKirim.galat
-    );
+    const hasilKirim = await kirimPeringatan(site, ringkasan);
+    // galat dicatat APA ADANYA, tidak dikosongkan saat ok. Dengan dua kanal,
+    // "terkirim" dan "semua jalur sehat" bukan lagi hal yang sama: peringatan
+    // yang berangkat lewat email sementara Telegram-nya tumbang tetap terkirim,
+    // dan satu-satunya tempat kegagalan itu terlihat adalah kolom ini.
+    await simpanRiwayat(site, idLog, sekarangMs, dicatat, hasilKirim.ok, hasilKirim.galat);
 
     console.log(
       `${tag} ${site} siklus ${idLog}: ${naik.length} naik, ${pulih.length} pulih, ` +
-        `${hilang.length} hilang, kirim=${hasilKirim.ok ? "ok" : hasilKirim.galat}`
+        `${hilang.length} hilang, kirim=${hasilKirim.ok ? "ok" : "gagal"}` +
+        `${hasilKirim.galat ? ` (${hasilKirim.galat})` : ""}`
     );
   } catch (e) {
     // Sengaja ditelan. Lihat catatan di kepala berkas: jalur ingestion tidak
