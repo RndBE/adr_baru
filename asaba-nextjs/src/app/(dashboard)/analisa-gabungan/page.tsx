@@ -26,6 +26,7 @@ import {
   KETERANGAN_RAPAT,
   LABEL_INTERVAL,
   type IntervalGabungan,
+  type IntervalRapat,
 } from "@/lib/interval-gabungan";
 
 /**
@@ -131,7 +132,7 @@ function AnalisaGabunganContent() {
   );
   // Yang BERLAKU, bukan yang diminta — "auto" baru jadi salah satu dari tiga di
   // server, dan layar harus menyebut hasilnya, bukan pertanyaannya.
-  const rapat = hasil?.interval ?? "mentah";
+  const rapat: IntervalRapat = hasil?.interval ?? "mentah";
 
   const siteAktif = bySlug(site);
   const ambang = useMemo(() => ambangDariSite(siteAktif), [siteAktif]);
