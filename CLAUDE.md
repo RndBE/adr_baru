@@ -40,7 +40,7 @@ npx tsx src/components/visualisasi-3d/basemap.test.ts  # georeferensi ortofoto d
 npx tsx scripts/regresi-protokol-rts.ts     # same style, protocol regression suite
 npx tsx scripts/regresi-balasan-logger.ts
 npx tsx scripts/regresi-site.ts
-node --test src/lib/mine-network.test.ts    # this one uses node:test
+npx tsx --test src/lib/mine-network.test.ts # this one uses node:test — but still needs tsx
 ```
 
 Every file carries its own run command in the header comment. `scripts/test-rts.ts` and `scripts/test-sites.ts` are DB probes, not tests — they need a live MySQL connection.

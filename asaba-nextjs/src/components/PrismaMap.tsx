@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import "leaflet/dist/leaflet.css";
 import { Maximize, Check, AlertTriangle } from "lucide-react";
 import { useSites, fallbackBadge } from "@/hooks/use-sites";
+import { utm2ll } from "@/lib/coordinates";
 
 export interface PrismaMarkerData {
   id_prisma: string;
@@ -56,8 +57,8 @@ export default function PrismaMap({ markers, site }: Props) {
   const mapRef = useRef<HTMLDivElement>(null);
   const mapInstanceRef = useRef<import("leaflet").Map | null>(null);
   const tileLayerRef = useRef<{
-    cartoLayer: import("leaflet").TileLayer;
-    googleLayer: import("leaflet").TileLayer;
+    petaLayer: import("leaflet").TileLayer;
+    satelitLayer: import("leaflet").TileLayer;
   } | null>(null);
 
   const [mapType, setMapType] = useState<"Map" | "Satellite">("Map");
@@ -71,6 +72,29 @@ export default function PrismaMap({ markers, site }: Props) {
   // Center peta berasal dari master data site. Site yang belum dikalibrasi
   // (map_lat/map_lng masih null) di-fallback ke rata-rata posisi marker agar
   // peta tetap menunjukkan sesuatu yang benar, bukan koordinat site lain.
+  /**
+   * Posisi ADR/RTS yang SEBENARNYA, dari t_site.rts_e/rts_n.
+   *
+   * Sebelumnya marker ini ditaruh di `center` — yaitu titik tengah peta, yang
+   * untuk site tanpa map_lat/map_lng berarti rata-rata posisi prisma. Jadi ikon
+   * bertuliskan "ADR / RTS" muncul di tengah kerumunan prisma, bukan di tempat
+   * alatnya berdiri. Di kolam_bpp selisihnya ratusan meter: RTS ada di platform
+   * tambang sebelah utara, sementara prismanya mengelilingi kolam.
+   *
+   * Site yang rts_e/rts_n-nya belum diisi TIDAK dapat marker sama sekali.
+   * Marker di posisi karangan lebih buruk daripada tidak ada marker: pembacanya
+   * tidak punya cara tahu bahwa yang dilihatnya cuma tebakan.
+   */
+  const rtsLatLng: [number, number] | null =
+    siteRow?.rts_e != null && siteRow?.rts_n != null
+      ? (() => {
+          const ll = utm2ll(siteRow.rts_e, siteRow.rts_n, siteRow.utm_zone, siteRow.utm_north);
+          return Number.isFinite(ll.lat) && Number.isFinite(ll.lon)
+            ? ([ll.lat, ll.lon] as [number, number])
+            : null;
+        })()
+      : null;
+
   const markerCenter = averageMarkerLatLng(markers);
   const center: [number, number] =
     siteRow?.map_lat != null && siteRow?.map_lng != null
@@ -97,7 +121,9 @@ export default function PrismaMap({ markers, site }: Props) {
       center,
       zoom,
       zoomControl: false,
-      attributionControl: false,
+      // Atribusi DINYALAKAN. Kebijakan ubin OpenStreetMap mewajibkannya, dan
+      // sebelumnya tidak ada karena ubinnya dari CARTO.
+      attributionControl: true,
       fadeAnimation: true,
       zoomAnimation: true,
       markerZoomAnimation: true,
@@ -106,21 +132,29 @@ export default function PrismaMap({ markers, site }: Props) {
     mapInstanceRef.current = map;
 
     L.control.zoom({ position: "bottomright" }).addTo(map);
+    map.attributionControl.setPrefix(false);
 
     // Define separate layers so switching is instant and cached
-    const cartoLayer = L.tileLayer(
-      "https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png",
-      {
-        maxZoom: 22,
-        maxNativeZoom: 20,
-        subdomains: ["a", "b", "c", "d"],
-        keepBuffer: 8,
-        crossOrigin: true,
-        className: 'map-layer-transition',
-      }
-    );
+    //
+    // Ubin peta dari OpenStreetMap langsung, BUKAN basemaps.cartocdn.com.
+    // Ubin CARTO gratis hanya sampai batas tertentu dan sisanya menuntut akun
+    // beserta kuncinya; begitu batas itu lewat, ubinnya berhenti datang dan
+    // petanya jadi kotak-kotak kosong tanpa satu pun pesan galat di layar.
+    // OSM tidak butuh kunci apa pun — syaratnya cuma atribusi, yang dipasang
+    // di bawah ini.
+    //
+    // maxNativeZoom 19 karena OSM memang berhenti di sana; zoom 20-22 tetap
+    // bisa dipakai, Leaflet yang meregangkan ubin terakhirnya.
+    const petaLayer = L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", {
+      maxZoom: 22,
+      maxNativeZoom: 19,
+      keepBuffer: 8,
+      crossOrigin: true,
+      className: 'map-layer-transition',
+      attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
+    });
 
-    const googleLayer = L.tileLayer(
+    const satelitLayer = L.tileLayer(
       "https://mt{s}.google.com/vt/lyrs=y&x={x}&y={y}&z={z}",
       {
         maxZoom: 22,
@@ -129,17 +163,18 @@ export default function PrismaMap({ markers, site }: Props) {
         keepBuffer: 8,
         crossOrigin: true,
         className: 'map-layer-transition',
+        attribution: "Citra &copy; Google",
       }
     );
 
     // Initial layer to add
     if (mapType === "Satellite") {
-      googleLayer.addTo(map);
+      satelitLayer.addTo(map);
     } else {
-      cartoLayer.addTo(map);
+      petaLayer.addTo(map);
     }
 
-    tileLayerRef.current = { cartoLayer, googleLayer };
+    tileLayerRef.current = { petaLayer, satelitLayer };
 
     // ── ADR/RTS marker ──
     const rtsIcon = L.divIcon({
@@ -165,13 +200,18 @@ export default function PrismaMap({ markers, site }: Props) {
       iconAnchor: [16, 16],
     });
 
-    L.marker(center, { icon: rtsIcon })
-      .addTo(map)
-      .bindPopup(`
-        <div style="font-family:var(--font-sans),system-ui;padding:2px;">
-          <div style="font-weight:800;font-size:13px;color:#1f2937;margin-bottom:3px;">📡 ADR / RTS</div>
-          <div style="font-size:11px;color:#6b7280">Site ${siteNama}</div>
-        </div>`, { className: "prisma-popup" });
+    if (rtsLatLng) {
+      L.marker(rtsLatLng, { icon: rtsIcon })
+        .addTo(map)
+        .bindPopup(`
+          <div style="font-family:var(--font-sans),system-ui;padding:2px;">
+            <div style="font-weight:800;font-size:13px;color:#1f2937;margin-bottom:3px;">📡 ADR / RTS</div>
+            <div style="font-size:11px;color:#6b7280">Site ${siteNama}</div>
+            <div style="font-size:10px;color:#9ca3af;margin-top:4px;font-variant-numeric:tabular-nums">
+              E ${siteRow?.rts_e?.toFixed(3)} · N ${siteRow?.rts_n?.toFixed(3)} · UTM ${siteRow?.utm_zone}${siteRow?.utm_north ? "N" : "S"}
+            </div>
+          </div>`, { className: "prisma-popup" });
+    }
 
     // ── Prisma markers ──
     const r0Points: [number, number][] = [];
@@ -317,24 +357,30 @@ export default function PrismaMap({ markers, site }: Props) {
         mapInstanceRef.current = null;
       }
     };
-  }, [markers, site]); // Dependencies: only recreate map if markers or site change
+    // Koordinat RTS ikut jadi dependensi — sebagai ANGKA, bukan objek siteRow.
+    // useSites memuat asinkron: pada render pertama siteRow masih null, jadi
+    // tanpa ini marker RTS tidak pernah digambar untuk kunjungan pertama
+    // (dulu tidak kentara karena markernya selalu digambar, cuma di tempat
+    // yang salah). Objeknya sendiri tidak dipakai karena identitasnya berubah
+    // tiap render dan petanya akan disusun ulang terus-menerus.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [markers, site, rtsLatLng?.[0], rtsLatLng?.[1]]);
 
   // Dynamically switch layers seamlessly
   useEffect(() => {
     if (!tileLayerRef.current || !mapInstanceRef.current) return;
-    const { cartoLayer, googleLayer } = tileLayerRef.current;
+    const { petaLayer, satelitLayer } = tileLayerRef.current;
     const map = mapInstanceRef.current;
 
     if (mapType === "Satellite") {
-      // Update google layer URL based on labels
       const lyrs = showLabels ? "y" : "s";
-      googleLayer.setUrl(`https://mt{s}.google.com/vt/lyrs=${lyrs}&x={x}&y={y}&z={z}`);
-      
-      if (!map.hasLayer(googleLayer)) map.addLayer(googleLayer);
-      if (map.hasLayer(cartoLayer)) map.removeLayer(cartoLayer);
+      satelitLayer.setUrl(`https://mt{s}.google.com/vt/lyrs=${lyrs}&x={x}&y={y}&z={z}`);
+
+      if (!map.hasLayer(satelitLayer)) map.addLayer(satelitLayer);
+      if (map.hasLayer(petaLayer)) map.removeLayer(petaLayer);
     } else {
-      if (!map.hasLayer(cartoLayer)) map.addLayer(cartoLayer);
-      if (map.hasLayer(googleLayer)) map.removeLayer(googleLayer);
+      if (!map.hasLayer(petaLayer)) map.addLayer(petaLayer);
+      if (map.hasLayer(satelitLayer)) map.removeLayer(satelitLayer);
     }
   }, [mapType, showLabels]);
 
