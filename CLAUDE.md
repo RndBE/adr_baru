@@ -6,6 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 - `asaba-nextjs/` — **the active application.** Next.js 16 + React 19, Prisma/MySQL, MQTT. All work happens here.
 - `RTS ANIMATION ASSET/` — numbered PNG sprite frames for the RTS animation component.
+- `tools/ecw/` — one-off Docker recipe for decoding a site's `.ecw` orthophoto into the base map assets. Never runs at runtime and is not part of `npm run build`.
 
 `db_demo (2).sql` at root is a dump of the legacy schema.
 
@@ -122,7 +123,7 @@ The Visualisasi 3D page can draw a site's drone orthophoto as the floor of the P
 
 Assets live in `public/basemap/`: a JPEG for colour plus a 1-bit PNG marking the photographed area. The mask exists because a drone orthophoto is an irregular polygon inside a rectangular frame — 36% of BPP 1-4 is empty margin, and drawing it makes the base map an opaque slab. Alpha inside a colour PNG would take the file from 448 KB to 4.3 MB; the separate mask is 8 KB.
 
-**Regenerating the asset from an ECW.** ECW is proprietary and no browser, GDAL build, or macOS tool here can read it — decoding needs the Hexagon SDK. The route that worked (17 Sep 2026) was a throwaway Docker image on Server 3 built from `libecwj2-3.3` plus a ~100-line C program against `NCScbm*`. Two traps: the SDK's functions are `NCScbmOpenFileView`, not `NCSOpenFileView`; and `NCSecwInit()` **must** be called first despite the header saying not to when linking a DLL — on Linux `.so` the static initialiser never runs and the first open segfaults in `NCSMutexBegin`. Bounding box comes from the ECW header (`fOriginX/Y` is the top-left *corner* of the top-left cell, not its centre) — never from eyeballing a map.
+**Regenerating the asset from an ECW** — full recipe and its traps in `tools/ecw/README.md`. The short version: ECW is proprietary, nothing here reads it without the Hexagon SDK, so `tools/ecw/` builds `libecwj2-3.3` in a container and drives it from a small C program. Bounding box comes from the ECW header (`fOriginX/Y` is the top-left *corner* of the top-left cell, not its centre) — never from eyeballing a map. Adding a second site's orthophoto needs no code change, only the assets plus a `t_site` row update.
 
 ### Alert channels
 
