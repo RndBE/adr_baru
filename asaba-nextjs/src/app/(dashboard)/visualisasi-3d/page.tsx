@@ -171,6 +171,16 @@ export default function Visualisasi3DPage() {
    */
   const [zOtomatis, setZOtomatis] = useState(0);
   const [jumlahSegitiga, setJumlahSegitiga] = useState(0);
+  /**
+   * Keadaan relief apa adanya, untuk ditampilkan di panel.
+   *
+   * Ada karena "lantainya kok datar" ternyata tidak bisa dijawab dari layar:
+   * DEM yang gagal dimuat, DEM yang tidak terdaftar di t_site, dan relief yang
+   * memang mendatar semuanya terlihat sama persis. Panel sekarang menyebut
+   * rentang tinggi jaring yang BENAR-BENAR tergambar, jadi pertanyaannya
+   * terjawab dengan melihat, bukan dengan menebak.
+   */
+  const [reliefInfo, setReliefInfo] = useState<{ ada: boolean; min: number; maks: number } | null>(null);
 
   const plotRef = useRef<HTMLDivElement>(null);
   const fsTargetRef = useRef<HTMLDivElement>(null);
@@ -431,6 +441,7 @@ export default function Visualisasi3DPage() {
     if (!basemap || !basemapTampil) {
       jaringRef.current = null;
       setJumlahSegitiga(0);
+      setReliefInfo(null);
       setBasemapGalat("");
       setJaringVersi((v) => v + 1);
       return;
@@ -447,12 +458,24 @@ export default function Visualisasi3DPage() {
         if (batal) return;
         jaringRef.current = jaring;
         setJumlahSegitiga(jaring.i.length);
+        // Rentang dihitung dengan perulangan biasa: Math.min(...array) meledak
+        // di atas ~120 rb elemen, dan jaring ini ratusan ribu titik.
+        let lo = Infinity;
+        let hi = -Infinity;
+        for (const v of jaring.z) {
+          if (v < lo) lo = v;
+          if (v > hi) hi = v;
+        }
+        setReliefInfo(
+          Number.isFinite(lo) ? { ada: hi - lo > 0.01, min: lo, maks: hi } : null
+        );
         setJaringVersi((v) => v + 1);
       })
       .catch((e: unknown) => {
         if (batal) return;
         jaringRef.current = null;
         setJumlahSegitiga(0);
+        setReliefInfo(null);
         setBasemapGalat(e instanceof Error ? e.message : "Ortofoto gagal dimuat.");
         setJaringVersi((v) => v + 1);
       })
@@ -866,6 +889,19 @@ export default function Visualisasi3DPage() {
                     <>
                       Sel ±{ukuranSelMeter(basemap, KERAPATAN[kerapatan]).toFixed(1)} m ·{" "}
                       {jumlahSegitiga.toLocaleString("id-ID")} segitiga
+                      <br />
+                      {reliefInfo?.ada ? (
+                        <>
+                          Relief <strong>aktif</strong>, {reliefInfo.min.toFixed(1)}–
+                          {reliefInfo.maks.toFixed(1)} m
+                        </>
+                      ) : basemap.demUrl ? (
+                        <span className="text-amber-700">
+                          Relief TIDAK aktif — DEM terdaftar tapi gagal dipakai.
+                        </span>
+                      ) : (
+                        "Lantai datar; site ini belum punya DEM."
+                      )}
                     </>
                   ) : (
                     "Ortofoto disembunyikan."
