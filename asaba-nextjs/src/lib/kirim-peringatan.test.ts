@@ -50,6 +50,7 @@ function ringkasan(p: Partial<RingkasanSiklus> = {}): RingkasanSiklus {
     naik: [],
     pulih: [],
     hilang: [],
+    takTerbaca: [],
     tetap: 0,
     acuanR0: null,
     waktuAcuanR0: null,
@@ -176,6 +177,52 @@ cek(
   // tanpa tahu angka itu diukur terhadap apa.
   cek("teks menyebut acuan R0", susunTeks(r).includes("Acuan R0: sesi LOG123"), true);
   cek("HTML menyebut acuan R0", susunHtml(r).includes("Acuan R0: sesi LOG123"), true);
+}
+
+// ── Prisma tak terbaca ikut dilaporkan ──────────────────────────────────────
+//
+// Siklus 090500 di kolam_bpp, 17 September 2026: P1, P4, P5, dan P7 sama-sama
+// gagal ditembak, tapi pesannya cuma menyebut P1 — satu-satunya yang kebetulan
+// mencapai tiga kegagalan beruntun. Penerima membaca "2 prisma lain tidak
+// berubah tingkat" lalu wajar mengira sisanya terbaca, padahal tiga prisma
+// menghilang dari laporan.
+{
+  const r = ringkasan({
+    naik: [{ idPrisma: "P1", dari: "Waspada", ke: "Siaga", nilaiMm: 120 }],
+    hilang: [{ idPrisma: "P1", siklus: 3 }],
+    takTerbaca: ["P1", "P4", "P5", "P7"],
+    tetap: 2,
+  });
+  const teks = susunTeks(r);
+  cek("jumlah tak terbaca disebut", teks.includes("4 prisma tidak terbaca siklus ini"), true);
+  cek("nama prismanya disebut", teks.includes("(P1, P4, P5, P7)"), true);
+  cek("eskalasi beruntun tetap terpisah", teks.includes("gagal ditembak (3 siklus beruntun)"), true);
+  cek("HTML ikut menyebut", susunHtml(r).includes("4 prisma tidak terbaca"), true);
+}
+
+// Tanpa prisma tak terbaca, tidak ada baris tambahan yang mengganggu.
+cek(
+  "siklus bersih tidak menyebut tak terbaca",
+  susunTeks(ringkasan({ naik: [{ idPrisma: "P1", dari: "Normal", ke: "Siaga", nilaiMm: 120 }], tetap: 5 }))
+    .includes("tidak terbaca"),
+  false
+);
+
+// ── Tanpa perubahan tingkat, tidak ada baris kosong berlebih ────────────────
+//
+// Siklus yang cuma melaporkan prisma hilang sempat memuat dua baris kosong
+// berturut di tempat daftar perubahan — di WhatsApp itu terbaca seperti ada isi
+// yang gagal termuat. Terlihat pada pesan 09.09, 17 September 2026.
+{
+  const teks = susunTeks(
+    ringkasan({ hilang: [{ idPrisma: "P1", siklus: 3 }], takTerbaca: ["P1"], tetap: 2 })
+  );
+  cek("tidak ada dua baris kosong berturut", teks.includes("\n\n\n"), false);
+  cek(
+    "baris pertama langsung diikuti satu baris kosong lalu isi",
+    teks.split("\n").slice(0, 3).map((b) => (b === "" ? "(kosong)" : "isi")),
+    ["isi", "(kosong)", "isi"]
+  );
 }
 
 // ── WhatsApp: nomor jadi chatId ─────────────────────────────────────────────

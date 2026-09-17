@@ -44,8 +44,15 @@ export interface RingkasanSiklus {
   naik: BarisPerubahan[];
   /** Kembali ke Normal dari tingkat yang pernah dikirim. */
   pulih: BarisPerubahan[];
-  /** Prisma yang gagal ditembak beberapa siklus beruntun. */
+  /** Prisma yang gagal ditembak beberapa siklus beruntun — eskalasi, dilaporkan sekali. */
   hilang: Array<{ idPrisma: string; siklus: number }>;
+  /**
+   * SELURUH prisma yang tidak terbaca pada siklus ini, termasuk yang baru gagal
+   * sekali. Tanpa ini pesan hanya menyebut yang sudah gagal tiga kali beruntun,
+   * dan sisanya lenyap dari laporan — pembacanya menghitung "n prisma lain tidak
+   * berubah tingkat" lalu mengira seluruh sisanya terbaca.
+   */
+  takTerbaca: string[];
   /** Prisma yang terbaca sah tapi tingkatnya tidak berubah. */
   tetap: number;
   /** id_log sesi acuan R0, supaya penerima tahu angkanya diukur terhadap apa. */
@@ -64,20 +71,33 @@ const LEBAR_ID = 4;
  * sepuluh kali.
  */
 export function susunTeks(r: RingkasanSiklus): string {
-  const baris: string[] = [`${r.namaSite} — siklus ${r.waktu}`, ""];
+  const baris: string[] = [`${r.namaSite} — siklus ${r.waktu}`];
 
-  for (const p of r.naik) {
-    baris.push(
-      `${p.idPrisma.padEnd(LEBAR_ID)} ${p.dari} → ${p.ke}  ${Math.round(p.nilaiMm)} mm`
-    );
-  }
-  for (const p of r.pulih) {
-    baris.push(`${p.idPrisma.padEnd(LEBAR_ID)} ${p.dari} → Normal  ${Math.round(p.nilaiMm)} mm`);
+  // Baris kosong hanya kalau memang ada daftar di bawahnya. Tanpa penjagaan ini,
+  // siklus yang cuma melaporkan prisma hilang memuat dua baris kosong berturut —
+  // di WhatsApp itu terbaca seperti ada isi yang gagal termuat.
+  if (r.naik.length > 0 || r.pulih.length > 0) {
+    baris.push("");
+    for (const p of r.naik) {
+      baris.push(
+        `${p.idPrisma.padEnd(LEBAR_ID)} ${p.dari} → ${p.ke}  ${Math.round(p.nilaiMm)} mm`
+      );
+    }
+    for (const p of r.pulih) {
+      baris.push(`${p.idPrisma.padEnd(LEBAR_ID)} ${p.dari} → Normal  ${Math.round(p.nilaiMm)} mm`);
+    }
   }
 
   baris.push("");
 
   if (r.tetap > 0) baris.push(`${r.tetap} prisma lain tidak berubah tingkat.`);
+  // Disebut sebelum daftar eskalasi: inilah yang menjelaskan selisih antara
+  // jumlah prisma terdaftar dan jumlah yang tercantum di atas.
+  if (r.takTerbaca.length > 0) {
+    baris.push(
+      `${r.takTerbaca.length} prisma tidak terbaca siklus ini (${r.takTerbaca.join(", ")}).`
+    );
+  }
   for (const h of r.hilang) {
     baris.push(`Prisma ${h.idPrisma} gagal ditembak (${h.siklus} siklus beruntun).`);
   }
@@ -316,6 +336,11 @@ export function susunHtml(r: RingkasanSiklus): string {
 
   const catatan: string[] = [];
   if (r.tetap > 0) catatan.push(`${r.tetap} prisma lain tidak berubah tingkat.`);
+  if (r.takTerbaca.length > 0) {
+    catatan.push(
+      `${r.takTerbaca.length} prisma tidak terbaca siklus ini (${esc(r.takTerbaca.join(", "))}).`
+    );
+  }
   for (const h of r.hilang) {
     catatan.push(`Prisma ${esc(h.idPrisma)} gagal ditembak (${h.siklus} siklus beruntun).`);
   }
