@@ -251,16 +251,33 @@ function DetailPrismaContent() {
       setMemuat(true);
       setGalat("");
       try {
-        const [n, e, z] = await Promise.all(
+        // sensor8 = EASTING, sensor9 = NORTHING — kebalikan dari nama kolomnya
+        // dan dari PROTOKOL_MQTT_ADR bagian F. Lihat CLAUDE.md dan komentar
+        // panjang di /api/deformasi; yang dipercaya isi tabelnya, bukan
+        // dokumennya (Easting UTM selalu 160.000–834.000, jadi sensor9 yang
+        // tujuh digit itu mustahil Easting).
+        //
+        // Sampai 17 September 2026 baris ini memberi sensor8 sebagai Northing.
+        // Sendirian itu cuma salah label, tapi `acuanR0` di bawah datang dari
+        // /api/deformasi yang SUDAH dibetulkan (raw_E0 = sensor8), jadi tiap
+        // titik dikurangi sumbu yang salah: Northing − Easting ≈ 9.284.332 m,
+        // dan pergeseran DF_2 terbaca 13.130.028.523 mm padahal sebenarnya
+        // 76 mm. Pengukuran Harian dan Analisa Gabungan luput karena keduanya
+        // mengambil deret dan acuannya dari satu sumber yang sudah konsisten.
+        const [resE, resN, resZ] = await Promise.all(
           ["sensor8", "sensor9", "sensor10"].map((k) => fetch(url(k)).then((r) => r.json()))
         );
-        if (!n.success || !e.success || !z.success) {
-          throw new Error(n.error || e.error || z.error || "respons tidak sukses");
+        if (!resN.success || !resE.success || !resZ.success) {
+          throw new Error(
+            resN.error || resE.error || resZ.error || "respons tidak sukses"
+          );
         }
         const hasil = gabungSumbu(
-          n.data.chart_data,
-          e.data.chart_data,
-          z.data.chart_data,
+          {
+            n: resN.data.chart_data,
+            e: resE.data.chart_data,
+            z: resZ.data.chart_data,
+          },
           acuanR0,
           r0Ms
         );

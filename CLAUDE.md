@@ -36,6 +36,7 @@ No test runner is installed and there is no `npm test`. Two different styles coe
 npx tsx src/lib/status-rts.test.ts          # plain assert script, exits 1 on failure
 npx tsx src/lib/kirim-peringatan.test.ts    # penerima, subjek, dan badan pesan peringatan
 npx tsx src/components/monitoring/derive.test.ts  # "gagal ditembak" vs "tidak bergerak"
+npx tsx src/components/monitoring/prism-history.test.ts  # sumbu riwayat prisma: N tetap N, E tetap E
 npx tsx src/components/monitoring/gabungan.test.ts  # analisa gabungan beberapa prisma
 npx tsx src/lib/grafik-ke-png.test.ts        # var(--...) diselesaikan sebelum SVG dirasterkan
 npx tsx src/components/visualisasi-3d/basemap.test.ts  # georeferensi ortofoto di scene 3D
@@ -109,7 +110,9 @@ Measurement data lands in `rts` / `temp_rts` as 25 generic columns. The slot mea
 
 Every row `kolam_bpp` has ever written holds **`sensor8` = Easting (~464 000), `sensor9` = Northing (~9 748 000)** — verified 17 Sep 2026 against the site's drone orthophoto, and against `t_site.rts_e`/`rts_n`, which a human filled in with the opposite convention. A UTM Easting is always 160 000–834 000, so a seven-digit `sensor9` cannot be one.
 
-`PROTOKOL_MQTT_ADR` section F says the reverse, and eight read sites follow the doc rather than the data. **`/api/deformasi` and `/api/analisa-gabungan` have been corrected** (Sep 2026). Still labelled backwards: `log-kontrol`, `kontrol/dashboard`, `export-excel`, `evaluasi-siklus`, `prism-config`, `rekap-data`, `lib/deformasi.ts`.
+`PROTOKOL_MQTT_ADR` section F says the reverse, and eight read sites follow the doc rather than the data. **`/api/deformasi`, `/api/analisa-gabungan` and the Hasil Pengukuran detail page have been corrected** (Sep 2026). Still labelled backwards: `log-kontrol`, `kontrol/dashboard`, `export-excel`, `evaluasi-siklus`, `prism-config`, `rekap-data`, `lib/deformasi.ts`.
+
+**Correcting one end of a subtraction and not the other is far worse than leaving both wrong.** The Hasil Pengukuran detail page took its R0 from `/api/deformasi` (corrected) and its time series straight from `/api/analisa` per sensor column (not corrected), so every point was differenced against the opposite axis: Northing − Easting ≈ 9 284 332 m, and a prism that had moved 76 mm was reported as having moved **13 130 028 523 mm**. Nobody reads that as "axes crossed" — it reads as a broken instrument. Pengukuran Harian and Analisa Gabungan were untouched because each takes series *and* reference from one consistent source. Locked down by `src/components/monitoring/prism-history.test.ts`, which reproduces the exact 13-billion figure from the swapped arrangement.
 
 Displacement *magnitudes* are unaffected — `sqrt(DE²+DN²+DZ²)` is the same either way, so thresholds and alerts have always been right, and `kirim-peringatan.ts` never mentions a direction. What the swap corrupts is anything *directional*: the `N`/`E` column headers, `arah8ID()` bearings, and `utm2ll()` lat/lng. Before fixing another site, check which convention the swap has already been applied at — fixing it twice puts it back.
 

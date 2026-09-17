@@ -121,14 +121,21 @@ export function batasSkala(nilai: number[]): { maks: number; terpotong: number }
  * `sejakMs`: stempel sesi acuan R0. Tembakan SEBELUM sesi itu (mis. tembakan
  * setup saat memasang prisma) tidak punya makna sebagai "pergeseran dari R0",
  * jadi dibuang dan jumlahnya dilaporkan supaya bisa disebut di halaman.
+ *
+ * Deretnya diterima sebagai OBJEK BERNAMA, bukan tiga argumen berurutan.
+ * Dulu urutannya (N, E, Z) sementara pemanggilnya mengambil data per kolom
+ * sensor — dan sensor8 itu EASTING, sensor9 NORTHING (kebalikan dari nama
+ * kolomnya, lihat CLAUDE.md). Argumen posisi membuat tertukarnya tak terlihat
+ * di tempat panggil: sumbu ditukar tanpa satu pun nama yang salah eja, dan
+ * setiap titik dibandingkan terhadap sumbu R0 yang keliru. Dengan nama, salah
+ * pasang berarti menulis `n:` untuk data Easting — keliru yang kelihatan.
  */
 export function gabungSumbu(
-  seriN: BarisAnalisa[],
-  seriE: BarisAnalisa[],
-  seriZ: BarisAnalisa[],
+  seri: { n: BarisAnalisa[]; e: BarisAnalisa[]; z: BarisAnalisa[] },
   r0: AcuanR0,
   sejakMs?: number | null
 ): { titik: TitikRiwayat[]; sebelumR0: number } {
+  const { n: seriN, e: seriE, z: seriZ } = seri;
   const petaE = new Map<number, number>();
   const petaZ = new Map<number, number>();
   for (const b of seriE) {
