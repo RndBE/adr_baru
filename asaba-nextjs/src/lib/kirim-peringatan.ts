@@ -568,27 +568,24 @@ async function kirimSatuWa(
     if (isi?.success !== true) {
       return { chatId, ok: false, galat: (isi?.error ?? "success:false").slice(0, 120) };
     }
-    // Jebakan kedua, dan yang benar-benar memakan korban: `success: true` TIDAK
-    // berarti pesannya terbentuk. Controller wwebjs-api menutup dengan
+    // JANGAN tambahkan syarat `isi.message` harus ada. Pernah ditambahkan
+    // 17 September 2026 dengan alasan yang terdengar masuk akal — controller
+    // wwebjs-api menutup dengan `res.json({ success: true, message: messageOut })`
+    // tanpa memeriksa messageOut, jadi kunci `message` yang hilang tampak seperti
+    // pesan yang tidak pernah terbentuk.
     //
-    //     res.json({ success: true, message: messageOut })
+    // Itu keliru, dan dibuktikan keliru oleh tangkapan layar grup tujuan: SELURUH
+    // kiriman yang dijawab tanpa `message` tetap sampai, termasuk peringatan Awas
+    // pukul 07.24 untuk P4 dan P5. Yang gagal cuma pencarian nilai kembalinya —
+    // Utils.js menutup dengan `Msg.get(newMsgKey._serialized)`, dan koleksi Msg
+    // di WhatsApp Web sekarang tidak lagi berbentuk seperti yang dibacanya.
+    // Pengirimannya sendiri sudah tuntas satu baris sebelumnya, di
+    // `addAndSendMsgToChat`, yang di-await karena controller menyetel
+    // `waitUntilMsgSent: true`.
     //
-    // tanpa pernah memeriksa messageOut. Kalau client.sendMessage() resolve
-    // dengan undefined — tidak melempar, tapi juga tidak menghasilkan pesan —
-    // kunci `message` hilang dari JSON dan yang tersisa cuma {"success":true}.
-    //
-    // Persis itu yang terjadi 17 September 2026: tiga kiriman uji dijawab
-    // success:true, tidak satu pun sampai ke grup tujuan, dan tanpa pemeriksaan
-    // ini log_peringatan akan mencatat peringatan keselamatan sebagai TERKIRIM
-    // padahal tidak ada yang pernah menerimanya. Lebih berbahaya daripada gagal
-    // terang-terangan: kegagalan yang terlihat seperti keberhasilan.
-    if (isi.message === undefined || isi.message === null) {
-      return {
-        chatId,
-        ok: false,
-        galat: "success:true tanpa objek message — pesan tidak terbentuk (whatsapp-web.js vs WhatsApp Web)",
-      };
-    }
+    // Jadi `success: true` DI SINI memang berarti terkirim. Menuntut `message`
+    // membuat peringatan yang benar-benar sampai tercatat gagal — persis
+    // kekeliruan yang berlawanan arah, dan sama merusaknya bagi riwayat.
     return { chatId, ok: true };
   } catch (e) {
     return { chatId, ok: false, galat: e instanceof Error ? e.message : String(e) };

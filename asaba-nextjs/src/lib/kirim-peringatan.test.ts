@@ -245,9 +245,16 @@ cek(
 bersihkanEnv();
 
 /**
- * Server tiruan wwebjs-api. Meniru dua bentuk jawaban yang sama-sama HTTP 200
- * dan sama-sama `success: true` — hanya berbeda pada ada tidaknya objek
- * `message`. Satu berarti pesan terbentuk; satu lagi berarti tidak pernah ada.
+ * Server tiruan wwebjs-api.
+ *
+ * Meniru dua bentuk jawaban yang sama-sama HTTP 200 dan `success: true`, beda
+ * pada ada tidaknya objek `message`. KEDUANYA berarti terkirim: pengiriman
+ * tuntas di addAndSendMsgToChat, sedangkan `message` cuma hasil pencarian balik
+ * lewat Msg.get() yang gagal karena bentuk koleksi WhatsApp Web berubah.
+ *
+ * Uji ini ada untuk menahan "perbaikan" yang menuntut `message` harus ada.
+ * Itu pernah dipasang 17 September 2026 dan membuat peringatan yang benar-benar
+ * sampai tercatat gagal.
  */
 function serverTiruan(): Promise<http.Server> {
   const srv = http.createServer((req, res) => {
@@ -267,7 +274,7 @@ function serverTiruan(): Promise<http.Server> {
   return new Promise((ok) => srv.listen(0, () => ok(srv)));
 }
 
-async function kirimanHantu() {
+async function jawabanTanpaMessage() {
   const srv = await serverTiruan();
   const port = (srv.address() as { port: number }).port;
   process.env.WHATSAPP_API_URL = `http://127.0.0.1:${port}`;
@@ -275,21 +282,15 @@ async function kirimanHantu() {
 
   process.env.WHATSAPP_TO_CCP = "081211111111";
   const nyata = await kirimWhatsapp("ccp", naikSatu);
-  cek("objek message ada: dihitung terkirim", nyata.ok, true);
+  cek("objek message ada: terkirim", nyata.ok, true);
 
-  // Inti kasusnya. wwebjs-api menutup dengan res.json({success:true, message:
-  // messageOut}) tanpa memeriksa messageOut; kalau client.sendMessage() resolve
-  // undefined, kunci itu hilang dan yang tersisa {"success":true}. Memercayainya
-  // berarti log_peringatan mencatat peringatan keselamatan sebagai TERKIRIM
-  // padahal tidak ada yang pernah menerimanya.
+  // Inti kasusnya, dan arahnya berlawanan dari dugaan pertama: jawaban tanpa
+  // `message` TETAP terkirim. Dibuktikan di lapangan 17 September 2026 — seluruh
+  // kiriman yang dijawab begitu muncul di grup tujuan, termasuk peringatan Awas
+  // untuk P4 dan P5. Menolaknya berarti mencatat gagal untuk pesan yang sampai.
   process.env.WHATSAPP_TO_CCP = "087777777777";
-  const hantu = await kirimWhatsapp("ccp", naikSatu);
-  cek("success:true tanpa message: DITOLAK", hantu.ok, false);
-  cek(
-    "alasannya disebut, bukan sekadar gagal",
-    hantu.ok === false && hantu.galat.includes("tanpa objek message"),
-    true
-  );
+  const tanpaMessage = await kirimWhatsapp("ccp", naikSatu);
+  cek("success:true tanpa message: TETAP terkirim", tanpaMessage.ok, true);
 
   srv.close();
   bersihkanEnv();
@@ -312,7 +313,7 @@ async function fanOut() {
   ]);
 }
 
-kirimanHantu()
+jawabanTanpaMessage()
   .then(fanOut)
   .then(() => {
     console.log(gagal === 0 ? "\nSEMUA LULUS" : `\n${gagal} GAGAL`);
