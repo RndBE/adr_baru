@@ -47,10 +47,33 @@ export interface BarisPengukuran {
   temp_tembak?: Record<string, unknown>;
 }
 
+/**
+ * Ortofoto site, apa adanya dari `/api/deformasi` → `data.site.basemap`.
+ *
+ * Bentuknya sama dengan SiteBasemap di `@/lib/sites`, tapi TIDAK di-import dari
+ * sana: berkas itu menarik `@/lib/prisma`, dan berkas ini dipakai komponen
+ * klien. Yang ditiru cuma bentuknya, bukan modulnya.
+ */
+export interface BasemapSite {
+  url: string;
+  nodataUrl: string | null;
+  minE: number;
+  maxE: number;
+  minN: number;
+  maxN: number;
+  /** Elevasi bidangnya, meter. Null = turunkan dari data. */
+  z: number | null;
+}
+
 export interface PayloadDeformasi {
   tanggal?: string;
   posisi_rts?: PosisiRts | null;
   data_pengukuran?: BarisPengukuran[];
+  site?: {
+    slug?: string;
+    nama?: string;
+    basemap?: BasemapSite | null;
+  } | null;
 }
 
 /** Baris /api/log-kontrol yang dipakai pemilih sesi. */
@@ -86,6 +109,13 @@ export interface CachePayload {
   minLinear: string;
   points: Titik[];
   ringkas: RingkasRender;
+  /**
+   * Ortofoto site sesi ini. IKUT disimpan walau bukan hasil hitungan: pemulihan
+   * dari cache sengaja tidak menembak server sama sekali, jadi tanpa ini
+   * kunjungan pertama setelah reload akan menggambar scene tanpa lantai lalu
+   * memunculkannya tiba-tiba saat sesi lain dipilih.
+   */
+  basemap?: BasemapSite | null;
 }
 
 /**

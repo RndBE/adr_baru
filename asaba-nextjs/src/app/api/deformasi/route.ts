@@ -125,12 +125,31 @@ export async function GET(request: NextRequest) {
         const current = cekTembak[0];
         const baseline = firstData[0];
 
-        let N1 = nfloat(current.sensor8);
-        let E1 = nfloat(current.sensor9);
+        // sensor8 = EASTING, sensor9 = NORTHING — kebalikan dari
+        // PROTOKOL_MQTT_ADR bagian F, dan kebalikan dari cara route lain di app
+        // ini membacanya. Yang dipakai di sini isi tabelnya, bukan dokumennya.
+        //
+        // Buktinya tidak perlu keluar dari respons ini. `posisi_rts` di bawah
+        // datang dari t_site.rts_e/rts_n dan menyebut angka ~464.000 sebagai E;
+        // kalau sensor8 (yang juga ~464.000) dibaca sebagai N, satu objek JSON
+        // yang sama memberi dua nama berbeda untuk besaran yang sama, dan
+        // marker RTS di halaman 3D melayang 9,28 juta meter dari awan prismanya.
+        // Easting UTM selalu 160.000–834.000, jadi sensor9 = 9.748.870 memang
+        // tidak mungkin Easting.
+        //
+        // Diverifikasi 17 September 2026 terhadap ortofoto drone BPP 1-4: dengan
+        // pembacaan ini BS_1 mendarat tepat di atas RTS dan DF_1…DF_5 di tanggul
+        // kolam; dengan pembacaan lama tidak satu pun titik jatuh di area foto.
+        //
+        // Route LAIN belum diikutkan (rekap-data, export-excel, kontrol, …) —
+        // besaran pergeseran di sana tidak terpengaruh karena
+        // sqrt(DE²+DN²+DZ²) sama saja, yang keliru cuma labelnya.
+        let E1 = nfloat(current.sensor8);
+        let N1 = nfloat(current.sensor9);
         const Z1 = nfloat(current.sensor10);
 
-        let N0 = nfloat(baseline.sensor8);
-        let E0 = nfloat(baseline.sensor9);
+        let E0 = nfloat(baseline.sensor8);
+        let N0 = nfloat(baseline.sensor9);
         const Z0 = nfloat(baseline.sensor10);
 
         // Save raw UTM (before rotation) for map display
@@ -256,8 +275,9 @@ export async function GET(request: NextRequest) {
           const series: Array<{t: string, mm: number}> = [];
 
           for (const rw of dailyRows) {
-            let e1_d = nfloat(rw.sensor9);
-            let n1_d = nfloat(rw.sensor8);
+            // sensor8 = E, sensor9 = N — sama dengan pembacaan di atas.
+            let e1_d = nfloat(rw.sensor8);
+            let n1_d = nfloat(rw.sensor9);
             const z1_d = nfloat(rw.sensor10);
 
             if (Math.abs(e1_d) < 1e-12 && Math.abs(n1_d) < 1e-12 && Math.abs(z1_d) < 1e-12) {
@@ -319,6 +339,11 @@ export async function GET(request: NextRequest) {
           badge_label: siteConfig.badgeLabel,
           badge_color: siteConfig.badgeColor,
           map: siteConfig.map,
+          // Ortofoto untuk lantai scene Visualisasi 3D. Kotak batasnya meter
+          // UTM pada zona `utm` di bawah — satuan yang sama dengan E/N prisma
+          // di atas, jadi penampil tidak perlu mengonversi apa pun.
+          basemap: siteConfig.basemap,
+          utm: siteConfig.utm,
           terkalibrasi: siteConfig.terkalibrasi,
           data_dummy: siteConfig.dataDummy,
           tidak_dikenal: siteConfig.tidakDikenal,

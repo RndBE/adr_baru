@@ -35,6 +35,7 @@ npx tsx src/lib/status-rts.test.ts          # plain assert script, exits 1 on fa
 npx tsx src/lib/kirim-peringatan.test.ts    # penerima, subjek, dan badan pesan peringatan
 npx tsx src/components/monitoring/derive.test.ts  # "gagal ditembak" vs "tidak bergerak"
 npx tsx src/components/monitoring/gabungan.test.ts  # analisa gabungan beberapa prisma
+npx tsx src/components/visualisasi-3d/basemap.test.ts  # georeferensi ortofoto di scene 3D
 npx tsx scripts/regresi-protokol-rts.ts     # same style, protocol regression suite
 npx tsx scripts/regresi-balasan-logger.ts
 npx tsx scripts/regresi-site.ts
@@ -92,12 +93,20 @@ Measurement data lands in `rts` / `temp_rts` as 25 generic columns. The slot mea
 | `sensor1` | id_prisma (slot number, reused per site) |
 | `sensor3` | prism name |
 | `sensor5` / `sensor6` / `sensor7` | HA / VA / SD |
-| `sensor8` / `sensor9` / `sensor10` | **N / E** / Z — note N before E |
+| `sensor8` / `sensor9` / `sensor10` | labelled **N / E** / Z by the code — but see the warning below |
 | `sensor14` | instrument powered on |
 | `sensor16` | instrument mid-measurement |
 | `sensor20`–`sensor23` | tilt readings |
 
 `sensor1`–`sensor13` are VARCHAR; `sensor14`–`sensor25` are FLOAT and reject empty strings in MySQL — `/api/datamasuk/adr` coerces missing numeric slots to `"0"` for exactly this reason.
+
+#### `sensor8` and `sensor9` are labelled backwards almost everywhere
+
+Every row `kolam_bpp` has ever written holds **`sensor8` = Easting (~464 000), `sensor9` = Northing (~9 748 000)** — verified 17 Sep 2026 against the site's drone orthophoto, and against `t_site.rts_e`/`rts_n`, which a human filled in with the opposite convention. A UTM Easting is always 160 000–834 000, so a seven-digit `sensor9` cannot be one.
+
+`PROTOKOL_MQTT_ADR` section F says the reverse, and eight read sites follow the doc rather than the data. **Only `/api/deformasi` has been corrected** (Sep 2026). Still labelled backwards: `log-kontrol`, `kontrol/dashboard`, `export-excel`, `analisa-gabungan`, `evaluasi-siklus`, `prism-config`, `rekap-data`, `lib/deformasi.ts`.
+
+Displacement *magnitudes* are unaffected — `sqrt(DE²+DN²+DZ²)` is the same either way, so thresholds and alerts have always been right, and `kirim-peringatan.ts` never mentions a direction. What the swap corrupts is anything *directional*: the `N`/`E` column headers, `arah8ID()` bearings, and `utm2ll()` lat/lng. Before fixing another site, check which convention the swap has already been applied at — fixing it twice puts it back.
 
 ### Single sources of truth
 
@@ -106,6 +115,14 @@ Several modules exist because the same rule was previously duplicated and drifte
 - `src/lib/status-rts.ts` — `hitungStatusRts()`. "Logger connected" (fresh periodic data, 1-hour window) and "RTS powered on" (`sensor14`) are **two separate facts**; conflating them made Beranda, Kontrol ADR and Prism Config contradict each other for the same device.
 - `src/lib/sites.ts` — per-site behaviour reads from the `t_site` table, replacing scattered `if (site === 'ccp')` branches. `t_site.id_logger` is the only place the site↔logger relation is modelled. `getLoggerForCommand()` falls back to "first ADR logger" with a non-deterministic `LIMIT 1` — always pass `site` or `id_logger` for commands that move hardware.
 - `src/components/monitoring/format.ts` — DB timestamps are **WIB wall-clock**, displayed without timezone conversion. Use `waktuMsWib()` / `fmtDate()`.
+
+### Base map 3D (orthophoto)
+
+The Visualisasi 3D page can draw a site's drone orthophoto as the floor of the Plotly scene. Everything about *which* photo and *where* it sits comes from `t_site.basemap_*` (migration `014`), never from code — see `src/lib/sites.ts`. `src/components/visualisasi-3d/basemap.ts` turns the image into a `mesh3d` with one colour per vertex, because Plotly cannot texture a 3D scene: `layout.images` is 2D-only, and `surface` interpolates `surfacecolor` *before* the colorscale lookup, which turns palette indices into rainbows at every colour boundary.
+
+Assets live in `public/basemap/`: a JPEG for colour plus a 1-bit PNG marking the photographed area. The mask exists because a drone orthophoto is an irregular polygon inside a rectangular frame — 36% of BPP 1-4 is empty margin, and drawing it makes the base map an opaque slab. Alpha inside a colour PNG would take the file from 448 KB to 4.3 MB; the separate mask is 8 KB.
+
+**Regenerating the asset from an ECW.** ECW is proprietary and no browser, GDAL build, or macOS tool here can read it — decoding needs the Hexagon SDK. The route that worked (17 Sep 2026) was a throwaway Docker image on Server 3 built from `libecwj2-3.3` plus a ~100-line C program against `NCScbm*`. Two traps: the SDK's functions are `NCScbmOpenFileView`, not `NCSOpenFileView`; and `NCSecwInit()` **must** be called first despite the header saying not to when linking a DLL — on Linux `.so` the static initialiser never runs and the first open segfaults in `NCSMutexBegin`. Bounding box comes from the ECW header (`fOriginX/Y` is the top-left *corner* of the top-left cell, not its centre) — never from eyeballing a map.
 
 ### Alert channels
 

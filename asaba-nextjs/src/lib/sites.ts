@@ -41,6 +41,26 @@ export interface SiteRotation {
   ukurLng: number | null;
 }
 
+/**
+ * Ortofoto yang dipakai sebagai lantai scene Visualisasi 3D.
+ *
+ * Kotak batasnya METER UTM pada zona `SiteConfig.utm` — bukan lat/lng, karena
+ * seluruh scene 3D memang bekerja di UTM dan mengubahnya bolak-balik cuma
+ * menambah tempat untuk keliru. Gambarnya north-up tanpa rotasi, jadi empat
+ * sudut sudah menentukan seluruh georeferensinya.
+ */
+export interface SiteBasemap {
+  url: string;
+  /** PNG 1-bit penanda bagian bergambar; null bila ortofotonya persegi penuh. */
+  nodataUrl: string | null;
+  minE: number;
+  maxE: number;
+  minN: number;
+  maxN: number;
+  /** Elevasi bidangnya, meter. Null = biarkan penampil menurunkannya dari data. */
+  z: number | null;
+}
+
 export interface SiteConfig {
   id: number;
   slug: string;
@@ -53,6 +73,8 @@ export interface SiteConfig {
   utm: { zone: number; north: boolean };
   /** Center + zoom peta. Null bila site belum dikalibrasi. */
   map: { lat: number; lng: number; zoom: number } | null;
+  /** Ortofoto untuk Visualisasi 3D. Null bila site ini belum punya. */
+  basemap: SiteBasemap | null;
   /** Null bila site tidak memerlukan koreksi rotasi. */
   rotation: SiteRotation | null;
   /** Kode logger yang melayani site ini. Null bila belum dipilih. */
@@ -88,6 +110,7 @@ export function fallbackSite(slug: string): SiteConfig {
     rts: null,
     utm: { zone: 50, north: true },
     map: null,
+    basemap: null,
     rotation: null,
     idLogger: null,
     terkalibrasi: false,
@@ -121,6 +144,13 @@ type SiteRow = {
   map_lat: number | null;
   map_lng: number | null;
   map_zoom: number;
+  basemap_url: string | null;
+  basemap_nodata_url: string | null;
+  basemap_min_e: number | null;
+  basemap_max_e: number | null;
+  basemap_min_n: number | null;
+  basemap_max_n: number | null;
+  basemap_z: number | null;
   rotasi_deg: number | null;
   pivot_e: number | null;
   pivot_n: number | null;
@@ -148,6 +178,17 @@ export function toSiteConfig(row: SiteRow): SiteConfig {
     row.ukur_e !== null &&
     row.ukur_n !== null;
 
+  // Base map menuntut KEEMPAT sisi kotaknya, bukan sekadar berkasnya. Satu sisi
+  // null berarti gambarnya akan diregangkan ke batas yang dikarang, dan
+  // ortofoto yang melenceng beberapa ratus meter jauh lebih menyesatkan
+  // daripada tidak ada ortofoto sama sekali — prisma akan terlihat duduk di
+  // tanggul yang salah.
+  const kotakLengkap =
+    row.basemap_min_e !== null &&
+    row.basemap_max_e !== null &&
+    row.basemap_min_n !== null &&
+    row.basemap_max_n !== null;
+
   return {
     id: row.id,
     slug: row.slug,
@@ -174,6 +215,18 @@ export function toSiteConfig(row: SiteRow): SiteConfig {
     map:
       row.map_lat !== null && row.map_lng !== null
         ? { lat: row.map_lat, lng: row.map_lng, zoom: row.map_zoom }
+        : null,
+    basemap:
+      row.basemap_url && kotakLengkap
+        ? {
+            url: row.basemap_url,
+            nodataUrl: row.basemap_nodata_url,
+            minE: row.basemap_min_e as number,
+            maxE: row.basemap_max_e as number,
+            minN: row.basemap_min_n as number,
+            maxN: row.basemap_max_n as number,
+            z: row.basemap_z,
+          }
         : null,
     rotation: rotasiLengkap
       ? {

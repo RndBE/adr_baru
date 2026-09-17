@@ -6,6 +6,7 @@ import {
   Boxes,
   ChevronDown,
   Crosshair,
+  Layers,
   Loader2,
   Maximize,
   Minimize,
@@ -24,8 +25,15 @@ import {
   gambarScene,
   getRTSFromPayload,
 } from "@/components/visualisasi-3d/deformasi-3d";
+import {
+  muatJaringBasemap,
+  traceBasemap,
+  ukuranPetak,
+  type JaringBasemap,
+} from "@/components/visualisasi-3d/basemap";
 import type {
   BarisLog,
+  BasemapSite,
   CachePayload,
   PayloadDeformasi,
   PlotlyGlobal,
@@ -39,7 +47,40 @@ declare global {
   }
 }
 
-const CACHE_KEY = "vis3d_cache_v1";
+// Versi cache DINAIKKAN: bentuk CachePayload bertambah `basemap`, dan yang
+// lebih penting, titik yang tersimpan di v1 dibuat sebelum E/N di
+// /api/deformasi dibetulkan — memulihkannya akan menggambar prisma di tempat
+// yang salah, tanpa tanda apa pun bahwa datanya basi.
+const CACHE_KEY = "vis3d_cache_v2";
+
+/**
+ * Jumlah sel base map pada sisi terpanjang ortofoto.
+ *
+ * Bukan slider bebas: tiap sel jadi dua segitiga, jadi angka ini menaikkan
+ * beban secara kuadratik dan nilai yang diketik sembarangan bisa membekukan
+ * tab. Tiga langkah ini sudah diuji pada ortofoto BPP 1-4 (2.561 x 1.439 m) —
+ * "Sedang" berarti sel ~5 m.
+ */
+const KERAPATAN = { rendah: 300, sedang: 520, tinggi: 900 } as const;
+type Kerapatan = keyof typeof KERAPATAN;
+
+/**
+ * Elevasi bawaan bidang ortofoto: prisma terendah, dibulatkan ke bawah.
+ *
+ * Ortofoto tidak punya tinggi, dan tidak ada DEM di sistem ini. Menaruhnya di
+ * bawah segalanya membuatnya berperan sebagai lantai, bukan sebagai bidang yang
+ * memotong awan prisma di tengah.
+ */
+function elevasiOtomatis(points: Titik[] | null): number {
+  const zs = (points ?? []).map((p) => p.z0).filter(Number.isFinite);
+  return zs.length ? Math.floor(Math.min(...zs)) : 0;
+}
+
+/** Panjang sisi satu sel base map, meter. Untuk ditampilkan, bukan dihitung ulang. */
+function ukuranSelMeter(kotak: BasemapSite, kerapatan: number): number {
+  const { nx } = ukuranPetak(kotak, kerapatan);
+  return Math.abs(kotak.maxE - kotak.minE) / nx;
+}
 
 function saveCache(data: CachePayload) {
   try {
@@ -68,6 +109,9 @@ const TOMBOL =
 const INPUT_ANGKA =
   "h-8 w-full rounded-[8px] border border-(--line) bg-white px-2.5 font-mono text-[12.5px] tabular-nums text-(--ink) outline-none transition-colors focus:border-(--navy) focus:ring-2 focus:ring-(--navy)/25";
 
+const PILIHAN_KECIL =
+  "h-8 w-full cursor-pointer appearance-none rounded-[8px] border border-(--line) bg-white pr-7 pl-2.5 text-[12.5px] text-(--ink) outline-none transition-colors focus:border-(--navy) focus:ring-2 focus:ring-(--navy)/25";
+
 export default function Visualisasi3DPage() {
   const { sites, badge: siteBadge } = useSites();
 
@@ -95,6 +139,27 @@ export default function Visualisasi3DPage() {
   const [sudahRender, setSudahRender] = useState(false);
   const [ringkas, setRingkas] = useState<RingkasRender | null>(null);
 
+  // ── Base map ──
+  /** Ortofoto site sesi terpilih; null bila site-nya belum punya. */
+  const [basemap, setBasemap] = useState<BasemapSite | null>(null);
+  const [basemapTampil, setBasemapTampil] = useState(true);
+  const [kerapatan, setKerapatan] = useState<Kerapatan>("sedang");
+  /** "" = ikuti elevasi otomatis. Disimpan sebagai teks seperti input lain. */
+  const [basemapZ, setBasemapZ] = useState("");
+  const [basemapOpasitas, setBasemapOpasitas] = useState("1");
+  const [basemapSibuk, setBasemapSibuk] = useState(false);
+  const [basemapGalat, setBasemapGalat] = useState("");
+  /**
+   * Elevasi otomatis yang sedang berlaku — disimpan sebagai STATE, bukan
+   * dihitung dari titikRef saat render.
+   *
+   * Angka ini muncul sebagai placeholder di panel. Membacanya dari ref berarti
+   * panel bisa memperlihatkan elevasi sesi lama tanpa memicu render ulang —
+   * persis jebakan yang sudah pernah kena pada `ringkas` di bawah.
+   */
+  const [zOtomatis, setZOtomatis] = useState(0);
+  const [jumlahSegitiga, setJumlahSegitiga] = useState(0);
+
   const plotRef = useRef<HTMLDivElement>(null);
   const fsTargetRef = useRef<HTMLDivElement>(null);
 
@@ -109,6 +174,16 @@ export default function Visualisasi3DPage() {
    */
   const titikRef = useRef<Titik[] | null>(null);
   const [restoredFromCache, setRestoredFromCache] = useState(false);
+
+  /**
+   * Jaring ortofoto yang sudah jadi. Ref dengan alasan yang sama seperti
+   * `titikRef`: isinya ratusan ribu angka yang cuma dipakai menggambar, dan
+   * menaruhnya di state berarti React ikut membandingkannya tiap render.
+   *
+   * Penggantinya untuk memicu gambar ulang adalah `jaringVersi` di bawah.
+   */
+  const jaringRef = useRef<JaringBasemap | null>(null);
+  const [jaringVersi, setJaringVersi] = useState(0);
 
   // ── Muat Plotly (berkas lokal, bukan CDN) ──
   useEffect(() => {
@@ -151,6 +226,8 @@ export default function Visualisasi3DPage() {
           setMinLinear(cache.minLinear);
           setRingkas(cache.ringkas);
           titikRef.current = cache.points;
+          setBasemap(cache.basemap ?? null);
+          setZOtomatis(elevasiOtomatis(cache.points));
           setRestoredFromCache(true);
         } else {
           setSelectedLogId(data[0].id_log);
@@ -176,16 +253,35 @@ export default function Visualisasi3DPage() {
       o?: { E?: string; N?: string; Z?: string; scale?: string; lin?: string }
     ) => {
       if (!window.Plotly || !plotRef.current) return;
+
+      // Elevasi bidang diterapkan di sini, bukan saat jaringnya disusun:
+      // memindahkan lantai naik-turun cuma mengganti satu angka per titik,
+      // sementara menyusun ulang jaringnya berarti mengunduh dan membaca
+      // ulang seluruh citra.
+      let traceBm: Record<string, unknown> | null = null;
+      const jaring = jaringRef.current;
+      if (basemapTampil && jaring) {
+        const zDipakai = basemapZ.trim()
+          ? parseFloat(basemapZ.replace(",", "."))
+          : zOtomatis;
+        if (Number.isFinite(zDipakai)) {
+          if (jaring.z[0] !== zDipakai) jaring.z.fill(zDipakai);
+          const op = parseFloat(basemapOpasitas.replace(",", "."));
+          traceBm = traceBasemap(jaring, Number.isFinite(op) ? Math.min(Math.max(op, 0.05), 1) : 1);
+        }
+      }
+
       gambarScene(window.Plotly, plotRef.current, points, {
         E: Number(o?.E ?? rtsE),
         N: Number(o?.N ?? rtsN),
         Z: Number(o?.Z ?? rtsZ),
         scale: parseFloat((o?.scale ?? coneScale).replace(",", ".")) || 0.2,
         minLin: parseFloat((o?.lin ?? minLinear).replace(",", ".")) || 0,
+        basemap: traceBm,
       });
       setSudahRender(true);
     },
-    [rtsE, rtsN, rtsZ, coneScale, minLinear]
+    [rtsE, rtsN, rtsZ, coneScale, minLinear, basemapTampil, basemapZ, basemapOpasitas, zOtomatis]
   );
 
   const handleLoad = useCallback(async () => {
@@ -204,6 +300,12 @@ export default function Visualisasi3DPage() {
 
       const data = payload.data as PayloadDeformasi;
 
+      // Ortofoto ikut sesi, bukan ikut halaman: memilih sesi site lain harus
+      // mengganti lantainya juga, dan site tanpa ortofoto harus MENGHAPUS
+      // lantai site sebelumnya — bukan meninggalkannya di bawah prisma yang
+      // sama sekali tidak berada di atas foto itu.
+      setBasemap(data.site?.basemap ?? null);
+
       // Koordinat RTS diisi otomatis dari payload bila tersedia.
       const rts = getRTSFromPayload(data);
       let finalE = rtsE,
@@ -219,6 +321,7 @@ export default function Visualisasi3DPage() {
       }
 
       const pts = extractPoints(data);
+      setZOtomatis(elevasiOtomatis(pts));
       const hitung: RingkasRender = {
         tanggal: data?.tanggal ?? null,
         prisma: pts.length,
@@ -244,6 +347,7 @@ export default function Visualisasi3DPage() {
         minLinear,
         points: pts,
         ringkas: hitung,
+        basemap: data.site?.basemap ?? null,
       });
 
       render(pts, { E: finalE, N: finalN, Z: finalZ, scale: coneScale, lin: minLinear });
@@ -287,6 +391,66 @@ export default function Visualisasi3DPage() {
     handleLoad();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [plotlyReady, selectedLogId, restoredFromCache]);
+
+  /**
+   * Susun jaring ortofoto.
+   *
+   * Hanya bergantung pada SUMBER dan KERAPATAN. Elevasi dan opasitas sengaja
+   * tidak ikut: keduanya diterapkan saat menggambar, dan kalau ikut jadi
+   * dependensi, menggeser lantai satu meter akan mengunduh serta membaca ulang
+   * citra 2.000 piksel.
+   */
+  useEffect(() => {
+    if (!basemap || !basemapTampil) {
+      jaringRef.current = null;
+      setJumlahSegitiga(0);
+      setBasemapGalat("");
+      setJaringVersi((v) => v + 1);
+      return;
+    }
+
+    // Penyusunan bisa makan ratusan milidetik dan pemakai boleh mengganti
+    // kerapatan di tengah jalan; tanpa penjaga ini hasil yang datang belakangan
+    // belum tentu hasil yang terakhir diminta.
+    let batal = false;
+    setBasemapSibuk(true);
+    setBasemapGalat("");
+    muatJaringBasemap(basemap, KERAPATAN[kerapatan], 0)
+      .then((jaring) => {
+        if (batal) return;
+        jaringRef.current = jaring;
+        setJumlahSegitiga(jaring.i.length);
+        setJaringVersi((v) => v + 1);
+      })
+      .catch((e: unknown) => {
+        if (batal) return;
+        jaringRef.current = null;
+        setJumlahSegitiga(0);
+        setBasemapGalat(e instanceof Error ? e.message : "Ortofoto gagal dimuat.");
+        setJaringVersi((v) => v + 1);
+      })
+      .finally(() => {
+        if (!batal) setBasemapSibuk(false);
+      });
+
+    return () => {
+      batal = true;
+    };
+  }, [basemap, basemapTampil, kerapatan]);
+
+  /**
+   * Gambar ulang setelah jaringnya berubah, atau setelah elevasi/opasitasnya
+   * diubah.
+   *
+   * Sengaja TIDAK bergantung pada `render`: callback itu ikut berubah tiap kali
+   * salah satu parameternya berubah, dan menjadikannya dependensi membuat efek
+   * ini menggambar ulang pada setiap ketikan di kotak Acuan RTS.
+   */
+  useEffect(() => {
+    if (!sudahRender || !titikRef.current) return;
+    render(titikRef.current);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [jaringVersi, basemapZ, basemapOpasitas, zOtomatis]);
 
   const toggleFullscreen = () => {
     if (!fsTargetRef.current) return;
@@ -546,6 +710,111 @@ export default function Visualisasi3DPage() {
               Panah = pengali panjang kerucut. Ambang dalam <strong>meter</strong>; pergeseran
               di bawahnya tidak digambar.
             </p>
+          </div>
+
+          <div className="border-b border-(--line) px-4 py-3">
+            <Eyebrow className="flex items-center gap-1.5">
+              <Layers className="size-3.5" /> Base map
+            </Eyebrow>
+
+            {!basemap ? (
+              <p className="mt-2 text-[11px] leading-relaxed text-(--ink-3)">
+                Site sesi ini belum punya ortofoto. Isi kolom{" "}
+                <span className="font-mono">basemap_*</span> di tabel{" "}
+                <span className="font-mono">t_site</span> untuk menambahkannya.
+              </p>
+            ) : (
+              <>
+                <label className="mt-2 flex cursor-pointer items-center gap-2 text-[11.5px] text-(--ink-2)">
+                  <input
+                    type="checkbox"
+                    checked={basemapTampil}
+                    onChange={(e) => setBasemapTampil(e.target.checked)}
+                    className="size-3.5 cursor-pointer accent-(--navy)"
+                  />
+                  Tampilkan ortofoto
+                </label>
+
+                <div className="mt-2 space-y-2">
+                  <div className="grid grid-cols-[64px_minmax(0,1fr)] items-center gap-2">
+                    <label htmlFor="bm-rapat" className="text-[11.5px] text-(--ink-2)">
+                      Kerapatan
+                    </label>
+                    <div className="relative">
+                      <select
+                        id="bm-rapat"
+                        value={kerapatan}
+                        onChange={(e) => setKerapatan(e.target.value as Kerapatan)}
+                        disabled={!basemapTampil}
+                        className={cn(PILIHAN_KECIL, "disabled:cursor-not-allowed disabled:text-(--ink-3)")}
+                      >
+                        <option value="rendah">Rendah</option>
+                        <option value="sedang">Sedang</option>
+                        <option value="tinggi">Tinggi</option>
+                      </select>
+                      <ChevronDown className="pointer-events-none absolute top-1/2 right-2 size-3.5 -translate-y-1/2 text-(--ink-3)" />
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-[64px_minmax(0,1fr)] items-center gap-2">
+                    <label htmlFor="bm-z" className="text-[11.5px] text-(--ink-2)">
+                      Elevasi
+                    </label>
+                    <input
+                      id="bm-z"
+                      type="number"
+                      step="0.5"
+                      value={basemapZ}
+                      placeholder={String(zOtomatis)}
+                      onChange={(e) => setBasemapZ(e.target.value)}
+                      disabled={!basemapTampil}
+                      className={cn(INPUT_ANGKA, "disabled:cursor-not-allowed disabled:text-(--ink-3)")}
+                    />
+                  </div>
+
+                  <div className="grid grid-cols-[64px_minmax(0,1fr)] items-center gap-2">
+                    <label htmlFor="bm-opasitas" className="text-[11.5px] text-(--ink-2)">
+                      Opasitas
+                    </label>
+                    <input
+                      id="bm-opasitas"
+                      type="number"
+                      step="0.05"
+                      min="0.05"
+                      max="1"
+                      value={basemapOpasitas}
+                      onChange={(e) => setBasemapOpasitas(e.target.value)}
+                      disabled={!basemapTampil}
+                      className={cn(INPUT_ANGKA, "disabled:cursor-not-allowed disabled:text-(--ink-3)")}
+                    />
+                  </div>
+                </div>
+
+                {/* Satuan elevasi WAJIB disebut, dan begitu juga asal angka
+                    bawaannya: bidang ortofoto tidak punya tinggi sendiri, jadi
+                    tanpa keterangan ini angka di placeholder terlihat seperti
+                    hasil ukur padahal cuma prisma terendah. */}
+                <p className="mt-2 text-[11px] leading-relaxed text-(--ink-3)">
+                  Elevasi dalam <strong>meter</strong>; kosong = ikut prisma terendah (
+                  {zOtomatis} m). Ortofoto tidak punya tinggi sendiri.
+                </p>
+
+                <p className="mt-1.5 text-[11px] leading-relaxed text-(--ink-3)">
+                  {basemapGalat ? (
+                    <span className="text-amber-700">{basemapGalat}</span>
+                  ) : basemapSibuk ? (
+                    "Menyiapkan ortofoto…"
+                  ) : basemapTampil && jumlahSegitiga > 0 ? (
+                    <>
+                      Sel ±{ukuranSelMeter(basemap, KERAPATAN[kerapatan]).toFixed(1)} m ·{" "}
+                      {jumlahSegitiga.toLocaleString("id-ID")} segitiga
+                    </>
+                  ) : (
+                    "Ortofoto disembunyikan."
+                  )}
+                </p>
+              </>
+            )}
           </div>
 
           <dl className="px-4 py-3">

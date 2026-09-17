@@ -104,6 +104,14 @@ export interface OpsiRender {
   scale: number;
   /** Prisma dengan resultan di bawah ini tidak digambar sebagai pergeseran. */
   minLin: number;
+  /**
+   * Trace ortofoto yang sudah jadi, dari components/visualisasi-3d/basemap.ts.
+   *
+   * Dioper sebagai trace matang, bukan sebagai berkas atau kotak batas: menyusunnya
+   * perlu memuat gambar dan membaca canvas — dua hal yang asinkron dan hanya ada di
+   * browser — sementara berkas ini murni dan dipakai juga oleh skrip uji.
+   */
+  basemap?: Record<string, unknown> | null;
 }
 
 /**
@@ -277,6 +285,11 @@ export function gambarScene(
     textfont: { size: 16, color: "#0f172a", family: fontSans.style.fontFamily },
     hoverinfo: "skip",
   });
+
+  // Ditambahkan PALING AKHIR supaya urutan legendanya wajar (lantai disebut
+  // setelah isinya). Kedalaman gambarnya diurus depth buffer WebGL, bukan
+  // urutan trace, jadi menaruhnya di belakang tidak membuatnya menimpa prisma.
+  if (opsi.basemap) traces.push(opsi.basemap);
 
   Plotly.newPlot(
     el,

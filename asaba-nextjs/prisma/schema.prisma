@@ -553,6 +553,27 @@ model Site {
   map_lng  Float?
   map_zoom Int    @default(16)
 
+  /// Base map (ortofoto) untuk lantai scene Visualisasi 3D. Lihat
+  /// prisma/migrations/014_basemap_site.sql. Null = site ini tidak punya
+  /// ortofoto; halaman 3D-nya cuma tidak menggambar lantai.
+  ///
+  /// Kotak batasnya dalam METER UTM, zona yang sama dengan utm_zone/utm_north
+  /// di atas — sengaja tidak diulang di sini supaya tidak bisa berbeda.
+  /// Gambarnya north-up tanpa rotasi: tepi gambar = tepi kotak.
+  basemap_url        String? @db.VarChar(255)
+  /// PNG 1-bit: putih = bagian bergambar, hitam = tepi kosong ortofoto.
+  /// Terpisah dari gambarnya karena JPEG tidak punya alfa dan PNG berwarna
+  /// ber-alfa sepuluh kali lebih besar.
+  basemap_nodata_url String? @db.VarChar(255)
+  basemap_min_e      Float?
+  basemap_max_e      Float?
+  basemap_min_n      Float?
+  basemap_max_n      Float?
+  /// Elevasi bidang ortofoto, meter. Null = turunkan dari data (prisma
+  /// terendah) — yang berpindah-pindah tiap sesi, jadi isi kolom ini begitu
+  /// elevasi tanahnya disurvei.
+  basemap_z          Float?
+
   // Rotasi koordinat. Null = tidak ada koreksi rotasi untuk site ini.
   rotasi_deg Float?
   pivot_e    Float?
