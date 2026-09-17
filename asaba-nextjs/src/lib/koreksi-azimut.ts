@@ -80,6 +80,28 @@ export function bacaSudut(v: unknown): number | null {
   return nilai;
 }
 
+/**
+ * HA yang TIDAK dilaporkan, bukan HA yang kebetulan nol.
+ *
+ * Firmware menandai sudut yang tidak terisi dengan "0" atau "000,00,00",
+ * kebiasaan yang sama dengan koordinat tembakan gagal. Tabel `rts` site
+ * kolam_bpp memuat 93 baris berkoordinat SAH tapi ber-HA nol — salinan
+ * tembakan yang sama, dikirim ulang tanpa sudutnya.
+ *
+ * Membaca nol itu sebagai sudut sungguhan menaruh prismanya tepat di azimut
+ * orientasi — arah yang sepenuhnya dikarang. Itu terjadi sekali pada 17
+ * September 2026 dan memindahkan DF_7 sejauh 1.297 m; baris ini yang
+ * mencegahnya terulang.
+ *
+ * Azimut nol yang sungguhan memang mungkin secara teori, tapi peluangnya satu
+ * berbanding empat juta dan akibat salahnya jauh lebih murah daripada akibat
+ * mempercayainya.
+ */
+export function haKosong(haMentah: unknown): boolean {
+  const ha = bacaSudut(haMentah);
+  return ha === null || Math.abs(ha) < 1e-9;
+}
+
 /** Jarak mendatar dan bearing sebuah titik dari stasiun. */
 function polar(E: number, N: number, k: KoreksiAzimut) {
   const dE = E - k.stasiunE;
@@ -90,10 +112,11 @@ function polar(E: number, N: number, k: KoreksiAzimut) {
 /**
  * Hitung ulang E/N satu tembakan dari HA mentahnya.
  *
- * Mengembalikan null bila tembakannya tidak bisa dikoreksi — HA tidak terbaca,
- * koordinatnya nol (tembakan gagal), atau prismanya tepat di atas alat. Null
- * berarti "biarkan apa adanya", BUKAN "tulis nol": menulis nol akan mengubah
- * tembakan gagal jadi terlihat seperti prisma yang pindah ke pangkal koordinat.
+ * Mengembalikan null bila tembakannya tidak bisa dikoreksi — HA tidak terbaca
+ * atau nol (lihat haKosong), koordinatnya nol (tembakan gagal), atau prismanya
+ * tepat di atas alat. Null berarti "biarkan apa adanya", BUKAN "tulis nol":
+ * menulis nol akan mengubah tembakan gagal jadi terlihat seperti prisma yang
+ * pindah ke pangkal koordinat.
  */
 export function perbaikiKoordinat(
   E: number,
@@ -106,8 +129,8 @@ export function perbaikiKoordinat(
   // sistem ini selalu ratusan ribu meter, jadi ambang longgar sudah cukup.
   if (Math.abs(E) < 1 || Math.abs(N) < 1) return null;
 
-  const ha = bacaSudut(haMentah);
-  if (ha === null) return null;
+  if (haKosong(haMentah)) return null;
+  const ha = bacaSudut(haMentah) as number;
 
   const { jarak } = polar(E, N, k);
   if (!(jarak > 1e-6)) return null;

@@ -3,7 +3,7 @@ import { waktuDbLokal } from "@/components/monitoring/format";
 import { prisma } from "@/lib/prisma";
 import { publishMqtt } from "@/lib/mqtt";
 import { getSite, offsetLogger } from "@/lib/sites";
-import { perbaikiKoordinat, tulisKoordinat } from "@/lib/koreksi-azimut";
+import { haKosong, perbaikiKoordinat, tulisKoordinat } from "@/lib/koreksi-azimut";
 import { sesiTerakhirLogger, sesiUntukSiklus } from "@/lib/log-kontrol";
 import { awalSiklus } from "@/lib/sesi-kontrol";
 import { evaluasiSiklus } from "@/lib/evaluasi-siklus";
@@ -203,10 +203,30 @@ export async function POST(request: NextRequest) {
     if (siteAktif) {
       const cfg = await getSite(siteAktif);
       if (cfg.koreksiAzimut && cfg.rts) {
+        // Sebagian kiriman adalah SALINAN tembakan yang sama tanpa membawa
+        // sudutnya: koordinatnya sah tapi sensor5 berisi "0". Sekitar 3% baris
+        // kolam_bpp berbentuk begitu. Tanpa sudut, koordinatnya tidak bisa
+        // dikoreksi — jadi sudutnya dipinjam dari baris saudara yang sudah
+        // masuk lebih dulu di sesi dan slot prisma yang sama.
+        //
+        // Query tambahan ini hanya jalan pada kiriman tanpa sudut, bukan pada
+        // setiap tembakan.
+        let ha: string | undefined = sensorData.sensor5 as string;
+        if (haKosong(ha) && idLog && sensorData.sensor1) {
+          const saudara = await prisma.$queryRaw<Array<{ sensor5: string }>>`
+            SELECT sensor5 FROM rts
+            WHERE id_kontrol = ${idLog}
+              AND sensor1 = ${String(sensorData.sensor1)}
+              AND sensor5 NOT IN ('0', '000,00,00', '')
+            ORDER BY id DESC LIMIT 1
+          `;
+          ha = saudara[0]?.sensor5;
+        }
+
         const baru = perbaikiKoordinat(
           Number(sensorData.sensor8),
           Number(sensorData.sensor9),
-          sensorData.sensor5,
+          ha,
           {
             faktorDerajat: cfg.koreksiAzimut.faktorDerajat,
             orientasiDeg: cfg.koreksiAzimut.orientasiDeg,

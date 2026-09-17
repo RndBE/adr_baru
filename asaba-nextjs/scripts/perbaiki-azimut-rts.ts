@@ -25,13 +25,22 @@
  * koordinatnya nol, juga dilewati: menulis koordinat ke sana akan mengubah
  * "tidak ketemu" jadi terlihat seperti pengukuran yang berhasil.
  *
+ * ── Baris salinan yang tidak membawa sudutnya ───────────────────────────────
+ *
+ * 93 baris di kolam_bpp berkoordinat SAH tapi ber-HA "0" — tembakan yang sama
+ * dikirim ulang tanpa sudutnya. Sudutnya diambil dari baris saudara: prisma
+ * yang sama, sesi yang sama, HA sah. Tanpa itu baris-baris itu tidak bisa
+ * dikoreksi sama sekali, dan yang lebih buruk, `/api/deformasi` memilih baris
+ * pertama yang ditemuinya — jadi salinan tak terkoreksi bisa saja yang terpakai
+ * menghitung pergeseran.
+ *
  * `temp_prisma` tidak diurus di sini. Isinya ditimpa penuh tiap siklus oleh
  * /api/datamasuk/adr, yang sudah mengoreksi sejak sebelum menulis, jadi ia
  * membetulkan dirinya sendiri dalam satu siklus.
  */
 import { PrismaClient } from "@prisma/client";
 import { getSite } from "@/lib/sites";
-import { perbaikiKoordinat, tulisKoordinat } from "@/lib/koreksi-azimut";
+import { haKosong, perbaikiKoordinat, tulisKoordinat } from "@/lib/koreksi-azimut";
 
 const db = new PrismaClient();
 
@@ -86,8 +95,17 @@ async function main() {
       slug
     );
 
+    // HA dari baris saudara, untuk salinan yang tidak membawa sudutnya sendiri.
+    const haSaudara = new Map<string, string>();
+    for (const b of baris) {
+      if (haKosong(b.sensor5)) continue;
+      const kunci = `${b.id_kontrol}|${b.sensor1}`;
+      if (!haSaudara.has(kunci)) haSaudara.set(kunci, b.sensor5);
+    }
+
     let berubah = 0;
     let dilewati = 0;
+    let pinjamHa = 0;
     let totalGeser = 0;
     let maksGeser = 0;
     const contoh: string[] = [];
@@ -95,7 +113,9 @@ async function main() {
     for (const b of baris) {
       const E = Number(b.sensor8);
       const N = Number(b.sensor9);
-      const baru = perbaikiKoordinat(E, N, b.sensor5, k);
+      const sendiri = !haKosong(b.sensor5);
+      const ha = sendiri ? b.sensor5 : haSaudara.get(`${b.id_kontrol}|${b.sensor1}`);
+      const baru = ha === undefined ? null : perbaikiKoordinat(E, N, ha, k);
       if (!baru) {
         dilewati++;
         continue;
@@ -110,6 +130,7 @@ async function main() {
       }
 
       berubah++;
+      if (!sendiri) pinjamHa++;
       totalGeser += geser;
       maksGeser = Math.max(maksGeser, geser);
       if (contoh.length < 6) {
@@ -135,6 +156,7 @@ async function main() {
     console.log(`   dilewati         : ${dilewati}  (tembakan gagal, HA kosong, atau sudah benar)`);
     if (berubah > 0) {
       console.log(`   pergeseran       : rata-rata ${(totalGeser / berubah).toFixed(1)} m, terjauh ${maksGeser.toFixed(1)} m`);
+      if (pinjamHa > 0) console.log(`   HA dari saudara  : ${pinjamHa} baris salinan tanpa sudut sendiri`);
       console.log(contoh.join("\n"));
     }
     console.log();

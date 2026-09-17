@@ -8,7 +8,7 @@
  * dinyatakan benar di lapangan. Kalau angka orientasi di t_site diubah tanpa
  * alasan, baris-baris ini yang gagal lebih dulu.
  */
-import { bacaSudut, perbaikiKoordinat, jarakGeser, tulisKoordinat, type KoreksiAzimut } from "./koreksi-azimut";
+import { bacaSudut, haKosong, perbaikiKoordinat, jarakGeser, tulisKoordinat, type KoreksiAzimut } from "./koreksi-azimut";
 
 let gagal = 0;
 function cek(judul: string, dapat: unknown, harus: unknown) {
@@ -74,6 +74,15 @@ console.log("\n── Yang harus dibiarkan apa adanya ──");
 cek("koordinat nol (tembakan gagal)", perbaikiKoordinat(0, 0, "226,33,41", K), null);
 cek("E nol saja", perbaikiKoordinat(0, 9748899.672, "226,33,41", K), null);
 cek("HA tidak terbaca", perbaikiKoordinat(463897.2439, 9748899.672, "", K), null);
+// 93 baris di kolam_bpp berkoordinat SAH tapi ber-HA "0" — salinan tembakan
+// tanpa sudutnya. Membacanya sebagai sudut sungguhan pernah memindahkan DF_7
+// sejauh 1.297 m ke azimut orientasi.
+cek("HA \"0\" = tidak dilaporkan, bukan sudut nol", perbaikiKoordinat(465139.1519, 9748587.7131, "0", K), null);
+cek("HA \"000,00,00\" juga", perbaikiKoordinat(465139.1519, 9748587.7131, "000,00,00", K), null);
+cek("haKosong: \"0\"", haKosong("0"), true);
+cek("haKosong: \"000,00,00\"", haKosong("000,00,00"), true);
+cek("haKosong: kosong", haKosong(""), true);
+cek("haKosong: sudut sah", haKosong("226,33,41"), false);
 cek("NaN", perbaikiKoordinat(NaN, 9748899.672, "226,33,41", K), null);
 cek("prisma tepat di atas alat", perbaikiKoordinat(K.stasiunE, K.stasiunN, "226,33,41", K), null);
 cek("jarakGeser ikut null kalau tidak bisa dikoreksi", jarakGeser(0, 0, "226,33,41", K), null);
