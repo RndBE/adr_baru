@@ -1,0 +1,36 @@
+-- VA ternyata salah satuan juga, sama seperti HA.
+--
+-- SUDAH DIJALANKAN di db_demoadr (Server 3) pada 17 September 2026 — cadangan
+-- pra-penerapan ada di /root/backup-demoadr-<ts>-pra-koreksi-va.sql.gz.
+--
+-- Migrasi 015 membetulkan HA saja, dengan alasan jarak mendatar dan elevasi
+-- diturunkan dari SD dan VA yang tidak menyentuh HA. Betul soal HA — tapi VA
+-- ternyata mengidap kesalahan satuan YANG SAMA: `rts.sensor6` berisi sudut
+-- zenit dalam GON, dipakai seolah derajat.
+--
+-- Ketahuan dari dua arah sekaligus, keduanya berdiri sendiri:
+--
+--   1. Jarak. Dengan VA dibaca gon, jarak mendatar cocok dengan peta survei
+--      sampai 0,2-3,5 m. Dibaca derajat, meleset 6,7-23,8 m — selalu KURANG.
+--      Itulah sisa 7-28 m yang sesudah migrasi 015 saya kira ketidakpastian
+--      orientasi.
+--
+--   2. Elevasi. Kontur "Situasi_BPP_260731.dxf" menempatkan seluruh area ini
+--      di 11-43 m. Alat melaporkan DF_7 di −176,7 m. Dengan VA dibaca gon,
+--      keenam prisma jatuh di 24-37 m — dan selalu +0,4 … +2,8 m DI ATAS
+--      permukaan kontur, persis seperti prisma yang dipasang di tiang.
+--
+-- Tidak ada kolom baru: `ha_faktor_derajat` memang berlaku untuk kedua sudut,
+-- karena keduanya datang dalam satuan yang sama. Yang berubah hanya cara
+-- memakainya di src/lib/koreksi-azimut.ts, dan satu penyetelan halus di bawah.
+--
+-- Tinggi alat TIDAK disalin ke sini. Angkanya sudah ada di `config_adr.ts_high`
+-- — tempat ia benar-benar dikirim ke perangkat — dan dibaca dari sana oleh
+-- src/lib/sites.ts. Menyalinnya berarti dua angka yang suatu hari berbeda,
+-- dan yang salah justru yang dipakai menghitung elevasi.
+
+-- Orientasi disetel ulang dengan jarak yang sudah benar: 302,352° → 302,351°.
+-- Bedanya 0,001° — 2 cm pada prisma terjauh — tapi angka lama diturunkan dari
+-- jarak yang keliru, dan menyimpan turunan yang keliru mengundang orang
+-- menyimpulkan jaraknya memang segitu.
+UPDATE `t_site` SET `ha_orientasi_deg` = 302.351 WHERE `slug` = 'kolam_bpp';

@@ -6,10 +6,11 @@
  * Koordinat yang dikirim logger untuk site kolam_bpp dihitung dengan DUA
  * kesalahan yang bertumpuk pada sudut horizontalnya:
  *
- *   1. SATUAN. `sensor5` berisi HA dalam GON (lingkaran penuh 400), tapi
- *      dipakai seolah derajat. Faktor 0,9 hilang.
- *   2. TANDA. Sudutnya dikurangkan, bukan ditambahkan — piringannya seolah
- *      berputar berlawanan arah jarum jam.
+ *   1. SATUAN. `sensor5` (HA) dan `sensor6` (VA) berisi sudut dalam GON
+ *      (lingkaran penuh 400), tapi dipakai seolah derajat. Faktor 0,9 hilang
+ *      pada KEDUANYA.
+ *   2. TANDA. Sudut horizontalnya dikurangkan, bukan ditambahkan — piringannya
+ *      seolah berputar berlawanan arah jarum jam.
  *
  * Diukur dari enam prisma pada sesi acuan R0 (17 September 2026), dengan
  * koordinat sebenarnya dibaca dari "Peta Prisma Robotik BPP 1-4.pdf":
@@ -18,23 +19,38 @@
  *     yang benar   :  bearing = 0,9 × HA_gon + 302,49°   (rentang 1,00°)
  *
  * Akibatnya tiap prisma tergambar di sisi yang salah dari alat — DF_7 meleset
- * 1.824 m. Alat tidak bisa diperbaiki di lapangan, jadi koreksinya di sini.
+ * 1.824 m — jaraknya 0,7-2% terlalu pendek, dan elevasinya ngawur: alat
+ * melaporkan DF_7 di −176,7 m padahal seluruh area ini berada di 11-43 m.
+ * Alat tidak bisa diperbaiki di lapangan, jadi koreksinya di sini.
  *
- * ── Kenapa hanya bearing-nya yang diganti ───────────────────────────────────
+ * ── Semuanya dihitung ulang dari pengukuran mentah ──────────────────────────
  *
- * Jarak mendatar diturunkan dari SD dan VA; keduanya tidak menyentuh HA sama
- * sekali, jadi jarak yang direkam alat SUDAH benar — terbukti cocok dengan
- * SD·sin(VA) sampai 0,4–2,0 m. Elevasi juga tidak terpengaruh. Maka yang
- * diputar cuma arahnya, sementara jarak dan Z dibiarkan apa adanya.
+ * E, N, dan Z disusun ulang dari HA, VA, dan SD — bukan ditambal dari koordinat
+ * kiriman alat. Koordinat itu memuat kedua kesalahan di atas sekaligus, dan
+ * menambalnya sebagian berarti mewarisi sisanya:
  *
- * Ini bukan sekadar hemat: menghitung ulang jarak berarti mengganti seluruh
- * riwayat pergeseran dengan angka yang sedikit berbeda, padahal yang
- * dikeluhkan cuma arahnya. Dengan cara ini besar pergeseran radial tidak
- * bergerak satu milimeter pun.
+ *     jarak mendatar = SD · sin(VA_gon × 0,9°)
+ *     beda tinggi    = SD · cos(VA_gon × 0,9°)
+ *     azimut         = HA_gon × 0,9° + orientasi
+ *
+ * Versi pertama koreksi ini (17 September 2026, siang) cuma memutar bearing-nya
+ * dan MEMPERTAHANKAN jarak kiriman alat, dengan alasan jarak tidak menyentuh
+ * HA. Betul soal HA, tapi jaraknya lahir dari VA — yang ternyata salah satuan
+ * dengan cara yang sama. Sisa 7-28 m yang waktu itu saya kira ketidakpastian
+ * orientasi ternyata galat jarak; sesudah VA ikut dibetulkan sisanya turun jadi
+ * 2-11 m.
+ *
+ * ── Dua sumber yang membenarkannya, masing-masing berdiri sendiri ───────────
+ *
+ * Posisi mendatar cocok dengan peta survei PDF sampai 2-11 m. Elevasinya cocok
+ * dengan kontur DXF "Situasi_BPP_260731" — yang tidak ada hubungannya dengan
+ * peta itu maupun dengan alat — sampai +0,4 … +2,8 m, selalu SEDIKIT DI ATAS
+ * tanah. Prisma memang dipasang di tiang, jadi arah simpangannya pun masuk
+ * akal.
  *
  * ── Yang TIDAK bisa dijamin berkas ini ──────────────────────────────────────
  *
- * `orientasiDeg` (302,352°) diturunkan dari membaca posisi titik di PDF, teliti
+ * `orientasiDeg` (302,351°) diturunkan dari membaca posisi titik di PDF, teliti
  * sekitar ±0,5°. Pada prisma terjauh itu setara ±10 m posisi mutlak. Yang
  * TIDAK terpengaruh sama sekali adalah pengukuran deformasinya: konstanta yang
  * sama diputar ke setiap epoch, jadi selisih antar epoch tetap persis. Begitu
@@ -43,13 +59,25 @@
  */
 
 export interface KoreksiAzimut {
-  /** Pengali HA mentah menjadi derajat. 0,9 untuk gon, 1 untuk derajat. */
+  /**
+   * Pengali sudut mentah menjadi derajat. 0,9 untuk gon, 1 untuk derajat.
+   * Berlaku untuk HA MAUPUN VA — keduanya datang dalam satuan yang sama.
+   */
   faktorDerajat: number;
-  /** Ditambahkan sesudah dikalikan, derajat. Orientasi piringan ke grid. */
+  /** Ditambahkan ke HA sesudah dikalikan, derajat. Orientasi piringan ke grid. */
   orientasiDeg: number;
   /** Koordinat stasiun (RTS), meter UTM. */
   stasiunE: number;
   stasiunN: number;
+  stasiunZ: number;
+  /**
+   * Tinggi alat di atas titik stasiun, meter. Dari `config_adr.ts_high` —
+   * TIDAK disalin ke t_site, supaya tidak ada dua angka yang bisa berbeda.
+   *
+   * Hanya menggeser Z secara tetap, jadi tidak mempengaruhi deformasi sama
+   * sekali; yang dipengaruhinya cuma seberapa pas prisma duduk di atas kontur.
+   */
+  tinggiAlat: number;
 }
 
 /**
@@ -97,65 +125,53 @@ export function bacaSudut(v: unknown): number | null {
  * berbanding empat juta dan akibat salahnya jauh lebih murah daripada akibat
  * mempercayainya.
  */
-export function haKosong(haMentah: unknown): boolean {
-  const ha = bacaSudut(haMentah);
-  return ha === null || Math.abs(ha) < 1e-9;
+export function sudutKosong(mentah: unknown): boolean {
+  const a = bacaSudut(mentah);
+  return a === null || Math.abs(a) < 1e-9;
 }
 
-/** Jarak mendatar dan bearing sebuah titik dari stasiun. */
-function polar(E: number, N: number, k: KoreksiAzimut) {
-  const dE = E - k.stasiunE;
-  const dN = N - k.stasiunN;
-  return { jarak: Math.hypot(dE, dN), bearing: (Math.atan2(dE, dN) * 180) / Math.PI };
-}
+/** @deprecated nama lama; pakai sudutKosong(). */
+export const haKosong = sudutKosong;
 
 /**
- * Hitung ulang E/N satu tembakan dari HA mentahnya.
+ * Susun ulang E/N/Z satu tembakan dari pengukuran mentahnya.
  *
- * Mengembalikan null bila tembakannya tidak bisa dikoreksi — HA tidak terbaca
- * atau nol (lihat haKosong), koordinatnya nol (tembakan gagal), atau prismanya
- * tepat di atas alat. Null berarti "biarkan apa adanya", BUKAN "tulis nol":
- * menulis nol akan mengubah tembakan gagal jadi terlihat seperti prisma yang
- * pindah ke pangkal koordinat.
+ * Tidak memakai koordinat kiriman alat sama sekali — koordinat itu memuat
+ * kesalahan yang justru sedang dibetulkan. Yang dipakai cuma HA, VA, SD, dan
+ * koordinat stasiun.
+ *
+ * Mengembalikan null bila tembakannya tidak bisa dihitung: salah satu sudutnya
+ * tidak dilaporkan (lihat sudutKosong) atau jarak miringnya nol. Null berarti
+ * "biarkan barisnya apa adanya", BUKAN "tulis nol" — tembakan gagal yang
+ * ditulisi koordinat akan terlihat seperti prisma yang pindah ke pangkal
+ * koordinat.
  */
-export function perbaikiKoordinat(
-  E: number,
-  N: number,
+export function perbaikiTembakan(
   haMentah: unknown,
+  vaMentah: unknown,
+  sdMentah: unknown,
   k: KoreksiAzimut
-): { E: number; N: number } | null {
-  if (!Number.isFinite(E) || !Number.isFinite(N)) return null;
-  // Tembakan gagal tersimpan sebagai nol pada ketiga sumbu. Koordinat sah di
-  // sistem ini selalu ratusan ribu meter, jadi ambang longgar sudah cukup.
-  if (Math.abs(E) < 1 || Math.abs(N) < 1) return null;
+): { E: number; N: number; Z: number } | null {
+  if (sudutKosong(haMentah) || sudutKosong(vaMentah)) return null;
 
-  if (haKosong(haMentah)) return null;
   const ha = bacaSudut(haMentah) as number;
+  const va = bacaSudut(vaMentah) as number;
+  const sd = typeof sdMentah === "number" ? sdMentah : Number(String(sdMentah).replace(",", "."));
+  if (!Number.isFinite(sd) || sd <= 0) return null;
 
-  const { jarak } = polar(E, N, k);
-  if (!(jarak > 1e-6)) return null;
+  // VA adalah sudut ZENIT: 100 gon = mendatar. Jadi sin memberi jarak mendatar
+  // dan cos memberi beda tinggi — bukan sebaliknya.
+  const vaDeg = ((va * k.faktorDerajat) * Math.PI) / 180;
+  const jarak = sd * Math.sin(vaDeg);
+  const beda = sd * Math.cos(vaDeg);
+  if (!Number.isFinite(jarak) || !Number.isFinite(beda)) return null;
 
   const az = ((ha * k.faktorDerajat + k.orientasiDeg) * Math.PI) / 180;
   return {
     E: k.stasiunE + jarak * Math.sin(az),
     N: k.stasiunN + jarak * Math.cos(az),
+    Z: k.stasiunZ + k.tinggiAlat + beda,
   };
-}
-
-/**
- * Seberapa jauh koreksi memindahkan sebuah titik, meter.
- *
- * Dipakai skrip perbaikan untuk melaporkan dampaknya sebelum menulis apa pun.
- */
-export function jarakGeser(
-  E: number,
-  N: number,
-  haMentah: unknown,
-  k: KoreksiAzimut
-): number | null {
-  const baru = perbaikiKoordinat(E, N, haMentah, k);
-  if (!baru) return null;
-  return Math.hypot(baru.E - E, baru.N - N);
 }
 
 /**

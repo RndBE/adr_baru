@@ -82,7 +82,25 @@ export interface SiteConfig {
    * `scripts/perbaiki-azimut-rts.ts` untuk riwayat. Lihat
    * `@/lib/koreksi-azimut` untuk duduk perkaranya.
    */
-  koreksiAzimut: { faktorDerajat: number; orientasiDeg: number } | null;
+  koreksiAzimut: {
+    faktorDerajat: number;
+    orientasiDeg: number;
+    /**
+     * Tinggi alat di atas `rts_z`, meter. NOL untuk semua site sekarang.
+     *
+     * Godaannya mengambilnya dari `config_adr.ts_high`, yang untuk kolam_bpp
+     * berisi 10. Itu salah: `config_adr.coor_z` bernilai 38,813 — sama persis
+     * dengan `t_site.rts_z` — jadi rts_z memang SUDAH elevasi alatnya, bukan
+     * titik tanahnya. Menambahkan 10 lagi membuat keenam prisma mengambang
+     * 9-12 m di atas permukaan kontur hasil survei; tanpa tambahan apa pun
+     * mereka duduk di −0,6 … +1,8 m, rata-rata +0,1 m.
+     *
+     * Dibiarkan sebagai medan supaya modelnya terlihat, bukan tersembunyi
+     * sebagai asumsi. Site yang alatnya memang berdiri di atas titik tanahnya
+     * tinggal diberi kolomnya sendiri saat itu diperlukan.
+     */
+    tinggiAlat: number;
+  } | null;
   /** Null bila site tidak memerlukan koreksi rotasi. */
   rotation: SiteRotation | null;
   /** Kode logger yang melayani site ini. Null bila belum dipilih. */
@@ -244,7 +262,11 @@ export function toSiteConfig(row: SiteRow): SiteConfig {
     // dengan cara yang baru, bukan koordinat yang belum dikoreksi.
     koreksiAzimut:
       row.ha_faktor_derajat !== null && row.ha_orientasi_deg !== null
-        ? { faktorDerajat: row.ha_faktor_derajat, orientasiDeg: row.ha_orientasi_deg }
+        ? {
+            faktorDerajat: row.ha_faktor_derajat,
+            orientasiDeg: row.ha_orientasi_deg,
+            tinggiAlat: 0,
+          }
         : null,
     rotation: rotasiLengkap
       ? {

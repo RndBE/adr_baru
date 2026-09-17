@@ -3,7 +3,7 @@ import { waktuDbLokal } from "@/components/monitoring/format";
 import { prisma } from "@/lib/prisma";
 import { publishMqtt } from "@/lib/mqtt";
 import { getSite, offsetLogger } from "@/lib/sites";
-import { haKosong, perbaikiKoordinat, tulisKoordinat } from "@/lib/koreksi-azimut";
+import { sudutKosong, perbaikiTembakan, tulisKoordinat } from "@/lib/koreksi-azimut";
 import { sesiTerakhirLogger, sesiUntukSiklus } from "@/lib/log-kontrol";
 import { awalSiklus } from "@/lib/sesi-kontrol";
 import { evaluasiSiklus } from "@/lib/evaluasi-siklus";
@@ -184,85 +184,64 @@ export async function POST(request: NextRequest) {
     const siteAktif = sesi?.site ?? null;
     idLog = sesi?.idLog ?? "";
 
-    // ── Perbaikan azimut ────────────────────────────────────────────────────
+    // ── Perbaikan koordinat ─────────────────────────────────────────────────
     //
-    // Koordinat kiriman logger untuk kolam_bpp dihitung dengan HA yang salah
-    // satuan DAN salah tanda, sehingga tiap prisma mendarat di sisi yang salah
-    // dari alat — sampai 1.824 m. Alatnya tidak bisa diperbaiki di lapangan,
-    // jadi dibetulkan di sini. Duduk perkaranya: src/lib/koreksi-azimut.ts.
+    // Koordinat kiriman logger untuk kolam_bpp lahir dari HA dan VA yang salah
+    // satuan — keduanya gon, dipakai seolah derajat — dan HA-nya juga salah
+    // tanda. Akibatnya prisma mendarat di sisi yang salah dari alat (sampai
+    // 1.824 m), jaraknya 0,7-2% terlalu pendek, dan elevasinya ngawur: DF_7
+    // dilaporkan di −176,7 m padahal seluruh area ini berada di 11-43 m.
+    // Alatnya tidak bisa diperbaiki di lapangan. Lihat src/lib/koreksi-azimut.ts.
+    //
+    // E/N/Z disusun ULANG dari HA/VA/SD, bukan ditambal dari koordinat kiriman
+    // alat — koordinat itu memuat kesalahan yang justru sedang dibetulkan.
     //
     // Dikerjakan DI SINI, tepat sesudah site diketahui dan sebelum apa pun
-    // memakai sensor8/sensor9 — temp_prisma, siaran MQTT, `rts`, dan `temp_rts`
+    // memakai sensor8/9/10 — temp_prisma, siaran MQTT, `rts`, dan `temp_rts`
     // semuanya di bawah. Mengoreksinya belakangan berarti sebagian tabel
-    // menyimpan angka lama dan sebagian angka baru, dan beda itu baru ketahuan
-    // berbulan-bulan kemudian sebagai prisma yang melompat saat halaman ganti
-    // sumber data.
+    // menyimpan angka lama dan sebagian angka baru.
     //
-    // Site tanpa parameter koreksi (semua site selain kolam_bpp) lewat tanpa
-    // tersentuh — begitu juga tembakan gagal, yang koordinatnya nol.
+    // Site tanpa parameter koreksi lewat tanpa tersentuh, begitu juga tembakan
+    // gagal yang sudut atau jaraknya nol.
     if (siteAktif) {
       const cfg = await getSite(siteAktif);
       if (cfg.koreksiAzimut && cfg.rts) {
         // Sebagian kiriman adalah SALINAN tembakan yang sama tanpa membawa
-        // sudutnya: koordinatnya sah tapi sensor5 berisi "0". Sekitar 3% baris
-        // kolam_bpp berbentuk begitu. Tanpa sudut, koordinatnya tidak bisa
-        // dikoreksi — jadi sudutnya dipinjam dari baris saudara yang sudah
-        // masuk lebih dulu di sesi dan slot prisma yang sama.
-        //
-        // Query tambahan ini hanya jalan pada kiriman tanpa sudut, bukan pada
-        // setiap tembakan.
-        let ha: string | undefined = sensorData.sensor5 as string;
-        if (haKosong(ha) && idLog && sensorData.sensor1) {
-          const saudara = await prisma.$queryRaw<Array<{ sensor5: string }>>`
-            SELECT sensor5 FROM rts
+        // sudutnya: jarak miringnya sah tapi sensor5/sensor6 berisi "0".
+        // Sekitar 3% baris kolam_bpp berbentuk begitu. Sudutnya dipinjam dari
+        // baris saudara yang sudah masuk lebih dulu di sesi dan slot prisma
+        // yang sama. Query tambahan ini hanya jalan pada kiriman tanpa sudut.
+        let ha: unknown = sensorData.sensor5;
+        let va: unknown = sensorData.sensor6;
+        if ((sudutKosong(ha) || sudutKosong(va)) && idLog && sensorData.sensor1) {
+          const saudara = await prisma.$queryRaw<Array<{ sensor5: string; sensor6: string }>>`
+            SELECT sensor5, sensor6 FROM rts
             WHERE id_kontrol = ${idLog}
               AND sensor1 = ${String(sensorData.sensor1)}
               AND sensor5 NOT IN ('0', '000,00,00', '')
+              AND sensor6 NOT IN ('0', '000,00,00', '')
             ORDER BY id DESC LIMIT 1
           `;
-          ha = saudara[0]?.sensor5;
+          if (saudara[0]) {
+            if (sudutKosong(ha)) ha = saudara[0].sensor5;
+            if (sudutKosong(va)) va = saudara[0].sensor6;
+          }
         }
 
-        const baru = perbaikiKoordinat(
-          Number(sensorData.sensor8),
-          Number(sensorData.sensor9),
-          ha,
-          {
-            faktorDerajat: cfg.koreksiAzimut.faktorDerajat,
-            orientasiDeg: cfg.koreksiAzimut.orientasiDeg,
-            stasiunE: cfg.rts.E,
-            stasiunN: cfg.rts.N,
-          }
-        );
+        const baru = perbaikiTembakan(ha, va, sensorData.sensor7, {
+          faktorDerajat: cfg.koreksiAzimut.faktorDerajat,
+          orientasiDeg: cfg.koreksiAzimut.orientasiDeg,
+          tinggiAlat: cfg.koreksiAzimut.tinggiAlat,
+          stasiunE: cfg.rts.E,
+          stasiunN: cfg.rts.N,
+          stasiunZ: cfg.rts.Z,
+        });
         if (baru) {
           sensorData.sensor8 = tulisKoordinat(baru.E);
           sensorData.sensor9 = tulisKoordinat(baru.N);
+          sensorData.sensor10 = tulisKoordinat(baru.Z);
         }
       }
-    }
-
-    if (siklusMulai) {
-      console.log(
-        `[datamasuk/adr] siklus mulai di ${idAlat} → sesi ${idLog || "(gagal)"}` +
-          ` site=${siteAktif ?? "?"}` +
-          (sesi && "baru" in sesi && sesi.baru ? " (dibuka logger sendiri)" : " (sesi tombol Mulai)")
-      );
-    }
-
-    // Umumkan siklus yang dimulai logger sendiri, supaya halaman Kontrol ADR
-    // yang sedang terbuka langsung menunjukkan pengukuran sedang berjalan —
-    // tanpa ini operator cuma melihat kartu prisma sesi sebelumnya diam-diam
-    // berubah satu per satu. `site` dan `id_logger` ikut dikirim karena topik
-    // ini tidak ber-scope perangkat: tanpa keduanya, halaman yang sedang
-    // membuka site lain ikut menyala "Running".
-    if (siklusMulai && sesi && "baru" in sesi && sesi.baru) {
-      mqttKontrolSent = await publishMqtt(mqttKontrolTopic, {
-        status: "1",
-        datetime: waktu,
-        site: siteAktif,
-        id_logger: idAlat,
-        dipicu: "logger",
-      });
     }
 
     if (sensorData.sensor1) {
