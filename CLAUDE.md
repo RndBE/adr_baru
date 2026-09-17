@@ -38,6 +38,7 @@ npx tsx src/components/monitoring/derive.test.ts  # "gagal ditembak" vs "tidak b
 npx tsx src/components/monitoring/gabungan.test.ts  # analisa gabungan beberapa prisma
 npx tsx src/components/visualisasi-3d/basemap.test.ts  # georeferensi ortofoto di scene 3D
 npx tsx src/components/peta-arah.test.ts     # arah panah pergeseran di peta
+npx tsx src/lib/koreksi-azimut.test.ts      # perbaikan azimut koordinat tembakan RTS
 npx tsx scripts/regresi-protokol-rts.ts     # same style, protocol regression suite
 npx tsx scripts/regresi-balasan-logger.ts
 npx tsx scripts/regresi-site.ts
@@ -109,6 +110,24 @@ Every row `kolam_bpp` has ever written holds **`sensor8` = Easting (~464 000), `
 `PROTOKOL_MQTT_ADR` section F says the reverse, and eight read sites follow the doc rather than the data. **`/api/deformasi` and `/api/analisa-gabungan` have been corrected** (Sep 2026). Still labelled backwards: `log-kontrol`, `kontrol/dashboard`, `export-excel`, `evaluasi-siklus`, `prism-config`, `rekap-data`, `lib/deformasi.ts`.
 
 Displacement *magnitudes* are unaffected — `sqrt(DE²+DN²+DZ²)` is the same either way, so thresholds and alerts have always been right, and `kirim-peringatan.ts` never mentions a direction. What the swap corrupts is anything *directional*: the `N`/`E` column headers, `arah8ID()` bearings, and `utm2ll()` lat/lng. Before fixing another site, check which convention the swap has already been applied at — fixing it twice puts it back.
+
+#### The recorded coordinates are computed from the horizontal angle **wrong**
+
+Two compounding bugs on `rts.sensor5` (HA), confirmed 17 Sep 2026 against the field survey map `Peta Prisma Robotik BPP 1-4.pdf`:
+
+1. **Unit** — HA is in **gon** (400 to a circle) but is used as if degrees. The ×0.9 is missing.
+2. **Sign** — the angle is subtracted instead of added.
+
+```
+what the logger records :  bearing = 89.70° − HA_gon         (spread 0.61°)
+what is actually true   :  bearing = 0.9 × HA_gon + 302.49°  (spread 1.00°)
+```
+
+Every prism therefore lands on the wrong side of the instrument — DF_7 by 1 824 m. The instrument cannot be fixed in the field, so the correction lives in `src/lib/koreksi-azimut.ts`, parameterised per site by `t_site.ha_faktor_derajat` / `ha_orientasi_deg` (migration `015`). `/api/datamasuk/adr` applies it before anything touches `sensor8`/`sensor9`; `scripts/perbaiki-azimut-rts.ts` repairs history.
+
+Only the **bearing** is rewritten. Horizontal distance and elevation come from SD and VA, which never touch HA, and are already right — so radial displacement magnitudes, thresholds and alert history are unchanged. The correction recomputes the azimuth from raw HA rather than rotating, which makes it **idempotent**: re-running it is a no-op.
+
+`ha_orientasi_deg` (302.352°) was derived by reading marker positions off that PDF, good to about ±0.5° — ±10 m of absolute position at the farthest prism. That error is a constant rotation applied to every epoch identically, so it cancels completely out of deformation. Replace the one number in `t_site` once a surveyed backsight azimuth exists; no code changes.
 
 ### Single sources of truth
 

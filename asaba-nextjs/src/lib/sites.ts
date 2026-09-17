@@ -75,6 +75,14 @@ export interface SiteConfig {
   map: { lat: number; lng: number; zoom: number } | null;
   /** Ortofoto untuk Visualisasi 3D. Null bila site ini belum punya. */
   basemap: SiteBasemap | null;
+  /**
+   * Perbaikan azimut tembakan RTS. Null bila site ini tidak memerlukannya.
+   *
+   * Dipakai `/api/datamasuk/adr` saat data masuk dan oleh
+   * `scripts/perbaiki-azimut-rts.ts` untuk riwayat. Lihat
+   * `@/lib/koreksi-azimut` untuk duduk perkaranya.
+   */
+  koreksiAzimut: { faktorDerajat: number; orientasiDeg: number } | null;
   /** Null bila site tidak memerlukan koreksi rotasi. */
   rotation: SiteRotation | null;
   /** Kode logger yang melayani site ini. Null bila belum dipilih. */
@@ -111,6 +119,7 @@ export function fallbackSite(slug: string): SiteConfig {
     utm: { zone: 50, north: true },
     map: null,
     basemap: null,
+    koreksiAzimut: null,
     rotation: null,
     idLogger: null,
     terkalibrasi: false,
@@ -151,6 +160,8 @@ type SiteRow = {
   basemap_min_n: number | null;
   basemap_max_n: number | null;
   basemap_z: number | null;
+  ha_faktor_derajat: number | null;
+  ha_orientasi_deg: number | null;
   rotasi_deg: number | null;
   pivot_e: number | null;
   pivot_n: number | null;
@@ -227,6 +238,13 @@ export function toSiteConfig(row: SiteRow): SiteConfig {
             maxN: row.basemap_max_n as number,
             z: row.basemap_z,
           }
+        : null,
+    // Koreksi azimut menuntut KEDUA angkanya. Satu saja terisi berarti
+    // separuh rumus — dan separuh rumus menghasilkan koordinat yang keliru
+    // dengan cara yang baru, bukan koordinat yang belum dikoreksi.
+    koreksiAzimut:
+      row.ha_faktor_derajat !== null && row.ha_orientasi_deg !== null
+        ? { faktorDerajat: row.ha_faktor_derajat, orientasiDeg: row.ha_orientasi_deg }
         : null,
     rotation: rotasiLengkap
       ? {

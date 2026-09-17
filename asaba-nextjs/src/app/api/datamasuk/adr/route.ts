@@ -2,7 +2,8 @@ import { NextRequest, NextResponse, after } from "next/server";
 import { waktuDbLokal } from "@/components/monitoring/format";
 import { prisma } from "@/lib/prisma";
 import { publishMqtt } from "@/lib/mqtt";
-import { offsetLogger } from "@/lib/sites";
+import { getSite, offsetLogger } from "@/lib/sites";
+import { perbaikiKoordinat, tulisKoordinat } from "@/lib/koreksi-azimut";
 import { sesiTerakhirLogger, sesiUntukSiklus } from "@/lib/log-kontrol";
 import { awalSiklus } from "@/lib/sesi-kontrol";
 import { evaluasiSiklus } from "@/lib/evaluasi-siklus";
@@ -182,6 +183,43 @@ export async function POST(request: NextRequest) {
     // meng-update berdasarkan id_prisma saja akan menimpa baris milik site lain.
     const siteAktif = sesi?.site ?? null;
     idLog = sesi?.idLog ?? "";
+
+    // ── Perbaikan azimut ────────────────────────────────────────────────────
+    //
+    // Koordinat kiriman logger untuk kolam_bpp dihitung dengan HA yang salah
+    // satuan DAN salah tanda, sehingga tiap prisma mendarat di sisi yang salah
+    // dari alat — sampai 1.824 m. Alatnya tidak bisa diperbaiki di lapangan,
+    // jadi dibetulkan di sini. Duduk perkaranya: src/lib/koreksi-azimut.ts.
+    //
+    // Dikerjakan DI SINI, tepat sesudah site diketahui dan sebelum apa pun
+    // memakai sensor8/sensor9 — temp_prisma, siaran MQTT, `rts`, dan `temp_rts`
+    // semuanya di bawah. Mengoreksinya belakangan berarti sebagian tabel
+    // menyimpan angka lama dan sebagian angka baru, dan beda itu baru ketahuan
+    // berbulan-bulan kemudian sebagai prisma yang melompat saat halaman ganti
+    // sumber data.
+    //
+    // Site tanpa parameter koreksi (semua site selain kolam_bpp) lewat tanpa
+    // tersentuh — begitu juga tembakan gagal, yang koordinatnya nol.
+    if (siteAktif) {
+      const cfg = await getSite(siteAktif);
+      if (cfg.koreksiAzimut && cfg.rts) {
+        const baru = perbaikiKoordinat(
+          Number(sensorData.sensor8),
+          Number(sensorData.sensor9),
+          sensorData.sensor5,
+          {
+            faktorDerajat: cfg.koreksiAzimut.faktorDerajat,
+            orientasiDeg: cfg.koreksiAzimut.orientasiDeg,
+            stasiunE: cfg.rts.E,
+            stasiunN: cfg.rts.N,
+          }
+        );
+        if (baru) {
+          sensorData.sensor8 = tulisKoordinat(baru.E);
+          sensorData.sensor9 = tulisKoordinat(baru.N);
+        }
+      }
+    }
 
     if (siklusMulai) {
       console.log(

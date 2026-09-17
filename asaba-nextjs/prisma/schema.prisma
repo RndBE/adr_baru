@@ -574,6 +574,16 @@ model Site {
   /// elevasi tanahnya disurvei.
   basemap_z          Float?
 
+  /// Perbaikan azimut tembakan RTS. Lihat prisma/migrations/015_koreksi_azimut.sql
+  /// dan src/lib/koreksi-azimut.ts.
+  ///
+  ///     azimut_benar = rts.sensor5 × ha_faktor_derajat + ha_orientasi_deg
+  ///
+  /// Keduanya null = tidak ada koreksi; koordinat dipakai apa adanya.
+  /// 0,9 untuk HA dalam gon, 1 untuk HA yang memang sudah derajat.
+  ha_faktor_derajat  Float?
+  ha_orientasi_deg   Float?
+
   // Rotasi koordinat. Null = tidak ada koreksi rotasi untuk site ini.
   rotasi_deg Float?
   pivot_e    Float?
