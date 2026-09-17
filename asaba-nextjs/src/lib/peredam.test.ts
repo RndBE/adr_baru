@@ -88,16 +88,52 @@ function jalankan(
   cek("selingan memutus hitungan -> belum ada pesan", pesan.length, 0);
 }
 
-// ── Waspada di bawah ambang kirim: diakui, tidak dikirim ─────────────────────
+// ── Waspada IKUT dikirim sejak 17 September 2026 ─────────────────────────────
+//
+// Bawaannya dulu "Siaga", dan uji ini dulu menegaskan Waspada TIDAK dikirim.
+// Keputusan operasional mengubahnya: yang ingin diketahui adalah saat keadaan
+// mulai meninggalkan Normal, bukan cuma saat sudah gawat.
 {
   const { pesan, alasan, keadaan } = jalankan([
     { mm: 60, menit: 0 },
     { mm: 62, menit: 15 },
     { mm: 61, menit: 30 },
   ]);
-  cek("Waspada tidak dikirim", pesan.length, 0);
-  cek("tapi tingkatnya tetap diakui", keadaan.tingkat, "Waspada");
-  cek("alasannya jelas", alasan[2], "di-bawah-ambang-kirim");
+  cek("Waspada dikirim", pesan.length, 1);
+  cek("tingkatnya diakui", keadaan.tingkat, "Waspada");
+  cek("tidak ada alasan diam pada siklus ketiga", alasan[2], "KIRIM");
+}
+
+// Jalur "di-bawah-ambang-kirim" tetap ada dan tetap diuji — sekarang lewat
+// kebijakan yang disetel tegas, supaya perilakunya tidak hilang dari jaring
+// pengaman hanya karena bawaannya berubah.
+{
+  const { pesan, alasan, keadaan } = jalankan(
+    [
+      { mm: 60, menit: 0 },
+      { mm: 62, menit: 15 },
+      { mm: 61, menit: 30 },
+    ],
+    { kirimMulaiDari: "Siaga" }
+  );
+  cek("dengan ambang Siaga: Waspada didiamkan", pesan.length, 0);
+  cek("dengan ambang Siaga: tingkat tetap diakui", keadaan.tingkat, "Waspada");
+  cek("dengan ambang Siaga: alasannya jelas", alasan[2], "di-bawah-ambang-kirim");
+}
+
+// Pulih ikut melebar: kembali ke Normal dari Waspada kini dikabarkan, karena
+// `pulih` diukur terhadap ambang kirim yang sama.
+{
+  const { pesan } = jalankan([
+    { mm: 60, menit: 0 },
+    { mm: 62, menit: 15 },
+    { mm: 61, menit: 30 },
+    { mm: 10, menit: 90 },
+    { mm: 11, menit: 105 },
+    { mm: 12, menit: 120 },
+  ]);
+  cek("naik ke Waspada lalu pulih ke Normal: dua pesan", pesan.length, 2);
+  cek("pesan kedua adalah pulih", pesan[1] && `${pesan[1].dari}->${pesan[1].ke}`, "Waspada->Normal");
 }
 
 // ── Jeda menahan pesan kedua ─────────────────────────────────────────────────

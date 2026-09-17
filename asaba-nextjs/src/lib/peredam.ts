@@ -74,11 +74,28 @@ export interface KebijakanPeredam {
  * siklus adalah satu kali seluruh prisma ditembak ulang, dan itulah satuan
  * "bacaan berturut-turut" yang sebenarnya. Akibatnya perlu disadari: pada
  * `track_every` 60 menit, tiga siklus berarti peringatan tertunda tiga jam.
+ *
+ * `kirimMulaiDari` semula "Siaga" — hanya dua tingkat teratas yang dikabarkan,
+ * dengan alasan Waspada masih jauh dari keadaan yang menuntut tindakan. Diubah
+ * ke "Waspada" pada 17 September 2026 atas keputusan operasional: yang ingin
+ * diketahui bukan cuma saat keadaannya sudah gawat, melainkan saat ia MULAI
+ * meninggalkan Normal.
+ *
+ * Yang berubah karena itu ada dua, dan keduanya disengaja. Volume naik — pada
+ * site berambang 35/80/150 mm, tingkat Waspada mulai di 35 mm, jauh lebih sering
+ * tersentuh daripada 80 mm. Dan pesan PULIH ikut melebar: kembali ke Normal dari
+ * Waspada sekarang dikabarkan juga, karena `pulih` diukur terhadap ambang yang
+ * sama. Itu memang yang diinginkan — kalau kenaikan ke Waspada dikabarkan,
+ * penerimanya berhak tahu kapan ia selesai.
+ *
+ * Yang TIDAK ikut longgar: konfirmasi tiga siklus dan jeda 30 menit tetap
+ * berlaku. Keduanya yang menahan volume, bukan ambang kirim — batas 48 pesan
+ * per hari per prisma tetap terkunci.
  */
 export const KEBIJAKAN_BAWAAN: KebijakanPeredam = {
   konfirmasiSiklus: 3,
   jedaMs: 30 * 60 * 1000,
-  kirimMulaiDari: "Siaga",
+  kirimMulaiDari: "Waspada",
   histeresisRasio: 0.1,
 };
 
