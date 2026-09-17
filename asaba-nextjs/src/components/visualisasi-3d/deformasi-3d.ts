@@ -312,17 +312,37 @@ export function gambarScene(
   // urutan trace, jadi menaruhnya di belakang tidak membuatnya menimpa prisma.
   if (opsi.basemap) traces.push(opsi.basemap);
 
-  const rentang = (a: number[], b: number[]) => {
+  /**
+   * Jangkauan tiap sumbu DITENTUKAN SENDIRI, tidak diserahkan ke Plotly.
+   *
+   * `aspectratio` cuma mengatur bentuk kotaknya; jangkauan sumbunya dihitung
+   * Plotly dari seluruh data — termasuk kerucut pergeseran, yang `sizeref`-nya
+   * ikut membesar bersama pergeseran terbesar. Satu prisma dengan pergeseran
+   * palsu 190 m karena itu meregangkan sumbu Z sampai 150 m, padahal tanahnya
+   * cuma 29 m. Reliefnya lalu tinggal seperlima tinggi kotak, dan pengali
+   * "Tinggi ×" kehilangan artinya tanpa satu pun tanda di layar.
+   *
+   * Dengan jangkauan yang dipatok, rasio kotak dan isinya bicara tentang angka
+   * yang sama: pengali 5 benar-benar berarti lima kali.
+   */
+  const batas = (a: number[], b: number[]) => {
     let lo = Infinity, hi = -Infinity;
     for (const v of a) { if (v < lo) lo = v; if (v > hi) hi = v; }
     for (const v of b) { if (v < lo) lo = v; if (v > hi) hi = v; }
-    return Number.isFinite(lo) && hi > lo ? hi - lo : 1;
+    if (!Number.isFinite(lo) || !(hi > lo)) return { lo: 0, hi: 1, d: 1 };
+    // Sedikit kelonggaran supaya titik terluar dan mawar arah tidak terpotong
+    // tepat di tepi kotak.
+    const pad = (hi - lo) * 0.03;
+    return { lo: lo - pad, hi: hi + pad, d: hi - lo + 2 * pad };
   };
   const kZ = Number.isFinite(opsi.lebihTinggi) && (opsi.lebihTinggi as number) > 0
     ? (opsi.lebihTinggi as number) : 1;
-  const dx = rentang(allX, bmX);
-  const dy = rentang(allY, bmY);
-  const dz = rentang(allZ, bmZ) * kZ;
+  const bx = batas(allX, bmX);
+  const by = batas(allY, bmY);
+  const bz = batas(allZ, bmZ);
+  const dx = bx.d;
+  const dy = by.d;
+  const dz = bz.d * kZ;
   const terbesar = Math.max(dx, dy, dz);
 
   Plotly.newPlot(
@@ -342,16 +362,19 @@ export function gambarScene(
       scene: {
         xaxis: {
           title: "Easting (E)",
+          range: [bx.lo, bx.hi],
           titlefont: { color: "#0f172a" },
           tickfont: { color: "#0f172a" },
         },
         yaxis: {
           title: "Northing (N/Y)",
+          range: [by.lo, by.hi],
           titlefont: { color: "#0f172a" },
           tickfont: { color: "#0f172a" },
         },
         zaxis: {
           title: "Elevation (Z)",
+          range: [bz.lo, bz.hi],
           titlefont: { color: "#0f172a" },
           tickfont: { color: "#0f172a" },
         },
