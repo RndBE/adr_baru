@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import {
   CartesianGrid,
   Line,
@@ -11,10 +11,15 @@ import {
   XAxis,
   YAxis,
 } from "recharts";
-import { Loader2 } from "lucide-react";
+import { Download, Loader2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { fmt, fmtSelisih } from "./format";
 import { fmtTick, fmtWaktuPenuh } from "./prism-history";
+import { cariSvgRecharts, svgKePng } from "@/lib/grafik-ke-png";
+import {
+  buatExcelAnalisaGabungan,
+  namaBerkasGabungan,
+} from "@/lib/excel-analisa-gabungan";
 import { StatusDot } from "./panel";
 import { WARNA_STATUS, statusTerburuk, type AmbangSite, type StatusLabel } from "./status";
 import type { PrismaRingkas } from "./derive";
@@ -321,6 +326,9 @@ export function AnalisaGabungan({
   loading,
   kosong,
   perJam,
+  namaSite,
+  rentangTeks,
+  r0Teks,
   onBukaPrisma,
 }: {
   prisma: PrismaRentang[];
@@ -331,8 +339,15 @@ export function AnalisaGabungan({
   /** Belum ada rentang yang dimuat sama sekali. */
   kosong: boolean;
   perJam: boolean;
+  /** Dipakai judul & nama berkas Excel. */
+  namaSite: string;
+  rentangTeks: string;
+  r0Teks: string | null;
   onBukaPrisma?: (nama: string) => void;
 }) {
+  const refGrafik = useRef<HTMLDivElement>(null);
+  const [mengunduh, setMengunduh] = useState(false);
+  const [unduhError, setUnduhError] = useState("");
   const [basis, setBasis] = useState<BasisGabungan>("akhir");
   const { ringkas, seri: seriBasis } = useMemo(
     () => olahRentang(prisma, basis, ambang),
@@ -372,6 +387,45 @@ export function AnalisaGabungan({
       else baru.add(id);
       return baru;
     });
+
+  const unduhExcel = async () => {
+    if (!hasil) return;
+    setMengunduh(true);
+    setUnduhError("");
+    try {
+      // Grafiknya diambil dari SVG yang sedang tampil, jadi gambar di berkas
+      // persis sama dengan yang dilihat operator saat menekan Unduh — termasuk
+      // prisma mana yang sedang dipilih dan basis mana yang sedang aktif.
+      const svg = cariSvgRecharts(refGrafik.current);
+      const grafik = svg ? await svgKePng(svg) : null;
+      const blob = await buatExcelAnalisaGabungan({
+        namaSite,
+        rentangTeks,
+        basis,
+        labelBasis: BASIS.find((b) => b.id === basis)?.label ?? basis,
+        r0Teks,
+        perJam,
+        hasil,
+        seri,
+        bacaan: BACAAN[hasil.pola],
+        grafik,
+        waktuBaris: seri.baris.map((b) => fmtWaktuPenuh(b.ts, { detik: false })),
+      });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = namaBerkasGabungan(kunci || namaSite, rentangTeks);
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    } catch (e) {
+      console.error("[unduh Excel gabungan]", e);
+      setUnduhError("Berkas Excel gagal dibuat. Coba lagi.");
+    } finally {
+      setMengunduh(false);
+    }
+  };
 
   if (loading && prisma.length === 0) {
     return (
@@ -484,12 +538,32 @@ export function AnalisaGabungan({
             </button>
           ))}
         </div>
+        <button
+          type="button"
+          onClick={unduhExcel}
+          disabled={!hasil || mengunduh}
+          title={
+            hasil
+              ? "Unduh ringkasan, grafik, dan deret angkanya sebagai Excel"
+              : "Tidak ada yang bisa diunduh"
+          }
+          className="order-last ml-auto inline-flex h-9 cursor-pointer items-center gap-2 rounded-[9px] bg-white px-3.5 text-[13px] font-semibold text-(--ink-2) outline-none ring-1 ring-(--line) transition-colors hover:text-(--ink) focus-visible:ring-2 focus-visible:ring-(--navy)/50 disabled:cursor-not-allowed disabled:opacity-50 sm:order-none"
+        >
+          {mengunduh ? <Loader2 className="size-4 animate-spin" /> : <Download className="size-4" />}
+          Unduh Excel
+        </button>
         <p className="min-w-0 flex-1 text-[11.5px] leading-snug text-(--ink-3)">
           {akhir
             ? "Diukur dari acuan R0, jadi sebanding dengan ambang bahaya site."
             : "Selisih posisi antara awal dan akhir rentang. Ambang pergeseran TIDAK dipakai di sini — ambang itu untuk jarak total dari R0, bukan untuk gerak dalam satu jendela. Yang dinilai hanya lajunya."}
         </p>
       </div>
+
+      {unduhError && (
+        <p className="mx-5 mt-3 rounded-[10px] border border-red-200 bg-red-50 px-3.5 py-2.5 text-[12.5px] text-red-800">
+          {unduhError}
+        </p>
+      )}
 
       {!hasil ? (
         <p className="px-6 py-16 text-center text-[13px] text-(--ink-3)">
@@ -630,7 +704,7 @@ export function AnalisaGabungan({
               </p>
             ) : (
               <>
-                <div className="mt-2">
+                <div className="mt-2" ref={refGrafik}>
                   <ResponsiveContainer width="100%" height={288}>
                     <LineChart data={seri.baris} margin={{ top: 12, right: 16, left: 0, bottom: 4 }}>
                       <CartesianGrid stroke="var(--line)" vertical={false} />

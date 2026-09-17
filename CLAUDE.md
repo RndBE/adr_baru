@@ -36,6 +36,7 @@ npx tsx src/lib/status-rts.test.ts          # plain assert script, exits 1 on fa
 npx tsx src/lib/kirim-peringatan.test.ts    # penerima, subjek, dan badan pesan peringatan
 npx tsx src/components/monitoring/derive.test.ts  # "gagal ditembak" vs "tidak bergerak"
 npx tsx src/components/monitoring/gabungan.test.ts  # analisa gabungan beberapa prisma
+npx tsx src/lib/grafik-ke-png.test.ts        # var(--...) diselesaikan sebelum SVG dirasterkan
 npx tsx src/components/visualisasi-3d/basemap.test.ts  # georeferensi ortofoto di scene 3D
 npx tsx src/components/peta-arah.test.ts     # arah panah pergeseran di peta
 npx tsx src/lib/koreksi-azimut.test.ts      # perbaikan azimut koordinat tembakan RTS

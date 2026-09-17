@@ -101,6 +101,9 @@ function AnalisaGabunganContent() {
     }
   }
 
+  const rentangTeks = `${fmtTanggalPendek(rentang.dari)} ${rentang.jamDari} – ${fmtTanggalPendek(
+    rentang.sampai
+  )} ${rentang.jamSampai}`;
   const dariStr = stempelDb(rentang.dari, rentang.jamDari, "awal");
   const sampaiStr = stempelDb(rentang.sampai, rentang.jamSampai, "akhir");
 
@@ -111,6 +114,8 @@ function AnalisaGabunganContent() {
   const daftarPrisma = (hasil?.prisma ?? []) as PrismaRentang[];
   const peringatanSite = site ? siteBadge(site).peringatan : null;
   const dibuang = hasil?.dibuang;
+  const r0Tanggal = hasil?.r0?.waktu ? tanggalDari(hasil.r0.waktu) : null;
+  const r0Teks = r0Tanggal ? fmtTanggalPendek(r0Tanggal) : null;
 
   const gantiSite = (slug: string) => {
     setSitePilihan(slug);
@@ -198,15 +203,8 @@ function AnalisaGabunganContent() {
         <Panel className="rise-in min-w-0">
           <PanelHeader title="Analisa gabungan">
             <Chip>{siteAktif?.nama ?? (site ? site.toUpperCase() : "—")}</Chip>
-            <Chip mono>
-              {fmtTanggalPendek(rentang.dari)} {rentang.jamDari} – {fmtTanggalPendek(rentang.sampai)}{" "}
-              {rentang.jamSampai}
-            </Chip>
-            {hasil?.r0?.waktu && (
-              <span>
-                acuan R0 {fmtTanggalPendek(tanggalDari(hasil.r0.waktu) ?? new Date())}
-              </span>
-            )}
+            <Chip mono>{rentangTeks}</Chip>
+            {r0Teks && <span>acuan R0 {r0Teks}</span>}
             {hasil?.terpotong && (
               <span className="text-amber-700">
                 data dipotong di batas baris — persempit rentangnya
@@ -242,6 +240,9 @@ function AnalisaGabunganContent() {
               loading={isLoading}
               kosong={!site}
               perJam={!!hasil?.per_jam}
+              namaSite={siteAktif?.nama ?? (site ? site.toUpperCase() : "—")}
+              rentangTeks={rentangTeks}
+              r0Teks={r0Teks}
             />
           </div>
         </Panel>
