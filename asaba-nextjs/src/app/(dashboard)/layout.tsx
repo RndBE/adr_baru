@@ -18,6 +18,9 @@ import { usePathname } from "next/navigation";
  */
 const pageTitles: Record<string, string> = {
   "/beranda": "Dashboard",
+  // HARUS di atas "/analisa": pencocokannya startsWith dan berhenti pada yang
+  // pertama cocok, jadi "/analisa" akan menelan "/analisa-gabungan".
+  "/analisa-gabungan": "Analisa Gabungan",
   "/analisa": "Analisa",
   "/monitoring": "Monitoring",
   // "/master-data" harus di atas "/masterdata"? Tidak — keduanya string
@@ -69,7 +72,7 @@ export default function DashboardLayout({
     "/hasil-pengukuran",
   ];
   /** Cocok PERSIS, bukan berawalan — sub-rutenya (bila ada) belum mengatur gutter sendiri. */
-  const RUTE_FULL_BLEED_PERSIS = ["/prism-config", "/visualisasi-3d"];
+  const RUTE_FULL_BLEED_PERSIS = ["/prism-config", "/visualisasi-3d", "/analisa-gabungan"];
   const fullBleed =
     RUTE_FULL_BLEED_PERSIS.includes(pathname) ||
     RUTE_FULL_BLEED.some((r) => pathname.startsWith(r));

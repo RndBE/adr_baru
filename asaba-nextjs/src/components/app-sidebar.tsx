@@ -4,7 +4,8 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { signOut } from "next-auth/react";
 import Image from "next/image";
-import { LogOut, Settings2 } from "lucide-react";
+import { LogOut, Settings2, Combine
+} from "lucide-react";
 import {
   Sidebar,
   SidebarContent,
@@ -175,6 +176,11 @@ const navGroups: { label: string; items: NavItem[] }[] = [
         title: "Hasil Pengukuran",
         href: "/hasil-pengukuran",
         icon: (active) => <MaskIcon basePath="/hasil_pengukuran" className={ICON_CLASS} isActive={active} />,
+      },
+      {
+        title: "Analisa Gabungan",
+        href: "/analisa-gabungan",
+        icon: () => <Combine className={ICON_CLASS} strokeWidth={1.6} />,
       },
       {
         title: "Visualisasi 3D",

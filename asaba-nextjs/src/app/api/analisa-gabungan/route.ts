@@ -141,8 +141,17 @@ export async function GET(request: NextRequest) {
     for (const b of barisR0) {
       const id = String(b.sensor1);
       if (acuan.has(id)) continue; // yang paling awal, sama dengan /api/deformasi
-      let N = nfloat(b.sensor8);
-      let E = nfloat(b.sensor9);
+      // sensor8 = EASTING, sensor9 = NORTHING — kebalikan dari PROTOKOL_MQTT_ADR
+      // bagian F, tapi sesuai isi tabelnya. Lihat catatan panjang di
+      // /api/deformasi dan di CLAUDE.md: Easting UTM selalu 160.000-834.000,
+      // jadi sensor9 yang bernilai ~9.748.000 tidak mungkin Easting.
+      //
+      // Besaran pergeseran tidak terpengaruh — hypot simetris — tapi SELURUH
+      // keluaran arah halaman ini terpengaruh: bearing resultan, beda arah tiap
+      // prisma, dan denah vektornya. Tertukar berarti kompasnya tercermin pada
+      // diagonal timur laut, dan operator diberi tahu arah gerak yang salah.
+      let E = nfloat(b.sensor8);
+      let N = nfloat(b.sensor9);
       const Z = nfloat(b.sensor10);
       // Acuan yang seluruh sumbunya nol bukan acuan — prisma itu tidak pernah
       // benar-benar terbidik pada sesi R0, dan memakainya akan menghasilkan
@@ -170,8 +179,8 @@ export async function GET(request: NextRequest) {
       perJam
         ? `SELECT sensor1,
                   DATE_FORMAT(waktu, '%Y-%m-%d %H:00:00') AS t,
-                  AVG(CAST(sensor8 AS DECIMAL(20,6))) AS n,
-                  AVG(CAST(sensor9 AS DECIMAL(20,6))) AS e,
+                  AVG(CAST(sensor8 AS DECIMAL(20,6))) AS e,
+                  AVG(CAST(sensor9 AS DECIMAL(20,6))) AS n,
                   AVG(CAST(sensor10 AS DECIMAL(20,6))) AS z
            FROM rts
            WHERE sensor1 IN (${slot}) AND waktu >= ? AND waktu <= ? ${SAH} ${kondisiLogger}
@@ -184,7 +193,7 @@ export async function GET(request: NextRequest) {
           // dua mode jadi mengirim bentuk stempel yang berbeda untuk data yang
           // sama, dan jam dindingnya bergantung pada mesin yang menjalankan.
           `SELECT sensor1, DATE_FORMAT(waktu, '%Y-%m-%d %H:%i:%s') AS t,
-                  sensor8 AS n, sensor9 AS e, sensor10 AS z
+                  sensor8 AS e, sensor9 AS n, sensor10 AS z
            FROM rts
            WHERE sensor1 IN (${slot}) AND waktu >= ? AND waktu <= ? ${SAH} ${kondisiLogger}
            ORDER BY waktu ASC

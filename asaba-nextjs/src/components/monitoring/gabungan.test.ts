@@ -15,10 +15,12 @@
  */
 import {
   gabungkanPrisma,
+  olahRentang,
   selisihArah,
   seriGabungan,
   TOLERANSI_RUNNING_MS,
 } from "./gabungan";
+import type { AmbangSite } from "@/lib/ambang";
 import type { PrismaRingkas } from "./derive";
 
 let gagal = 0;
@@ -203,6 +205,70 @@ function prisma(
   ]);
   cek("stempel/nilai rusak dibuang, bukan jadi titik nol", s.baris.length, 0);
 }
+
+// ── Rentang waktu: dua basis membaca data yang sama ─────────────────────────
+
+const AMBANG_R: AmbangSite = {
+  geser: { normalMax: 35, waspadaMax: 80, siagaMax: 150 },
+  laju: { waspadaMin: 40, siagaMin: 80, awasMin: 120 },
+};
+
+// Satu prisma yang sudah 100 mm dari R0 di awal jendela, lalu bergerak 12 mm
+// lagi ke timur selama 6 jam. Dua pertanyaan berbeda atas data yang sama.
+const RENTANG = [
+  {
+    id_prisma: "P1",
+    nama_prisma: "DF_1",
+    acuan_sah: true,
+    titik: [
+      { t: "2026-09-17 06:00:00", dnMm: 0, deMm: 100, dzMm: 0 },
+      { t: "2026-09-17 09:00:00", dnMm: 0, deMm: 106, dzMm: 0 },
+      { t: "2026-09-17 12:00:00", dnMm: 0, deMm: 112, dzMm: 0 },
+    ],
+  },
+];
+
+{
+  const { ringkas, seri } = olahRentang(RENTANG, "akhir", AMBANG_R);
+  dekat("basis akhir: pergeseran dari R0", ringkas[0].geserMm, 112);
+  // 112 mm: di atas ambang waspada 80, di bawah awas 150.
+  cek("basis akhir: dinilai dengan ambang pergeseran", ringkas[0].status, "Siaga");
+  cek("basis akhir: grafik mengukur dari R0", seri[0].seri.map((t) => t.mm), [100, 106, 112]);
+}
+
+{
+  const { ringkas, seri } = olahRentang(RENTANG, "selama", AMBANG_R);
+  dekat("basis selama: gerak dalam jendela saja", ringkas[0].geserMm, 12);
+  // Inti pemisahan ini: 12 mm dalam 6 jam TIDAK boleh disebut "Normal" hanya
+  // karena di bawah 35 mm — ambang itu untuk pergeseran total dari R0.
+  cek("basis selama: TIDAK dinilai dengan ambang pergeseran", ringkas[0].status, null);
+  cek("basis selama: grafik mengukur dari awal rentang", seri[0].seri.map((t) => t.mm), [0, 6, 12]);
+}
+
+{
+  // 12 mm dalam 6 jam = 48 mm/hari → lewat ambang laju Waspada (40).
+  const { ringkas } = olahRentang(RENTANG, "akhir", AMBANG_R);
+  dekat("laju dari lama rentang sebenarnya, bukan 24 jam", ringkas[0].lajuMmd, 48);
+  cek("laju dinilai dengan ambang laju", ringkas[0].statusLaju, "Waspada");
+}
+
+{
+  // Prisma tanpa bacaan di jendela, dan prisma tanpa acuan R0 yang sah.
+  const { ringkas } = olahRentang(
+    [
+      { id_prisma: "P8", nama_prisma: "BS_1", acuan_sah: false, titik: [] },
+      { id_prisma: "P9", nama_prisma: "DF_9", acuan_sah: true, titik: [] },
+    ],
+    "akhir",
+    AMBANG_R
+  );
+  cek("tanpa acuan: ditandai tidak tertembak", ringkas[0].tertembak, false);
+  cek("tanpa bacaan: ditandai tidak tertembak", ringkas[1].tertembak, false);
+  // Keduanya tetap terdaftar supaya namanya bisa disebut di layar.
+  cek("keduanya tetap terdaftar", ringkas.map((r) => r.nama), ["BS_1", "DF_9"]);
+  cek("tidak dikarang jadi nol", [ringkas[0].geserMm, ringkas[1].geserMm], [null, null]);
+}
+
 
 console.log(gagal === 0 ? "\nSEMUA LULUS" : `\n${gagal} GAGAL`);
 process.exit(gagal === 0 ? 0 : 1);

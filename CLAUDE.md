@@ -105,7 +105,7 @@ Measurement data lands in `rts` / `temp_rts` as 25 generic columns. The slot mea
 
 Every row `kolam_bpp` has ever written holds **`sensor8` = Easting (~464 000), `sensor9` = Northing (~9 748 000)** — verified 17 Sep 2026 against the site's drone orthophoto, and against `t_site.rts_e`/`rts_n`, which a human filled in with the opposite convention. A UTM Easting is always 160 000–834 000, so a seven-digit `sensor9` cannot be one.
 
-`PROTOKOL_MQTT_ADR` section F says the reverse, and eight read sites follow the doc rather than the data. **Only `/api/deformasi` has been corrected** (Sep 2026). Still labelled backwards: `log-kontrol`, `kontrol/dashboard`, `export-excel`, `analisa-gabungan`, `evaluasi-siklus`, `prism-config`, `rekap-data`, `lib/deformasi.ts`.
+`PROTOKOL_MQTT_ADR` section F says the reverse, and eight read sites follow the doc rather than the data. **`/api/deformasi` and `/api/analisa-gabungan` have been corrected** (Sep 2026). Still labelled backwards: `log-kontrol`, `kontrol/dashboard`, `export-excel`, `evaluasi-siklus`, `prism-config`, `rekap-data`, `lib/deformasi.ts`.
 
 Displacement *magnitudes* are unaffected — `sqrt(DE²+DN²+DZ²)` is the same either way, so thresholds and alerts have always been right, and `kirim-peringatan.ts` never mentions a direction. What the swap corrupts is anything *directional*: the `N`/`E` column headers, `arah8ID()` bearings, and `utm2ll()` lat/lng. Before fixing another site, check which convention the swap has already been applied at — fixing it twice puts it back.
 

@@ -222,3 +222,36 @@ export function useRtsConnectionStatus(idLoggerDiminta?: string | null) {
     sensor7: tempRts?.sensor7 ?? 0,
   };
 }
+
+/**
+ * Riwayat pergeseran beberapa prisma satu site pada satu rentang waktu.
+ * GET /api/analisa-gabungan
+ *
+ * `dari`/`sampai` adalah jam dinding WIB berbentuk "YYYY-MM-DD HH:MM:SS" —
+ * sama dengan yang tersimpan di `rts.waktu`, tanpa konversi zona.
+ */
+export function useAnalisaGabungan(
+  site: string | null,
+  dari: string,
+  sampai: string
+) {
+  const url =
+    site && dari && sampai
+      ? `/api/analisa-gabungan?site=${encodeURIComponent(site)}&dari=${encodeURIComponent(
+          dari
+        )}&sampai=${encodeURIComponent(sampai)}`
+      : null;
+  const { data, error, isLoading, mutate } = useSWR(url, fetcher, {
+    revalidateOnFocus: false,
+    dedupingInterval: 30000,
+    // Rentang yang baru dimuat menahan hasil sebelumnya supaya panel diredupkan,
+    // bukan berkedip ke kerangka kosong lalu melompat.
+    keepPreviousData: true,
+  });
+  return {
+    hasil: data?.data || null,
+    isLoading,
+    isError: !!error || data?.success === false,
+    mutate,
+  };
+}

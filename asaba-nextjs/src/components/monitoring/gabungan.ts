@@ -18,10 +18,16 @@
  * SATUAN: seluruh jarak di sini MILIMETER, mengikuti PrismaRingkas.
  */
 
-import { bearingDari } from "./format";
+import { bearingDari, parseNum } from "./format";
 import { keMs } from "./prism-history";
 import type { PrismaRingkas } from "./derive";
-import { statusTerburuk, type StatusLabel } from "@/lib/ambang";
+import {
+  statusKecepatan,
+  statusPergeseran,
+  statusTerburuk,
+  type AmbangSite,
+  type StatusLabel,
+} from "@/lib/ambang";
 
 /** Vektor pergeseran mendatar rata-rata sekelompok prisma. */
 export interface VektorRata {
@@ -346,4 +352,148 @@ export function seriGabungan(
     baris,
     tidakLengkap: baris.filter((b) => !b.lengkap).length,
   };
+}
+
+// ─── Dari rentang waktu ke vektor per prisma ─────────────────────────────────
+
+/**
+ * Dua cara membaca satu rentang, dan keduanya sah menjawab pertanyaan berbeda.
+ *
+ * "akhir"  — keadaan pada pembacaan terakhir di rentang, diukur dari acuan R0.
+ *            Inilah angka yang sebanding dengan ambang bahaya site.
+ * "selama" — perubahan posisi ANTARA awal dan akhir rentang. Menjawab "apa yang
+ *            bergerak antara jam 06 dan jam 12", dan sengaja TIDAK dinilai
+ *            dengan ambang pergeseran — lihat catatan di olahRentang().
+ */
+export type BasisGabungan = "akhir" | "selama";
+
+/** Satu prisma seperti dikirim /api/analisa-gabungan. */
+export interface PrismaRentang {
+  id_prisma: string;
+  nama_prisma?: string;
+  acuan_sah?: boolean;
+  titik?: Array<{ t: unknown; dnMm: unknown; deMm: unknown; dzMm: unknown }>;
+}
+
+export interface OlahanRentang {
+  ringkas: PrismaRingkas[];
+  /** Siap diberikan ke seriGabungan(); `mm` mengikuti basis yang dipilih. */
+  seri: Array<{ id: string; nama: string; seri: { t: unknown; mm: number }[] }>;
+}
+
+/** Lama antara dua stempel dalam hari; null bila tidak terbaca atau nol. */
+function lamaHari(a: unknown, b: unknown): number | null {
+  const m0 = keMs(a);
+  const m1 = keMs(b);
+  if (m0 === null || m1 === null) return null;
+  const hari = (m1 - m0) / 86400000;
+  return hari > 0 ? hari : null;
+}
+
+/**
+ * Ubah data rentang jadi bentuk yang bisa digabung dan digambar.
+ *
+ * PENILAIAN AMBANG sengaja berbeda antara dua basis, dan ini bukan kelalaian:
+ *
+ *   Ambang pergeseran site (`geser_normal_max` dan kawan-kawan) ditetapkan untuk
+ *   pergeseran TOTAL dari acuan R0. Memakainya menilai gerak enam jam akan
+ *   menyebut "Normal" pada prisma yang bergerak 30 mm dalam enam jam — padahal
+ *   laju sebesar itu jauh lebih genting daripada 30 mm yang terkumpul sejak R0
+ *   berbulan-bulan lalu. Karena itu basis "selama" TIDAK diberi status
+ *   pergeseran sama sekali.
+ *
+ *   Yang memang mengukur gerak per satuan waktu adalah ambang LAJU, dan itu
+ *   dipakai di kedua basis: besarnya gerak dalam rentang dibagi lama rentang
+ *   prisma itu sendiri — bukan lama rentang yang diminta, karena prisma yang
+ *   baru terbaca di setengah akhir jendela tidak boleh dihitung seolah diam
+ *   pada setengah pertamanya.
+ */
+export function olahRentang(
+  daftar: PrismaRentang[],
+  basis: BasisGabungan,
+  ambang: AmbangSite | null
+): OlahanRentang {
+  const ringkas: PrismaRingkas[] = [];
+  const seri: OlahanRentang["seri"] = [];
+
+  for (const p of daftar) {
+    const id = String(p.id_prisma);
+    const nama = String(p.nama_prisma || p.id_prisma || "—");
+    const titik = (p.titik ?? [])
+      .map((t) => ({
+        t: t.t,
+        dn: parseNum(t.dnMm),
+        de: parseNum(t.deMm),
+        dz: parseNum(t.dzMm),
+      }))
+      .filter((t): t is { t: unknown; dn: number; de: number; dz: number } =>
+        t.dn !== null && t.de !== null && t.dz !== null
+      );
+
+    const awal = titik[0];
+    const akhir = titik[titik.length - 1];
+
+    // Tanpa pembacaan di rentang ini, prisma tetap ikut didaftar tapi ditandai
+    // tidak tertembak — supaya namanya muncul di layar sebagai "tidak terbaca",
+    // bukan lenyap begitu saja dari daftar pilihan.
+    if (!awal || !akhir || p.acuan_sah === false) {
+      ringkas.push({
+        id, nama,
+        dxMm: null, dyMm: null, dzMm: null, linierMm: null, geserMm: null,
+        bearing: null, arahTeks: null, lajuMmd: null,
+        status: null, statusLaju: null, e: null, n: null,
+        tertembak: false,
+      });
+      seri.push({ id, nama, seri: [] });
+      continue;
+    }
+
+    const dxMm = basis === "selama" ? akhir.de - awal.de : akhir.de;
+    const dyMm = basis === "selama" ? akhir.dn - awal.dn : akhir.dn;
+    const dzMm = basis === "selama" ? akhir.dz - awal.dz : akhir.dz;
+    const geserMm = Math.hypot(dxMm, dyMm);
+
+    // Laju dari gerak SELAMA rentang pada kedua basis — yang berubah cuma angka
+    // utamanya, bukan arti "seberapa cepat bergerak".
+    const gerakMm = Math.hypot(akhir.de - awal.de, akhir.dn - awal.dn);
+    const hari = lamaHari(awal.t, akhir.t);
+    const lajuMmd = hari === null ? null : gerakMm / hari;
+
+    ringkas.push({
+      id,
+      nama,
+      dxMm,
+      dyMm,
+      dzMm,
+      linierMm: Math.hypot(dxMm, dyMm, dzMm),
+      geserMm,
+      bearing: geserMm > 0 ? bearingDari(dxMm, dyMm) : null,
+      arahTeks: null,
+      lajuMmd,
+      // Hanya basis "akhir" yang sebanding dengan ambang pergeseran.
+      status: basis === "akhir" && ambang ? statusPergeseran(geserMm, ambang) : null,
+      statusLaju: ambang && lajuMmd !== null ? statusKecepatan(lajuMmd, ambang) : null,
+      e: null,
+      n: null,
+      tertembak: true,
+    });
+
+    seri.push({
+      id,
+      nama,
+      // Grafik mengikuti basis yang sama dengan angkanya: pada "selama", tiap
+      // prisma diukur dari posisinya sendiri di awal rentang, jadi garis yang
+      // berhimpit berarti benar-benar bergerak bersama — bukan sekadar kebetulan
+      // berjarak sama dari R0.
+      seri: titik.map((t) => ({
+        t: t.t,
+        mm:
+          basis === "selama"
+            ? Math.hypot(t.de - awal.de, t.dn - awal.dn)
+            : Math.hypot(t.de, t.dn),
+      })),
+    });
+  }
+
+  return { ringkas, seri };
 }
