@@ -37,6 +37,7 @@ npx tsx src/lib/kirim-peringatan.test.ts    # penerima, subjek, dan badan pesan 
 npx tsx src/components/monitoring/derive.test.ts  # "gagal ditembak" vs "tidak bergerak"
 npx tsx src/components/monitoring/gabungan.test.ts  # analisa gabungan beberapa prisma
 npx tsx src/components/visualisasi-3d/basemap.test.ts  # georeferensi ortofoto di scene 3D
+npx tsx src/components/peta-arah.test.ts     # arah panah pergeseran di peta
 npx tsx scripts/regresi-protokol-rts.ts     # same style, protocol regression suite
 npx tsx scripts/regresi-balasan-logger.ts
 npx tsx scripts/regresi-site.ts

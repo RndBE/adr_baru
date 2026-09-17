@@ -5,6 +5,7 @@ import "leaflet/dist/leaflet.css";
 import { Maximize, Check, AlertTriangle } from "lucide-react";
 import { useSites, fallbackBadge } from "@/hooks/use-sites";
 import { utm2ll } from "@/lib/coordinates";
+import { arahGeser as hitungArah, geserPiksel, type ArahGeser } from "@/components/peta-arah";
 
 export interface PrismaMarkerData {
   id_prisma: string;
@@ -69,9 +70,6 @@ export default function PrismaMap({ markers, site }: Props) {
   const siteLabel = siteRow?.badge_label ?? fallbackBadge(site).label;
   const siteNama = siteRow?.nama ?? fallbackBadge(site).nama;
 
-  // Center peta berasal dari master data site. Site yang belum dikalibrasi
-  // (map_lat/map_lng masih null) di-fallback ke rata-rata posisi marker agar
-  // peta tetap menunjukkan sesuatu yang benar, bukan koordinat site lain.
   /**
    * Posisi ADR/RTS yang SEBENARNYA, dari t_site.rts_e/rts_n.
    *
@@ -95,6 +93,9 @@ export default function PrismaMap({ markers, site }: Props) {
         })()
       : null;
 
+  // Center peta berasal dari master data site. Site yang belum dikalibrasi
+  // (map_lat/map_lng masih null) di-fallback ke rata-rata posisi marker agar
+  // peta tetap menunjukkan sesuatu yang benar, bukan koordinat site lain.
   const markerCenter = averageMarkerLatLng(markers);
   const center: [number, number] =
     siteRow?.map_lat != null && siteRow?.map_lng != null
@@ -218,6 +219,14 @@ export default function PrismaMap({ markers, site }: Props) {
     // ── Prisma markers ──
     const r0Points: [number, number][] = [];
 
+    /**
+     * Arah pergeseran tiap prisma, dalam satuan METER.
+     *
+     * Dikumpulkan dulu, digambar belakangan oleh gambarArah(). Dua sebabnya ada
+     * di catatan gambarArah() dan di komentar `ux`/`uy` di bawah.
+     */
+    const arahGeser: { lat: number; lon: number; arah: ArahGeser }[] = [];
+
     markers.forEach((pr) => {
       if (!pr.lat0 || !pr.lon0) return;
 
@@ -292,56 +301,88 @@ export default function PrismaMap({ markers, site }: Props) {
           className: "prisma-label",
         });
 
-      // Displacement direction indicator
-      if (hasNew && pr.lat1 && pr.lon1) {
-        const startPoint = map.latLngToLayerPoint([pr.lat0, pr.lon0]);
-        let targetPoint = map.latLngToLayerPoint([pr.lat1, pr.lon1]);
-
-        const deltaE = parseDelta(pr.DE);
-        const deltaN = parseDelta(pr.DN);
-        if (
-          deltaE !== null &&
-          deltaN !== null &&
-          (Math.abs(deltaE) > 1e-12 || Math.abs(deltaN) > 1e-12)
-        ) {
-          const metersPerDegreeLat = 111320;
-          const metersPerDegreeLon =
-            metersPerDegreeLat * Math.cos((pr.lat0 * Math.PI) / 180);
-          const targetLat = pr.lat0 + deltaN / metersPerDegreeLat;
-          const targetLon =
-            pr.lon0 + deltaE / Math.max(Math.abs(metersPerDegreeLon), 1e-12);
-          targetPoint = map.latLngToLayerPoint([targetLat, targetLon]);
-        }
-
-        const vectorX = targetPoint.x - startPoint.x;
-        const vectorY = targetPoint.y - startPoint.y;
-        const vectorLength = Math.hypot(vectorX, vectorY);
-        if (vectorLength <= 0) return;
-
-        const displayLengthPx = 90;
-        const endPoint = L.point(
-          startPoint.x + (vectorX / vectorLength) * displayLengthPx,
-          startPoint.y + (vectorY / vectorLength) * displayLengthPx
-        );
-        const endLatLng = map.layerPointToLatLng(endPoint);
-        const endLat = endLatLng.lat;
-        const endLon = endLatLng.lng;
-
-        L.polyline([[pr.lat0, pr.lon0], [endLat, endLon]], {
-          color: "#2563eb",
-          weight: 3.5,
-          opacity: 1,
-        }).addTo(map);
-
-        const arrowIcon = L.divIcon({
-          className: "",
-          html: `<div style="width:10px;height:10px;background:#2563eb;border:2px solid white;border-radius:50%;box-shadow:0 1px 4px rgba(0,0,0,0.4);"></div>`,
-          iconSize: [10, 10],
-          iconAnchor: [5, 5],
-        });
-        L.marker([endLat, endLon], { icon: arrowIcon }).addTo(map);
+      // ── Arah pergeseran ──
+      //
+      // Arahnya diambil dari DE/DN dalam METER dan dinormalkan di sana juga.
+      //
+      // Versi sebelumnya menghitungnya di ruang PIKSEL: posisi R0 dan posisi
+      // sesi ini masing-masing dilewatkan map.latLngToLayerPoint(), lalu
+      // selisihnya dinormalkan. Fungsi itu MEMBULATKAN ke piksel bulat
+      // (Map.js: `this.project(...)._round()`), sementara pergeseran di sini
+      // 36–390 mm — pada zoom 16 setara 0,015–0,16 piksel. Kedua titik selalu
+      // membulat ke piksel yang sama, selisihnya nol, dan `if (vectorLength
+      // <= 0) return` membuang panahnya. Jadi panah itu bukan sulit dilihat:
+      // ia tidak pernah sekali pun tergambar untuk data sungguhan.
+      if (hasNew) {
+        const arah = hitungArah(parseDelta(pr.DE), parseDelta(pr.DN));
+        if (arah) arahGeser.push({ lat: pr.lat0, lon: pr.lon0, arah });
       }
     });
+
+    /**
+     * Gambar panah arah dengan panjang TETAP di layar.
+     *
+     * Panjangnya sengaja tidak mewakili besar pergeseran: 36 mm dan 390 mm
+     * berbeda sepuluh kali lipat tapi keduanya di bawah seperseribu piksel
+     * pada zoom mana pun yang masuk akal. Panah ini menjawab "ke mana",
+     * besarannya dibaca di popup dan di tabel.
+     *
+     * Karena panjangnya dalam piksel, ia harus disusun ulang tiap kali zoom
+     * berubah — kalau tidak, garis yang pas di zoom 16 jadi sepuluh kali lebih
+     * panjang di zoom 19.
+     */
+    const lapisanArah = L.layerGroup().addTo(map);
+    /** Jarak pangkal panah dari pusat ikon prisma. Ikonnya sendiri 26 px. */
+    const GESER_PX = 17;
+    const PANJANG_PX = 62;
+
+    const gambarArah = () => {
+      lapisanArah.clearLayers();
+      const z = map.getZoom();
+
+      for (const a of arahGeser) {
+        // map.project() TIDAK membulatkan, tidak seperti latLngToLayerPoint().
+        const p0 = map.project([a.lat, a.lon], z);
+        const titik = (jarak: number) => {
+          const g = geserPiksel(p0.x, p0.y, a.arah, jarak);
+          return map.unproject(L.point(g.x, g.y), z);
+        };
+
+        const pangkal = titik(GESER_PX);
+        const ujung = titik(GESER_PX + PANJANG_PX);
+
+        // Garis putih di bawahnya: biru di atas ubin satelit yang gelap maupun
+        // di atas jalan terang sama-sama harus terbaca.
+        L.polyline([pangkal, ujung], {
+          color: "#ffffff",
+          weight: 6,
+          opacity: 0.85,
+        }).addTo(lapisanArah);
+        L.polyline([pangkal, ujung], {
+          color: "#2563eb",
+          weight: 3,
+          opacity: 1,
+        }).addTo(lapisanArah);
+
+        // Kepala panah, bukan titik bulat: bentuk bulat tidak menyatakan arah,
+        // dan arah justru satu-satunya hal yang disampaikan panah ini.
+        const kepala = L.divIcon({
+          className: "",
+          html: `<div style="width:14px;height:14px;transform:rotate(${a.arah.sudut.toFixed(1)}deg);">
+            <div style="width:0;height:0;margin:0 auto;
+              border-left:7px solid transparent;border-right:7px solid transparent;
+              border-bottom:14px solid #2563eb;
+              filter:drop-shadow(0 0 1.5px white) drop-shadow(0 1px 2px rgba(0,0,0,.45));"></div>
+          </div>`,
+          iconSize: [14, 14],
+          iconAnchor: [7, 7],
+        });
+        L.marker(ujung, { icon: kepala, interactive: false }).addTo(lapisanArah);
+      }
+    };
+
+    gambarArah();
+    map.on("zoomend", gambarArah);
 
     // R0 connection line
     if (r0Points.length > 1) {
