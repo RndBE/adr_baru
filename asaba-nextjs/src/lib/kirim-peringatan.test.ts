@@ -50,8 +50,7 @@ function ringkasan(p: Partial<RingkasanSiklus> = {}): RingkasanSiklus {
     naik: [],
     pulih: [],
     hilang: [],
-    takTerbaca: [],
-    tetap: 0,
+    semua: [],
     acuanR0: null,
     waktuAcuanR0: null,
     ...p,
@@ -179,32 +178,47 @@ cek(
   cek("HTML menyebut acuan R0", susunHtml(r).includes("Acuan R0: sesi LOG123"), true);
 }
 
-// ── Prisma tak terbaca ikut dilaporkan ──────────────────────────────────────
+// ── Setiap prisma dilaporkan tingkat dan angkanya ───────────────────────────
 //
-// Siklus 090500 di kolam_bpp, 17 September 2026: P1, P4, P5, dan P7 sama-sama
-// gagal ditembak, tapi pesannya cuma menyebut P1 — satu-satunya yang kebetulan
-// mencapai tiga kegagalan beruntun. Penerima membaca "2 prisma lain tidak
-// berubah tingkat" lalu wajar mengira sisanya terbaca, padahal tiga prisma
-// menghilang dari laporan.
+// Sebelumnya pesan hanya menghitung: "4 prisma lain tidak berubah tingkat".
+// Kalimat itu menyatakan sesuatu TIDAK terjadi dan menyisakan pertanyaan yang
+// sebenarnya dipunyai penerima — prisma mana, di tingkat apa, bergeser berapa.
+// Siklus 090500 di kolam_bpp, 17 September 2026, memperlihatkan akibat
+// terburuknya: P1, P4, P5, dan P7 sama-sama gagal ditembak, tapi yang tersebut
+// cuma P1, dan tiga prisma menghilang dari laporan.
 {
   const r = ringkasan({
-    naik: [{ idPrisma: "P1", dari: "Waspada", ke: "Siaga", nilaiMm: 120 }],
+    naik: [{ idPrisma: "P7", dari: "Normal", ke: "Siaga", nilaiMm: 134 }],
     hilang: [{ idPrisma: "P1", siklus: 3 }],
-    takTerbaca: ["P1", "P4", "P5", "P7"],
-    tetap: 2,
+    semua: [
+      { idPrisma: "P1", tingkat: "Normal", nilaiMm: null },
+      { idPrisma: "P2", tingkat: "Normal", nilaiMm: 8.0 },
+      { idPrisma: "P4", tingkat: "Awas", nilaiMm: 254.6 },
+      { idPrisma: "P7", tingkat: "Siaga", nilaiMm: 134.1 },
+    ],
   });
   const teks = susunTeks(r);
-  cek("jumlah tak terbaca disebut", teks.includes("4 prisma tidak terbaca siklus ini"), true);
-  cek("nama prismanya disebut", teks.includes("(P1, P4, P5, P7)"), true);
-  cek("eskalasi beruntun tetap terpisah", teks.includes("gagal ditembak (3 siklus beruntun)"), true);
-  cek("HTML ikut menyebut", susunHtml(r).includes("4 prisma tidak terbaca"), true);
+  cek("daftar lengkap diberi judul", teks.includes("Keadaan seluruh prisma:"), true);
+  cek("prisma terbaca: tingkat dan angkanya", /P4\s+Awas\s+255 mm/.test(teks), true);
+  cek("prisma tak terbaca: disebut, bukan nol", /P1\s+Normal\s+tidak terbaca/.test(teks), true);
+  // Setiap prisma terdaftar muncul persis sekali — pembaca tidak perlu menghitung.
+  cek(
+    "keempat prisma ada di daftar",
+    ["P1", "P2", "P4", "P7"].every((id) => teks.includes(id)),
+    true
+  );
+  cek("eskalasi beruntun tetap baris tersendiri", teks.includes("gagal ditembak (3 siklus beruntun)"), true);
+  cek("HTML memuat daftar yang sama", susunHtml(r).includes("Keadaan seluruh prisma"), true);
+  cek("HTML menandai yang tak terbaca", susunHtml(r).includes("tidak terbaca"), true);
 }
 
-// Tanpa prisma tak terbaca, tidak ada baris tambahan yang mengganggu.
+// Kalimat lama tidak boleh kembali — ia yang memicu pertanyaan "tidak berubah
+// tingkat apaan".
 cek(
-  "siklus bersih tidak menyebut tak terbaca",
-  susunTeks(ringkasan({ naik: [{ idPrisma: "P1", dari: "Normal", ke: "Siaga", nilaiMm: 120 }], tetap: 5 }))
-    .includes("tidak terbaca"),
+  "tidak ada lagi kalimat hitungan",
+  susunTeks(
+    ringkasan({ semua: [{ idPrisma: "P1", tingkat: "Normal", nilaiMm: 5 }] })
+  ).includes("tidak berubah tingkat"),
   false
 );
 
@@ -215,7 +229,10 @@ cek(
 // yang gagal termuat. Terlihat pada pesan 09.09, 17 September 2026.
 {
   const teks = susunTeks(
-    ringkasan({ hilang: [{ idPrisma: "P1", siklus: 3 }], takTerbaca: ["P1"], tetap: 2 })
+    ringkasan({
+      hilang: [{ idPrisma: "P1", siklus: 3 }],
+      semua: [{ idPrisma: "P1", tingkat: "Normal", nilaiMm: null }],
+    })
   );
   cek("tidak ada dua baris kosong berturut", teks.includes("\n\n\n"), false);
   cek(

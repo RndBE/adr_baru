@@ -34,6 +34,7 @@ No test runner is installed and there is no `npm test`. Two different styles coe
 npx tsx src/lib/status-rts.test.ts          # plain assert script, exits 1 on failure
 npx tsx src/lib/kirim-peringatan.test.ts    # penerima, subjek, dan badan pesan peringatan
 npx tsx src/components/monitoring/derive.test.ts  # "gagal ditembak" vs "tidak bergerak"
+npx tsx src/components/monitoring/gabungan.test.ts  # analisa gabungan beberapa prisma
 npx tsx scripts/regresi-protokol-rts.ts     # same style, protocol regression suite
 npx tsx scripts/regresi-balasan-logger.ts
 npx tsx scripts/regresi-site.ts

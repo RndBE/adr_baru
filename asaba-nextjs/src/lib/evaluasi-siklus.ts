@@ -28,6 +28,7 @@ import { keadaanAwal, nilaiPeredam, type KeadaanPrisma } from "@/lib/peredam";
 import {
   kirimPeringatan,
   type BarisPerubahan,
+  type BarisPrisma,
   type RingkasanSiklus,
 } from "@/lib/kirim-peringatan";
 
@@ -199,15 +200,13 @@ export async function evaluasiSiklus(opsi: {
     const naik: BarisPerubahan[] = [];
     const pulih: BarisPerubahan[] = [];
     const hilang: Array<{ idPrisma: string; siklus: number }> = [];
-    // Seluruh prisma tak terbaca siklus ini, bukan hanya yang mencapai batas
-    // beruntun. `hilang` adalah ESKALASI (dilaporkan sekali, tepat pada kegagalan
-    // ketiga); daftar ini KEADAAN siklus. Tanpa keduanya, pesan menyebut satu
-    // prisma gagal sementara tiga lainnya ikut tidak terbaca tanpa disinggung —
-    // terlihat di lapangan 17 September 2026 pada siklus 090500, ketika P1, P4,
-    // P5, dan P7 sama-sama gagal tapi hanya P1 yang masuk pesan.
-    const takTerbaca: string[] = [];
+    // Keadaan SETIAP prisma terdaftar, terbaca maupun tidak. `hilang` tetap
+    // eskalasi yang dilaporkan sekali; daftar ini potret siklusnya. Sebelum ada
+    // daftar ini pesan hanya menghitung — "4 prisma lain tidak berubah tingkat" —
+    // yang menyatakan sesuatu tidak terjadi tanpa memberi tahu prisma mana,
+    // sedang di tingkat apa, dan bergeser berapa.
+    const semua: BarisPrisma[] = [];
     const dicatat: Array<{ idPrisma: string; dari: StatusLabel; ke: StatusLabel; nilaiMm: number; kirim: boolean }> = [];
-    let tetap = 0;
 
     for (const { id_prisma: idPrisma } of prismaSite) {
       const baris = petaKeadaan.get(idPrisma);
@@ -219,7 +218,7 @@ export async function evaluasiSiklus(opsi: {
       // Tingkatnya TIDAK diubah dan calon TIDAK dimajukan — prisma yang tidak
       // terbaca berarti keadaannya tidak diketahui, bukan aman.
       if (mm === null) {
-        takTerbaca.push(idPrisma);
+        semua.push({ idPrisma, tingkat: lama.tingkat, nilaiMm: null });
         const beruntun = Number(baris?.gagal_beruntun ?? 0) + 1;
         if (beruntun === BATAS_GAGAL_BERUNTUN) {
           hilang.push({ idPrisma, siklus: beruntun });
@@ -237,6 +236,9 @@ export async function evaluasiSiklus(opsi: {
       }
 
       const hasil = nilaiPeredam({ keadaan: lama, nilaiMm: mm, ambang, sekarangMs });
+      // Tingkat yang DIAKUI, bukan yang barusan terukur — sama dengan yang
+      // dipakai memutuskan pesan, supaya daftar dan judulnya tidak bercerita beda.
+      semua.push({ idPrisma, tingkat: hasil.keadaan.tingkat, nilaiMm: mm });
 
       await prisma.statusPrisma.upsert({
         where: { site_id_prisma: { site, id_prisma: idPrisma } },
@@ -261,7 +263,7 @@ export async function evaluasiSiklus(opsi: {
         },
       });
 
-      if (!hasil.diakui) { tetap++; continue; }
+      if (!hasil.diakui) continue;
 
       const { dari, ke } = hasil.diakui;
       dicatat.push({ idPrisma, dari, ke, nilaiMm: mm, kirim: hasil.kirim });
@@ -283,7 +285,7 @@ export async function evaluasiSiklus(opsi: {
     const ringkasan: RingkasanSiklus = {
       namaSite: cfg.nama,
       waktu: waktuDb,
-      naik, pulih, hilang, tetap, takTerbaca,
+      naik, pulih, hilang, semua,
       acuanR0: r0.id_log,
       // parseWaktuToIso, bukan new Date().toISOString(): nilainya jam dinding
       // WIB, dan $queryRaw bisa mengembalikannya sebagai Date ATAU string.
@@ -299,7 +301,8 @@ export async function evaluasiSiklus(opsi: {
 
     console.log(
       `${tag} ${site} siklus ${idLog}: ${naik.length} naik, ${pulih.length} pulih, ` +
-        `${hilang.length} hilang, ${takTerbaca.length} tak terbaca, ` +
+        `${hilang.length} hilang, ` +
+        `${semua.filter((p) => p.nilaiMm === null).length} tak terbaca, ` +
         `kirim=${hasilKirim.ok ? "ok" : "gagal"}` +
         `${hasilKirim.galat ? ` (${hasilKirim.galat})` : ""}`
     );

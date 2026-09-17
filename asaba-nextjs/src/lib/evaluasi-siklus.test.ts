@@ -72,14 +72,20 @@ cek("naik-turun murni tidak dihitung sebagai pergeseran",
     ],
     pulih: [],
     hilang: [{ idPrisma: "P9", siklus: 3 }],
-  takTerbaca: ["P9"],
-    tetap: 7,
+    semua: [
+      { idPrisma: "P3", tingkat: "Siaga", nilaiMm: 128.4 },
+      { idPrisma: "P7", tingkat: "Waspada", nilaiMm: 61.9 },
+      { idPrisma: "P9", tingkat: "Normal", nilaiMm: null },
+    ],
     acuanR0: "101109",
     waktuAcuanR0: "2025-11-21",
   });
   cek("menyebut nama site", teks.includes("Politeknik PU"), true);
   cek("mm dibulatkan", teks.includes("128 mm"), true);
-  cek("menyebut prisma yang tidak berubah", teks.includes("7 prisma lain"), true);
+  // Dulu berbunyi "7 prisma lain tidak berubah tingkat". Kalimat hitungan itu
+  // diganti daftar penuh — tiap prisma disebut tingkat dan angkanya.
+  cek("memuat daftar keadaan seluruh prisma", teks.includes("Keadaan seluruh prisma:"), true);
+  cek("prisma tak terbaca disebut apa adanya", /P9\s+Normal\s+tidak terbaca/.test(teks), true);
   cek("menyebut prisma hilang", teks.includes("P9"), true);
   // Penerima harus tahu angkanya diukur terhadap apa.
   cek("menyebut acuan R0", teks.includes("101109"), true);

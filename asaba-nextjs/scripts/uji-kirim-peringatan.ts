@@ -39,8 +39,13 @@ const contoh: RingkasanSiklus = {
   ],
   pulih: [],
   hilang: [{ idPrisma: "UJI-3", siklus: 3 }],
-  takTerbaca: ["UJI-3", "UJI-4"],
-  tetap: 6,
+
+  semua: [
+    { idPrisma: "UJI-1", tingkat: "Siaga", nilaiMm: 134.7 },
+    { idPrisma: "UJI-2", tingkat: "Awas", nilaiMm: 260.1 },
+    { idPrisma: "UJI-3", tingkat: "Normal", nilaiMm: null },
+    { idPrisma: "UJI-4", tingkat: "Waspada", nilaiMm: 58.2 },
+  ],
   acuanR0: "UJI-COBA",
   waktuAcuanR0: null,
 };

@@ -37,6 +37,13 @@ export interface BarisPerubahan {
   nilaiMm: number;
 }
 
+/** Keadaan satu prisma pada akhir siklus. `nilaiMm` null berarti tidak terbaca. */
+export interface BarisPrisma {
+  idPrisma: string;
+  tingkat: StatusLabel;
+  nilaiMm: number | null;
+}
+
 export interface RingkasanSiklus {
   namaSite: string;
   waktu: string;
@@ -47,14 +54,15 @@ export interface RingkasanSiklus {
   /** Prisma yang gagal ditembak beberapa siklus beruntun — eskalasi, dilaporkan sekali. */
   hilang: Array<{ idPrisma: string; siklus: number }>;
   /**
-   * SELURUH prisma yang tidak terbaca pada siklus ini, termasuk yang baru gagal
-   * sekali. Tanpa ini pesan hanya menyebut yang sudah gagal tiga kali beruntun,
-   * dan sisanya lenyap dari laporan — pembacanya menghitung "n prisma lain tidak
-   * berubah tingkat" lalu mengira seluruh sisanya terbaca.
+   * Keadaan SELURUH prisma terdaftar pada siklus ini — tingkat dan angkanya.
+   *
+   * Menggantikan hitungan "n prisma lain tidak berubah tingkat" beserta daftar
+   * "n prisma tidak terbaca". Keduanya menyatakan sesuatu TIDAK terjadi, dan
+   * menyisakan pertanyaan yang sebenarnya dipunyai penerima: prisma mana, sedang
+   * di tingkat apa, bergeser berapa. Daftar penuh menjawabnya sekaligus, dan
+   * jumlahnya selalu genap dengan prisma terdaftar tanpa perlu dihitung sendiri.
    */
-  takTerbaca: string[];
-  /** Prisma yang terbaca sah tapi tingkatnya tidak berubah. */
-  tetap: number;
+  semua: BarisPrisma[];
   /** id_log sesi acuan R0, supaya penerima tahu angkanya diukur terhadap apa. */
   acuanR0: string | null;
   waktuAcuanR0: string | null;
@@ -88,16 +96,23 @@ export function susunTeks(r: RingkasanSiklus): string {
     }
   }
 
+  // Daftar lengkap, bukan hitungan. Penerima yang melihat "P7 naik ke Siaga"
+  // langsung bertanya bagaimana yang lain — dan jawabannya harus ada di pesan
+  // yang sama, bukan menunggu ia membuka dasbor.
+  if (r.semua.length > 0) {
+    baris.push("");
+    baris.push("Keadaan seluruh prisma:");
+    for (const p of r.semua) {
+      const angka =
+        p.nilaiMm === null
+          ? "tidak terbaca"
+          : `${String(Math.round(p.nilaiMm)).padStart(4)} mm`;
+      baris.push(`${p.idPrisma.padEnd(LEBAR_ID)} ${p.tingkat.padEnd(8)} ${angka}`);
+    }
+  }
+
   baris.push("");
 
-  if (r.tetap > 0) baris.push(`${r.tetap} prisma lain tidak berubah tingkat.`);
-  // Disebut sebelum daftar eskalasi: inilah yang menjelaskan selisih antara
-  // jumlah prisma terdaftar dan jumlah yang tercantum di atas.
-  if (r.takTerbaca.length > 0) {
-    baris.push(
-      `${r.takTerbaca.length} prisma tidak terbaca siklus ini (${r.takTerbaca.join(", ")}).`
-    );
-  }
   for (const h of r.hilang) {
     baris.push(`Prisma ${h.idPrisma} gagal ditembak (${h.siklus} siklus beruntun).`);
   }
@@ -334,13 +349,27 @@ export function susunHtml(r: RingkasanSiklus): string {
     bagian.push(`</table>`);
   }
 
-  const catatan: string[] = [];
-  if (r.tetap > 0) catatan.push(`${r.tetap} prisma lain tidak berubah tingkat.`);
-  if (r.takTerbaca.length > 0) {
-    catatan.push(
-      `${r.takTerbaca.length} prisma tidak terbaca siklus ini (${esc(r.takTerbaca.join(", "))}).`
+  if (r.semua.length > 0) {
+    bagian.push(
+      `<div style="padding:10px 12px 2px;font-size:12px;color:#6b7280;text-transform:uppercase;font-weight:600">Keadaan seluruh prisma</div>`
     );
+    bagian.push(`<table role="presentation" style="width:100%;border-collapse:collapse;font-size:14px">`);
+    for (const p of r.semua) {
+      const warna = WARNA_SURAT[p.tingkat];
+      const angka = p.nilaiMm === null ? "tidak terbaca" : `${Math.round(p.nilaiMm)} mm`;
+      bagian.push(
+        `<tr>` +
+          `<td style="padding:6px 12px;border-bottom:1px solid #f3f4f6;font-family:monospace">${esc(p.idPrisma)}</td>` +
+          `<td style="padding:6px 12px;border-bottom:1px solid #f3f4f6;color:${warna}">${esc(p.tingkat)}</td>` +
+          `<td style="padding:6px 12px;border-bottom:1px solid #f3f4f6;text-align:right;white-space:nowrap;` +
+          `${p.nilaiMm === null ? "color:#9ca3af;font-style:italic" : ""}">${esc(angka)}</td>` +
+          `</tr>`
+      );
+    }
+    bagian.push(`</table>`);
   }
+
+  const catatan: string[] = [];
   for (const h of r.hilang) {
     catatan.push(`Prisma ${esc(h.idPrisma)} gagal ditembak (${h.siklus} siklus beruntun).`);
   }

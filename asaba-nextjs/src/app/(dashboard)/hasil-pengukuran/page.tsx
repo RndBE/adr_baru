@@ -8,6 +8,7 @@ import {
   Box,
   ChevronLeft,
   ChevronRight,
+  Combine,
   Download,
   Loader2,
   Map as MapIcon,
@@ -24,6 +25,7 @@ import { SessionConsole } from "@/components/monitoring/session-console";
 import { SessionList } from "@/components/monitoring/session-list";
 import { EventTable } from "@/components/monitoring/event-table";
 import { DailyTable } from "@/components/monitoring/daily-table";
+import { AnalisaGabungan } from "@/components/monitoring/analisa-gabungan";
 import {
   ColumnFilter,
   KOLOM_LENGKAP,
@@ -55,19 +57,26 @@ const PER_HALAMAN = 10;
 const BATAS_SESI = 100;
 
 /**
- * Tiga cara melihat SATU sesi yang sama, bukan tiga mode aplikasi.
+ * Empat cara melihat SATU sesi yang sama, bukan empat mode aplikasi.
  *
  * Sebelumnya ini dua kontrol terpisah — tab Event/Harian di satu baris dan
  * pengalih Tabel/Peta di baris lain — sehingga tab "Harian" harus disembunyikan
  * saat mode Peta aktif, dan kombinasi Peta+Harian jadi keadaan yang tidak boleh
- * terjadi tapi tetap harus dijaga di kode. Satu kontrol tiga arah menghapus
- * keadaan itu sepenuhnya.
+ * terjadi tapi tetap harus dijaga di kode. Satu kontrol tunggal menghapus
+ * keadaan itu sepenuhnya — dan itu pula yang membuat "Gabungan" bisa
+ * ditambahkan belakangan tanpa memunculkan kombinasi terlarang yang baru.
  */
-type Tampilan = "Event" | "Harian" | "Peta";
+type Tampilan = "Event" | "Harian" | "Gabungan" | "Peta";
 
 const TAMPILAN: { id: Tampilan; label: string; Icon: typeof Table2; judul: string }[] = [
   { id: "Event", label: "Catatan ukur", Icon: Table2, judul: "Pembacaan mentah sesi ini" },
   { id: "Harian", label: "Harian", Icon: Rows3, judul: "Pergeseran & laju sepanjang hari" },
+  {
+    id: "Gabungan",
+    label: "Gabungan",
+    Icon: Combine,
+    judul: "Beberapa prisma dibaca sebagai satu kelompok",
+  },
   { id: "Peta", label: "Peta", Icon: MapIcon, judul: "Sebaran prisma di peta" },
 ];
 
@@ -75,6 +84,7 @@ const TAMPILAN: { id: Tampilan; label: string; Icon: typeof Table2; judul: strin
 function tampilanDariUrl(v: string | null): Tampilan {
   if (v === "Peta") return "Peta";
   if (v === "Harian") return "Harian";
+  if (v === "Gabungan") return "Gabungan";
   return "Event";
 }
 
@@ -515,6 +525,9 @@ function HasilPengukuranContent() {
                     <span>dihitung dari seluruh running pada tanggal sesi ini</span>
                   )}
                   {tampilan === "Event" && <span>pembacaan mentah, satuan meter</span>}
+                  {tampilan === "Gabungan" && (
+                    <span>apakah prisma-prisma ini bergerak bersama</span>
+                  )}
                 </PanelHeader>
 
                 {/* Pengalih tampilan */}
@@ -594,6 +607,16 @@ function HasilPengukuranContent() {
                     <EventTable
                       rows={baris}
                       colVis={kolom}
+                      loading={defLoading}
+                      belumAdaSesi={!logAktif}
+                      redup={menahan}
+                      onBukaPrisma={bukaPrisma}
+                    />
+                  ) : tampilan === "Gabungan" ? (
+                    <AnalisaGabungan
+                      rows={baris}
+                      ambang={ambang}
+                      sesiKey={logAktif?.id_log ?? ""}
                       loading={defLoading}
                       belumAdaSesi={!logAktif}
                       redup={menahan}
