@@ -190,6 +190,22 @@ export function EventTable({
           ) : (
             rows.map((row) => {
               const t = row.temp_tembak ?? {};
+
+              // Prisma yang gagal ditembak mengirim N/E/Z "000,00,00", yang jadi
+              // DN/DE/DZ nol — persis seperti prisma yang sempurna diam.
+              // fval(0) merendernya "0.0000", jadi tabel ini menyatakan "tidak
+              // bergeser" untuk prisma yang sebenarnya tidak ketemu. Aturan
+              // kesahihannya sama dengan `valid1` di /api/deformasi dan
+              // pergeseranMm() di lib/evaluasi-siklus.ts.
+              const sah = (...sumbu: Array<unknown>) =>
+                !sumbu.every((v) => {
+                  const n = Number(v);
+                  return v === null || v === undefined || v === "" || (Number.isFinite(n) && n === 0);
+                });
+              const tertembak =
+                (t.tertembak ?? sah(t.E1, t.N1, t.Z1)) && (t.acuan_sah ?? sah(t.E0, t.N0, t.Z0));
+              // "—" berarti tidak diketahui, dan itu memang yang terjadi.
+              const fsel = (v: unknown) => (tertembak ? fval(v) : "—");
               const nama = row.nama_prisma || "";
               const arah = parseArah(t.arah_pergeseran);
               return (
@@ -248,12 +264,20 @@ export function EventTable({
                   {/* Selisih tidak diwarnai merah/hijau: tanda + dan − di sini
                       berarti arah mata angin, bukan baik atau buruk. */}
                   {colVis.pergeseran.DX && (
-                    <td className={cn(TD, "text-(--ink)", BATAS)}>{fval(t.DE)}</td>
+                    <td className={cn(TD, "text-(--ink)", BATAS)}>{fsel(t.DE)}</td>
                   )}
-                  {colVis.pergeseran.DY && <td className={cn(TD, "text-(--ink)")}>{fval(t.DN)}</td>}
-                  {colVis.pergeseran.DZ && <td className={cn(TD, "text-(--ink)")}>{fval(t.DZ)}</td>}
+                  {colVis.pergeseran.DY && <td className={cn(TD, "text-(--ink)")}>{fsel(t.DN)}</td>}
+                  {colVis.pergeseran.DZ && <td className={cn(TD, "text-(--ink)")}>{fsel(t.DZ)}</td>}
                   {colVis.pergeseran.Linier && (
-                    <td className={cn(TD, "font-semibold text-(--ink)")}>{fval(t.linear)}</td>
+                    <td className={cn(TD, "font-semibold text-(--ink)")}>
+                      {tertembak ? (
+                        fval(t.linear)
+                      ) : (
+                        <span className="text-(--ink-3)" title="Prisma dibidik tapi tidak ketemu pada sesi ini">
+                          gagal ditembak
+                        </span>
+                      )}
+                    </td>
                   )}
 
                   {colVis.arah && (

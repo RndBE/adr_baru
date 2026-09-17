@@ -205,6 +205,19 @@ export async function GET(request: NextRequest) {
             DZ: fmt(DZ, 6),
             linear: linier3d,
             arah_pergeseran: arah,
+            // Apakah prismanya benar-benar KETEMU. Tanpa penanda ini, bacaan
+            // gagal tidak bisa dibedakan dari prisma yang sempurna diam:
+            // keduanya sama-sama DN/DE/DZ nol, dan nol itu lalu dinilai
+            // "Normal" — bacaan yang artinya "tidak tahu" tampil sebagai
+            // "aman". Di temp_prisma, status_get = 1 dengan N/E/Z semuanya nol
+            // berarti "Failed / Not Found": dibidik tapi tidak ketemu.
+            //
+            // Angkanya sengaja TIDAK diubah jadi null di sini — beberapa
+            // pemakai (peta, ekspor Excel, visualisasi 3D) mengharapkan angka.
+            // Penyaringannya dilakukan sekali di components/monitoring/derive.ts
+            // supaya seluruh panel ikut, bukan ditambal satu per satu.
+            tertembak: valid1,
+            acuan_sah: valid0,
             // Raw UTM coords for map (before rotation)
             raw_E0: rawE0, raw_N0: rawN0,
             raw_E1: rawE1, raw_N1: rawN1,

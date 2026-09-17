@@ -51,6 +51,10 @@ export interface PengukuranRow {
     DZ?: string | number;
     linear?: number;
     arah_pergeseran?: string;
+    /** Prismanya ketemu pada sesi ini. Lihat catatan di ringkasPrisma(). */
+    tertembak?: boolean;
+    /** Bacaan acuan R0-nya sah. */
+    acuan_sah?: boolean;
     /**
      * Koordinat UTM MENTAH sebelum koreksi rotasi site. Dipakai halaman detail
      * prisma sebagai acuan untuk riwayat dari /api/analisa, yang juga mentah.
@@ -102,6 +106,11 @@ export interface PrismaRingkas {
   /** Koordinat UTM terkoreksi untuk denah. */
   e: number | null;
   n: number | null;
+  /**
+   * Prismanya ketemu pada sesi ini, dan acuannya sah. Bila false, SELURUH angka
+   * di atas null — bukan nol.
+   */
+  tertembak: boolean;
 }
 
 const keMm = (v: unknown): number | null => {
@@ -109,20 +118,45 @@ const keMm = (v: unknown): number | null => {
   return n === null ? null : n * 1000;
 };
 
+/**
+ * Bacaan sah bila tidak SELURUH sumbunya nol.
+ *
+ * Di temp_prisma, status_get = 1 dengan N/E/Z semuanya nol berarti
+ * "Failed / Not Found" — prisma dibidik tapi tidak ketemu. Aturan yang sama
+ * dipakai `valid1`/`valid0` di /api/deformasi dan pergeseranMm() di
+ * lib/evaluasi-siklus.ts.
+ */
+const bacaanSah = (...sumbu: Array<unknown>): boolean =>
+  !sumbu.every((v) => (parseNum(v) ?? 0) === 0);
+
 export function ringkasPrisma(
   rows: PengukuranRow[],
   ambang: AmbangSite | null
 ): PrismaRingkas[] {
   return rows.map((row) => {
     const t = row.temp_tembak ?? {};
-    const dxMm = keMm(t.DE);
-    const dyMm = keMm(t.DN);
-    const dzMm = keMm(t.DZ);
-    const linierMm = keMm(t.linear);
+
+    // Prisma yang gagal ditembak menghasilkan DN/DE/DZ nol, persis seperti
+    // prisma yang sempurna diam. Tanpa pemisahan ini keduanya tampil "0,0 mm"
+    // lalu dinilai "Normal" — layar menyatakan AMAN untuk prisma yang sebenarnya
+    // tidak diketahui keadaannya. Itu kebalikan dari yang harus disampaikan
+    // sebuah sistem pemantauan deformasi.
+    //
+    // Penanda dari server dipakai kalau ada; kalau tidak (respons lama yang
+    // masih tersimpan SWR, atau server yang belum diperbarui), disimpulkan dari
+    // koordinatnya sendiri supaya tidak bergantung pada urutan penyebaran.
+    const tertembak =
+      (t.tertembak ?? bacaanSah(t.E1, t.N1, t.Z1)) &&
+      (t.acuan_sah ?? bacaanSah(t.E0, t.N0, t.Z0));
+
+    const dxMm = tertembak ? keMm(t.DE) : null;
+    const dyMm = tertembak ? keMm(t.DN) : null;
+    const dzMm = tertembak ? keMm(t.DZ) : null;
+    const linierMm = tertembak ? keMm(t.linear) : null;
     const geserMm =
       dxMm !== null && dyMm !== null ? Math.hypot(dxMm, dyMm) : null;
 
-    const arah = parseArah(t.arah_pergeseran);
+    const arah = tertembak ? parseArah(t.arah_pergeseran) : null;
     const bearing =
       arah?.bearing ??
       (geserMm !== null && geserMm > 0 && dxMm !== null && dyMm !== null
@@ -144,8 +178,9 @@ export function ringkasPrisma(
       lajuMmd,
       status: ambang && geserMm !== null ? statusPergeseran(geserMm, ambang) : null,
       statusLaju: ambang && lajuMmd !== null ? statusKecepatan(lajuMmd, ambang) : null,
-      e: parseNum(t.E1),
-      n: parseNum(t.N1),
+      e: tertembak ? parseNum(t.E1) : null,
+      n: tertembak ? parseNum(t.N1) : null,
+      tertembak,
     };
   });
 }
