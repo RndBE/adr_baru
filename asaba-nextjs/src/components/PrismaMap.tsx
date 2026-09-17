@@ -132,7 +132,9 @@ export default function PrismaMap({ markers, site }: Props) {
     mapInstanceRef.current = map;
 
     L.control.zoom({ position: "bottomright" }).addTo(map);
-    map.attributionControl.setPrefix(false);
+    // Kiri-bawah, bukan bawaan kanan-bawah: tombol zoom sudah di kanan-bawah,
+    // dan Leaflet menumpuk kontrol sesudut secara vertikal.
+    map.attributionControl.setPrefix(false).setPosition("bottomleft");
 
     // Define separate layers so switching is instant and cached
     //
