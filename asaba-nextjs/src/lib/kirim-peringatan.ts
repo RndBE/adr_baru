@@ -555,18 +555,39 @@ async function kirimSatuWa(
       signal: AbortSignal.timeout(15_000),
     });
 
-    const isi = (await res.json().catch(() => null)) as { success?: boolean; error?: string } | null;
+    const isi = (await res.json().catch(() => null)) as
+      | { success?: boolean; error?: string; message?: unknown }
+      | null;
 
     if (!res.ok) {
       // 403 = x-api-key salah, 404 = sesi tidak ada, 422 = body ditolak.
       const sebab = isi?.error ?? `HTTP ${res.status}`;
       return { chatId, ok: false, galat: `${res.status} ${sebab}`.slice(0, 120) };
     }
-    // Jebakan: API ini bisa menjawab 200 dengan success:false. Memeriksa status
-    // HTTP saja akan mencatat peringatan sebagai terkirim padahal tidak pernah
-    // berangkat — persis kekeliruan yang paling mahal di jalur ini.
+    // Jebakan pertama: API ini bisa menjawab 200 dengan success:false.
     if (isi?.success !== true) {
       return { chatId, ok: false, galat: (isi?.error ?? "success:false").slice(0, 120) };
+    }
+    // Jebakan kedua, dan yang benar-benar memakan korban: `success: true` TIDAK
+    // berarti pesannya terbentuk. Controller wwebjs-api menutup dengan
+    //
+    //     res.json({ success: true, message: messageOut })
+    //
+    // tanpa pernah memeriksa messageOut. Kalau client.sendMessage() resolve
+    // dengan undefined — tidak melempar, tapi juga tidak menghasilkan pesan —
+    // kunci `message` hilang dari JSON dan yang tersisa cuma {"success":true}.
+    //
+    // Persis itu yang terjadi 17 September 2026: tiga kiriman uji dijawab
+    // success:true, tidak satu pun sampai ke grup tujuan, dan tanpa pemeriksaan
+    // ini log_peringatan akan mencatat peringatan keselamatan sebagai TERKIRIM
+    // padahal tidak ada yang pernah menerimanya. Lebih berbahaya daripada gagal
+    // terang-terangan: kegagalan yang terlihat seperti keberhasilan.
+    if (isi.message === undefined || isi.message === null) {
+      return {
+        chatId,
+        ok: false,
+        galat: "success:true tanpa objek message — pesan tidak terbentuk (whatsapp-web.js vs WhatsApp Web)",
+      };
     }
     return { chatId, ok: true };
   } catch (e) {

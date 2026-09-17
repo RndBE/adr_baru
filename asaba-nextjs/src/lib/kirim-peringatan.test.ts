@@ -8,8 +8,10 @@
  * seperti alur MQTT; yang bisa dijaga adalah semua keputusan yang diambil
  * SEBELUM soketnya dibuka, dan itu yang menentukan pesan sampai ke siapa.
  */
+import http from "node:http";
 import {
   chatIdWhatsapp,
+  kirimWhatsapp,
   kirimPeringatan,
   penerimaEmail,
   subjekPeringatan,
@@ -242,6 +244,57 @@ cek(
 
 bersihkanEnv();
 
+/**
+ * Server tiruan wwebjs-api. Meniru dua bentuk jawaban yang sama-sama HTTP 200
+ * dan sama-sama `success: true` — hanya berbeda pada ada tidaknya objek
+ * `message`. Satu berarti pesan terbentuk; satu lagi berarti tidak pernah ada.
+ */
+function serverTiruan(): Promise<http.Server> {
+  const srv = http.createServer((req, res) => {
+    let body = "";
+    req.on("data", (c) => (body += c));
+    req.on("end", () => {
+      const p = JSON.parse(body || "{}") as { chatId?: string };
+      res.writeHead(200, { "Content-Type": "application/json" });
+      // Nomor ini meniru kerusakan hulu 17 September 2026.
+      res.end(
+        p.chatId === "6287777777777@c.us"
+          ? JSON.stringify({ success: true })
+          : JSON.stringify({ success: true, message: { id: { _serialized: "x" } } })
+      );
+    });
+  });
+  return new Promise((ok) => srv.listen(0, () => ok(srv)));
+}
+
+async function kirimanHantu() {
+  const srv = await serverTiruan();
+  const port = (srv.address() as { port: number }).port;
+  process.env.WHATSAPP_API_URL = `http://127.0.0.1:${port}`;
+  process.env.WHATSAPP_API_KEY = "kunci-uji";
+
+  process.env.WHATSAPP_TO_CCP = "081211111111";
+  const nyata = await kirimWhatsapp("ccp", naikSatu);
+  cek("objek message ada: dihitung terkirim", nyata.ok, true);
+
+  // Inti kasusnya. wwebjs-api menutup dengan res.json({success:true, message:
+  // messageOut}) tanpa memeriksa messageOut; kalau client.sendMessage() resolve
+  // undefined, kunci itu hilang dan yang tersisa {"success":true}. Memercayainya
+  // berarti log_peringatan mencatat peringatan keselamatan sebagai TERKIRIM
+  // padahal tidak ada yang pernah menerimanya.
+  process.env.WHATSAPP_TO_CCP = "087777777777";
+  const hantu = await kirimWhatsapp("ccp", naikSatu);
+  cek("success:true tanpa message: DITOLAK", hantu.ok, false);
+  cek(
+    "alasannya disebut, bukan sekadar gagal",
+    hantu.ok === false && hantu.galat.includes("tanpa objek message"),
+    true
+  );
+
+  srv.close();
+  bersihkanEnv();
+}
+
 // Dibungkus fungsi, bukan await di tingkat atas: tsx menyalurkan berkas ini
 // lewat keluaran cjs, dan di situ top-level await ditolak saat transform.
 async function fanOut() {
@@ -259,7 +312,9 @@ async function fanOut() {
   ]);
 }
 
-fanOut().then(() => {
-  console.log(gagal === 0 ? "\nSEMUA LULUS" : `\n${gagal} GAGAL`);
-  process.exit(gagal === 0 ? 0 : 1);
-});
+kirimanHantu()
+  .then(fanOut)
+  .then(() => {
+    console.log(gagal === 0 ? "\nSEMUA LULUS" : `\n${gagal} GAGAL`);
+    process.exit(gagal === 0 ? 0 : 1);
+  });
