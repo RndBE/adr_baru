@@ -28,7 +28,13 @@ export function gantiVariabelCss(
     // Variabel tak terdefinisi jatuh ke nilai cadangan di dalam var() kalau ada;
     // kalau tidak, teksnya dibiarkan utuh. Menggantinya dengan string kosong
     // akan menghasilkan atribut kosong, dan SVG-nya ditolak sebagai gambar.
-    if (nilai) return nilai;
+    // Kutip ganda di dalam nilai akan MENUTUP atribut yang sedang ditulisi.
+    // Nama font hasil next/font datang berkutip — `"__geistMono_abc"` — dan
+    // menyisipkannya ke font-family="var(--font-geist-mono), …" menghasilkan
+    // font-family=""__geistMono_abc", …" : atribut putus, SVG tidak lagi sah,
+    // dan <img> menolaknya tanpa memberi tahu apa yang salah. Kutip ganda
+    // ditukar kutip tunggal, yang sah di CSS dan tidak menutup atribut.
+    if (nilai) return nilai.replace(/"/g, "'");
     return cadangan?.trim() ? cadangan.trim() : utuh;
   });
 }
@@ -86,8 +92,13 @@ export async function svgKePng(
 
   const gaya = getComputedStyle(svg);
   let markup = new XMLSerializer().serializeToString(salinan);
-  markup = gantiVariabelCss(markup, (nama) => gaya.getPropertyValue(nama));
+  // Urutannya penting: font diseragamkan DULU. Kalau var() diselesaikan lebih
+  // dulu, nilai font berkutip sempat masuk ke dalam markup, dan kalaupun
+  // kutipnya ditukar hasilnya tetap tergantung pada apa yang dikembalikan
+  // peramban. Menyeragamkan lebih dulu membuat var(--font-*) tidak pernah
+  // sampai ke tahap substitusi sama sekali.
   markup = seragamkanFont(markup);
+  markup = gantiVariabelCss(markup, (nama) => gaya.getPropertyValue(nama));
 
   const url = `data:image/svg+xml;charset=utf-8,${encodeURIComponent(markup)}`;
   const gambar = await new Promise<HTMLImageElement>((selesai, gagal) => {

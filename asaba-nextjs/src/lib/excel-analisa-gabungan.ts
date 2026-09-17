@@ -42,7 +42,6 @@ export interface IsiExcelGabungan {
   perJam: boolean;
   hasil: RingkasanGabungan;
   seri: SeriGabungan;
-  bacaan: { judul: string; teks: string };
   /** Null bila grafiknya belum tergambar saat Unduh ditekan. */
   grafik: GrafikPng | null;
   /** Stempel tiap baris deret, sudah diformat jam dinding WIB. */
@@ -92,15 +91,6 @@ export async function buatExcelAnalisaGabungan(isi: IsiExcelGabungan): Promise<B
     r.getCell(1).alignment = { vertical: "middle" };
     r.getCell(2).alignment = { vertical: "middle", wrapText: true };
   }
-  s1.addRow([]);
-
-  const rBacaan = s1.addRow([isi.bacaan.judul]);
-  s1.mergeCells(`A${rBacaan.number}:C${rBacaan.number}`);
-  rBacaan.getCell(1).font = { size: 12, bold: true };
-  const rTeks = s1.addRow([isi.bacaan.teks]);
-  s1.mergeCells(`A${rTeks.number}:C${rTeks.number}`);
-  rTeks.getCell(1).alignment = { wrapText: true, vertical: "top" };
-  rTeks.height = 46;
   s1.addRow([]);
 
   const kepala = s1.addRow(["Besaran", "Nilai", "Keterangan"]);

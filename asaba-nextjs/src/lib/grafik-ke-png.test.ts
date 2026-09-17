@@ -126,5 +126,32 @@ const resolusi = (nama: string) => TEMA[nama] ?? "";
   cek("font jadi tumpukan generik", hasil.includes(FONT_EKSPOR), true);
 }
 
+// ── Nilai yang MENGANDUNG KUTIP ─────────────────────────────────────────────
+{
+  // Inilah bentuk yang dikembalikan peramban untuk variabel font next/font.
+  // Kalau masuk apa adanya ke atribut berkutip ganda, atributnya putus di
+  // situ juga: SVG tidak lagi sah dan <img> menolaknya tanpa pesan apa pun.
+  const berkutip = (nama: string) => (nama === "--font" ? ` "__geistMono_abc", sans-serif` : "");
+  const hasil = gantiVariabelCss(`<text font-family="var(--font)">x</text>`, berkutip);
+  cek(
+    "kutip ganda ditukar kutip tunggal",
+    hasil,
+    `<text font-family="'__geistMono_abc', sans-serif">x</text>`
+  );
+  cek("atribut tidak putus di tengah", (hasil.match(/"/g) || []).length, 2);
+}
+
+// ── Urutan pemakaian nyata: font DULU, baru var() ───────────────────────────
+{
+  const berkutip = (nama: string) =>
+    nama === "--font-geist-mono" ? ` "__geistMono_abc"` : nama === "--ink-3" ? " #6b6f8e" : "";
+  const asli = `<text font-family="var(--font-geist-mono), ui-monospace, monospace" fill="var(--ink-3)">06:00</text>`;
+  const hasil = gantiVariabelCss(seragamkanFont(asli), berkutip);
+  cek("var font tidak pernah sampai ke substitusi", hasil.includes("__geistMono"), false);
+  cek("font jadi tumpukan generik", hasil.includes(FONT_EKSPOR), true);
+  cek("warna tetap terselesaikan", hasil.includes("#6b6f8e"), true);
+  cek("jumlah kutip genap (markup utuh)", (hasil.match(/"/g) || []).length % 2, 0);
+}
+
 console.log(gagal === 0 ? "\nSEMUA LULUS" : `\n${gagal} GAGAL`);
 process.exit(gagal === 0 ? 0 : 1);

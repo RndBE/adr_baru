@@ -29,7 +29,6 @@ import {
   selisihArah,
   seriGabungan,
   type BasisGabungan,
-  type PolaGerak,
   type PrismaRentang,
   type RingkasanGabungan,
 } from "./gabungan";
@@ -83,25 +82,6 @@ const BASIS: { id: BasisGabungan; label: string; judul: string }[] = [
   },
 ];
 
-/** Kalimat pembuka per pola. Ambangnya alat bantu baca — lihat gabungan.ts. */
-const BACAAN: Record<PolaGerak, { judul: string; teks: string }> = {
-  seragam: {
-    judul: "Bergerak searah",
-    teks: "Arah gerak prisma-prisma ini berhimpit. Pola yang khas untuk satu massa yang bergerak utuh, bukan gangguan pada masing-masing prisma.",
-  },
-  campuran: {
-    judul: "Searah sebagian",
-    teks: "Sebagian prisma bergerak searah, sebagian tidak. Arah rata-rata masih terbaca, tapi belum tentu mewakili seluruh kelompok.",
-  },
-  berpencar: {
-    judul: "Arahnya berpencar",
-    teks: "Arah geraknya saling meniadakan, jadi arah rata-rata di sebelah TIDAK mewakili apa pun di sini. Baca besarnya per prisma, dan periksa apakah yang terbaca ini gerakan nyata atau derau pengukuran.",
-  },
-  diam: {
-    judul: "Tidak ada gerak terukur",
-    teks: "Tidak satu pun prisma terpilih berpindah pada rentang ini, jadi tidak ada arah yang bisa dibaca.",
-  },
-};
 
 // ─── Denah vektor ────────────────────────────────────────────────────────────
 
@@ -396,8 +376,20 @@ export function AnalisaGabungan({
       // Grafiknya diambil dari SVG yang sedang tampil, jadi gambar di berkas
       // persis sama dengan yang dilihat operator saat menekan Unduh — termasuk
       // prisma mana yang sedang dipilih dan basis mana yang sedang aktif.
-      const svg = cariSvgRecharts(refGrafik.current);
-      const grafik = svg ? await svgKePng(svg) : null;
+      //
+      // Kegagalannya SENGAJA tidak membatalkan unduhan. Merasterkan SVG
+      // bergantung pada canvas dan pada SVG yang bisa dimuat sebagai gambar —
+      // hal yang bisa gagal karena peramban, kebijakan keamanan, atau satu
+      // atribut yang tak terduga. Angka di tiga lembar lain tidak ikut
+      // bermasalah, dan berkas tanpa gambar jauh lebih berguna daripada tidak
+      // ada berkas sama sekali.
+      let grafik = null as Awaited<ReturnType<typeof svgKePng>> | null;
+      try {
+        const svg = cariSvgRecharts(refGrafik.current);
+        if (svg) grafik = await svgKePng(svg);
+      } catch (e) {
+        console.error("[grafik ke PNG]", e);
+      }
       const blob = await buatExcelAnalisaGabungan({
         namaSite,
         rentangTeks,
@@ -407,7 +399,6 @@ export function AnalisaGabungan({
         perJam,
         hasil,
         seri,
-        bacaan: BACAAN[hasil.pola],
         grafik,
         waktuBaris: seri.baris.map((b) => fmtWaktuPenuh(b.ts, { detik: false })),
       });
@@ -421,7 +412,11 @@ export function AnalisaGabungan({
       URL.revokeObjectURL(url);
     } catch (e) {
       console.error("[unduh Excel gabungan]", e);
-      setUnduhError("Berkas Excel gagal dibuat. Coba lagi.");
+      // Pesannya ikut ditampilkan, bukan diganti kalimat umum: "coba lagi"
+      // pada galat yang berulang setiap kali hanya menyuruh operator
+      // mengulang hal yang sama, dan tidak menyisakan apa pun untuk dilaporkan.
+      const sebab = e instanceof Error ? e.message : String(e);
+      setUnduhError(`Berkas Excel gagal dibuat — ${sebab}`);
     } finally {
       setMengunduh(false);
     }
@@ -445,9 +440,6 @@ export function AnalisaGabungan({
     );
   }
 
-  const bacaan = hasil ? BACAAN[hasil.pola] : null;
-  const rasioDiferensial =
-    hasil && hasil.sebaran.maksMm > 0 ? hasil.diferensialMm / hasil.sebaran.maksMm : null;
   const akhir = basis === "akhir";
   const kataBesar = akhir ? "Pergeseran" : "Gerak";
 
@@ -576,44 +568,18 @@ export function AnalisaGabungan({
           {/* ── Bacaan & angka pokok ── */}
           <div className="grid grid-cols-1 gap-x-6 gap-y-4 px-5 py-4 lg:grid-cols-[minmax(0,1fr)_248px]">
             <div className="min-w-0">
-              <div className="rounded-[12px] bg-(--paper) px-4 py-3.5">
-                <p className="font-display text-[15px] font-bold text-(--ink)">
-                  {bacaan?.judul}
-                  {hasil.keseragaman !== null && (
-                    <span className="ml-2 font-mono text-[12.5px] font-semibold tabular-nums text-(--ink-2)">
-                      keseragaman {(hasil.keseragaman * 100).toFixed(0)}%
-                    </span>
-                  )}
+              {/* Kartu bacaan pola dihapus atas permintaan — kalimatnya menerangkan
+                  angka yang sudah ada di bawahnya. Peringatan prisma yang tidak ikut
+                  dihitung TIDAK ikut dihapus: itu bukan tafsir, melainkan keterangan
+                  bahwa angka di halaman ini mewakili sebagian kelompok saja. */}
+              {hasil.diabaikan.length > 0 && (
+                <p className="rounded-[10px] border border-amber-200 bg-amber-50 px-3.5 py-2.5 text-[12px] leading-relaxed text-amber-900">
+                  {hasil.diabaikan.length} prisma terpilih tidak ikut dihitung karena tidak terbaca
+                  pada rentang ini: {hasil.diabaikan.map((n) => n.replace(/_/g, " ")).join(", ")}.
                 </p>
-                <p className="mt-1 text-[12.5px] leading-relaxed text-(--ink-2)">{bacaan?.teks}</p>
-                {rasioDiferensial !== null && (
-                  <p className="mt-1.5 text-[12.5px] leading-relaxed text-(--ink-2)">
-                    {rasioDiferensial < 0.3 ? (
-                      <>
-                        Besarnya juga mirip — beda gerak terbesar antar dua prisma{" "}
-                        <span className="font-mono tabular-nums">{fmt(hasil.diferensialMm)}</span> mm
-                        dari yang terbesar{" "}
-                        <span className="font-mono tabular-nums">{fmt(hasil.sebaran.maksMm)}</span> mm.
-                      </>
-                    ) : (
-                      <>
-                        Ada gerak relatif di dalam kelompok: beda gerak antar dua prisma mencapai{" "}
-                        <span className="font-mono tabular-nums">{fmt(hasil.diferensialMm)}</span> mm,
-                        sementara yang terbesar{" "}
-                        <span className="font-mono tabular-nums">{fmt(hasil.sebaran.maksMm)}</span> mm.
-                      </>
-                    )}
-                  </p>
-                )}
-                {hasil.diabaikan.length > 0 && (
-                  <p className="mt-1.5 text-[12px] leading-relaxed text-amber-700">
-                    {hasil.diabaikan.length} prisma terpilih tidak ikut dihitung karena tidak terbaca
-                    pada rentang ini: {hasil.diabaikan.map((n) => n.replace(/_/g, " ")).join(", ")}.
-                  </p>
-                )}
-              </div>
+              )}
 
-              <div className="mt-1 grid grid-cols-2 gap-x-6 sm:grid-cols-3">
+              <div className="grid grid-cols-2 gap-x-6 sm:grid-cols-3">
                 <Angka
                   label={`${kataBesar} resultan`}
                   nilai={fmt(hasil.vektorRata.besarMm)}
@@ -649,6 +615,11 @@ export function AnalisaGabungan({
                   tebal
                 />
                 <Angka
+                  label="Keseragaman arah"
+                  nilai={hasil.keseragaman === null ? "—" : `${(hasil.keseragaman * 100).toFixed(0)}%`}
+                  sub="100% = semua prisma searah; rendah = rata-rata tidak mewakili"
+                />
+                <Angka
                   label="Beda gerak antar prisma"
                   nilai={fmt(hasil.diferensialMm)}
                   satuan="mm"
@@ -680,10 +651,6 @@ export function AnalisaGabungan({
               <div className="mt-1.5">
                 <DenahVektor dipakai={hasil.dipakai} ringkasan={hasil} ambang={ambang} pakaiAmbang={akhir} />
               </div>
-              <p className="mt-1 max-w-[232px] text-[11px] leading-snug text-(--ink-3)">
-                Garis tipis = tiap prisma, garis tebal = resultan kelompok, kipas = sebaran arahnya.
-                {akhir ? " Lingkaran putus-putus adalah ambang site." : ""}
-              </p>
             </div>
           </div>
 
