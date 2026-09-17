@@ -574,6 +574,13 @@ model Site {
   /// elevasi tanahnya disurvei.
   basemap_z          Float?
 
+  /// Relief lantai scene 3D: PNG abu-abu + alfa, nilai abu dipetakan linier
+  /// dari basemap_dem_min_z..max_z. Alfa 0 = tidak ada data tinggi di sel itu.
+  /// Lihat prisma/migrations/017_basemap_dem.sql. Null = lantainya datar.
+  basemap_dem_url    String? @db.VarChar(255)
+  basemap_dem_min_z  Float?
+  basemap_dem_max_z  Float?
+
   /// Perbaikan azimut tembakan RTS. Lihat prisma/migrations/015_koreksi_azimut.sql
   /// dan src/lib/koreksi-azimut.ts.
   ///

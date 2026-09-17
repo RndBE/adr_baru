@@ -112,15 +112,29 @@ export interface OpsiRender {
    * browser — sementara berkas ini murni dan dipakai juga oleh skrip uji.
    */
   basemap?: Record<string, unknown> | null;
+  /**
+   * Pengali sumbu Z terhadap skala sebenarnya. 1 = apa adanya.
+   *
+   * Diperlukan sejak lantainya jadi relief: beda tinggi seluruh site cuma 32 m
+   * di atas bentangan 2,5 km, jadi pada skala sebenarnya tanahnya terlihat rata
+   * dan reliefnya tidak menyampaikan apa pun.
+   *
+   * Yang diregangkan SELURUH sumbu Z — tanah, prisma, dan vektor pergeseran
+   * sekaligus — bukan reliefnya saja. Meregangkan tanahnya saja akan membuat
+   * prisma tampak melayang atau terkubur di lereng yang sebenarnya ia duduki.
+   */
+  lebihTinggi?: number;
 }
 
 /**
  * Gambar scene 3D ke elemen yang diberikan.
  *
  * Susunan trace, mawar arah di tengah, dan konfigurasi layout dipertahankan
- * persis seperti versi sebelumnya — termasuk `aspectmode: "data"` yang menjaga
- * skala ketiga sumbu tetap sebanding, tanpa itu pergeseran milimeter akan
- * terlihat sebesar jarak antar prisma.
+ * persis seperti versi sebelumnya. Rasio sumbunya kini `aspectmode: "manual"`
+ * dengan `aspectratio` yang dihitung dari bentangan data — pada
+ * `lebihTinggi = 1` hasilnya sama persis dengan `"data"` yang dipakai dulu,
+ * yang menjaga skala ketiga sumbu tetap sebanding; tanpa itu pergeseran
+ * milimeter akan terlihat sebesar jarak antar prisma.
  */
 export function gambarScene(
   Plotly: PlotlyGlobal,
@@ -244,6 +258,13 @@ export function gambarScene(
     hoverinfo: "skip",
   });
 
+  // Base map ikut menentukan batas scene, jadi ia harus ikut diukur di sini —
+  // kalau tidak, rasio sumbunya dihitung dari awan prisma saja dan lantainya
+  // tergencet begitu ortofotonya jauh lebih luas daripada jaring prismanya.
+  const bmX = (opsi.basemap?.x as number[] | undefined) ?? [];
+  const bmY = (opsi.basemap?.y as number[] | undefined) ?? [];
+  const bmZ = (opsi.basemap?.z as number[] | undefined) ?? [];
+
   const allX = finiteArr(x0.concat(x1)),
     allY = finiteArr(y0.concat(y1)),
     allZ = finiteArr(z0.concat(z1));
@@ -291,6 +312,19 @@ export function gambarScene(
   // urutan trace, jadi menaruhnya di belakang tidak membuatnya menimpa prisma.
   if (opsi.basemap) traces.push(opsi.basemap);
 
+  const rentang = (a: number[], b: number[]) => {
+    let lo = Infinity, hi = -Infinity;
+    for (const v of a) { if (v < lo) lo = v; if (v > hi) hi = v; }
+    for (const v of b) { if (v < lo) lo = v; if (v > hi) hi = v; }
+    return Number.isFinite(lo) && hi > lo ? hi - lo : 1;
+  };
+  const kZ = Number.isFinite(opsi.lebihTinggi) && (opsi.lebihTinggi as number) > 0
+    ? (opsi.lebihTinggi as number) : 1;
+  const dx = rentang(allX, bmX);
+  const dy = rentang(allY, bmY);
+  const dz = rentang(allZ, bmZ) * kZ;
+  const terbesar = Math.max(dx, dy, dz);
+
   Plotly.newPlot(
     el,
     traces,
@@ -321,7 +355,11 @@ export function gambarScene(
           titlefont: { color: "#0f172a" },
           tickfont: { color: "#0f172a" },
         },
-        aspectmode: "data",
+        // "manual", bukan "data": hanya bentuk ini yang menerima pengali Z.
+        // Pada lebihTinggi = 1 rasionya persis sebanding dengan bentangan
+        // sebenarnya, jadi perilakunya sama dengan "data" seperti sebelumnya.
+        aspectmode: "manual",
+        aspectratio: { x: dx / terbesar, y: dy / terbesar, z: dz / terbesar },
         bgcolor: "rgba(255,255,255,1)",
       },
       // Margin bawah HARUS disisakan untuk legenda mendatar: dengan b:0 baris

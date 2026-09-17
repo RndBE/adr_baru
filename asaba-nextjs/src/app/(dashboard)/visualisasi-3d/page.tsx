@@ -147,6 +147,11 @@ export default function Visualisasi3DPage() {
   /** "" = ikuti elevasi otomatis. Disimpan sebagai teks seperti input lain. */
   const [basemapZ, setBasemapZ] = useState("");
   const [basemapOpasitas, setBasemapOpasitas] = useState("1");
+  /**
+   * Pengali sumbu Z. Beda tinggi seluruh site cuma 32 m di atas bentangan
+   * 2,5 km, jadi pada skala sebenarnya reliefnya tidak menyampaikan apa pun.
+   */
+  const [lebihTinggi, setLebihTinggi] = useState("3");
   const [basemapSibuk, setBasemapSibuk] = useState(false);
   const [basemapGalat, setBasemapGalat] = useState("");
   /**
@@ -278,10 +283,11 @@ export default function Visualisasi3DPage() {
         scale: parseFloat((o?.scale ?? coneScale).replace(",", ".")) || 0.2,
         minLin: parseFloat((o?.lin ?? minLinear).replace(",", ".")) || 0,
         basemap: traceBm,
+        lebihTinggi: parseFloat(lebihTinggi.replace(",", ".")) || 1,
       });
       setSudahRender(true);
     },
-    [rtsE, rtsN, rtsZ, coneScale, minLinear, basemapTampil, basemapZ, basemapOpasitas, zOtomatis]
+    [rtsE, rtsN, rtsZ, coneScale, minLinear, basemapTampil, basemapZ, basemapOpasitas, zOtomatis, lebihTinggi]
   );
 
   const handleLoad = useCallback(async () => {
@@ -450,7 +456,7 @@ export default function Visualisasi3DPage() {
     if (!sudahRender || !titikRef.current) return;
     render(titikRef.current);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [jaringVersi, basemapZ, basemapOpasitas, zOtomatis]);
+  }, [jaringVersi, basemapZ, basemapOpasitas, zOtomatis, lebihTinggi]);
 
   const toggleFullscreen = () => {
     if (!fsTargetRef.current) return;
@@ -689,6 +695,20 @@ export default function Visualisasi3DPage() {
                 />
               </div>
               <div className="grid grid-cols-[64px_minmax(0,1fr)] items-center gap-2">
+                <label htmlFor="tinggi" className="text-[11.5px] text-(--ink-2)">
+                  Tinggi ×
+                </label>
+                <input
+                  id="tinggi"
+                  type="number"
+                  step="0.5"
+                  min="0.5"
+                  value={lebihTinggi}
+                  onChange={(e) => setLebihTinggi(e.target.value)}
+                  className={INPUT_ANGKA}
+                />
+              </div>
+              <div className="grid grid-cols-[64px_minmax(0,1fr)] items-center gap-2">
                 <label htmlFor="ambang" className="text-[11.5px] text-(--ink-2)">
                   Ambang
                 </label>
@@ -706,8 +726,13 @@ export default function Visualisasi3DPage() {
                 METER, sedangkan seluruh halaman lain di aplikasi ini memakai
                 milimeter. Mengetik "1" di sini menyembunyikan semua pergeseran
                 di bawah satu meter — praktis seluruhnya. */}
+            {/* "Tinggi ×" meregangkan SELURUH sumbu Z — tanah, prisma, dan
+                vektornya sekaligus — bukan reliefnya saja. Kalau cuma tanahnya
+                yang diregangkan, prisma akan tampak melayang atau terkubur di
+                lereng yang sebenarnya ia duduki. */}
             <p className="mt-2 text-[11px] leading-relaxed text-(--ink-3)">
-              Panah = pengali panjang kerucut. Ambang dalam <strong>meter</strong>; pergeseran
+              Panah = pengali panjang kerucut. <strong>Tinggi ×</strong> meregangkan sumbu
+              tegak; 1 = skala sebenarnya. Ambang dalam <strong>meter</strong>; pergeseran
               di bawahnya tidak digambar.
             </p>
           </div>
@@ -758,14 +783,14 @@ export default function Visualisasi3DPage() {
 
                   <div className="grid grid-cols-[64px_minmax(0,1fr)] items-center gap-2">
                     <label htmlFor="bm-z" className="text-[11.5px] text-(--ink-2)">
-                      Elevasi
+                      {basemap?.demUrl ? "Naikkan" : "Elevasi"}
                     </label>
                     <input
                       id="bm-z"
                       type="number"
                       step="0.5"
                       value={basemapZ}
-                      placeholder={String(zOtomatis)}
+                      placeholder={basemap?.demUrl ? "0" : String(zOtomatis)}
                       onChange={(e) => setBasemapZ(e.target.value)}
                       disabled={!basemapTampil}
                       className={cn(INPUT_ANGKA, "disabled:cursor-not-allowed disabled:text-(--ink-3)")}
@@ -794,9 +819,21 @@ export default function Visualisasi3DPage() {
                     bawaannya: bidang ortofoto tidak punya tinggi sendiri, jadi
                     tanpa keterangan ini angka di placeholder terlihat seperti
                     hasil ukur padahal cuma prisma terendah. */}
+                {/* Satuan WAJIB disebut, dan begitu juga dari mana angka
+                    bawaannya datang — tanpa itu angka di placeholder terlihat
+                    seperti hasil ukur. */}
                 <p className="mt-2 text-[11px] leading-relaxed text-(--ink-3)">
-                  Elevasi dalam <strong>meter</strong>; kosong = ikut prisma terendah (
-                  {zOtomatis} m). Ortofoto tidak punya tinggi sendiri.
+                  {basemap?.demUrl ? (
+                    <>
+                      Bentuk tanah dari kontur survei. Isian menaikkan atau
+                      menurunkan seluruh lantai, dalam <strong>meter</strong>; kosong = apa adanya.
+                    </>
+                  ) : (
+                    <>
+                      Elevasi dalam <strong>meter</strong>; kosong = ikut prisma terendah (
+                      {zOtomatis} m). Site ini belum punya kontur, jadi lantainya bidang datar.
+                    </>
+                  )}
                 </p>
 
                 <p className="mt-1.5 text-[11px] leading-relaxed text-(--ink-3)">

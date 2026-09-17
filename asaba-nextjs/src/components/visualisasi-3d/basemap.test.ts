@@ -14,7 +14,7 @@
  *      kesalahan yang tetap terlihat "masuk akal" pada foto tambang.
  *   2. Titik jaring duduk di TENGAH selnya, bukan di tepi kotak.
  */
-import { bangunJaring, ukuranPetak, type PetakCitra, type KotakUtm } from "./basemap";
+import { bangunJaring, sampelDem, ukuranPetak, type PetakCitra, type PetakDem, type KotakUtm } from "./basemap";
 
 let gagal = 0;
 function cek(judul: string, dapat: unknown, harus: unknown) {
@@ -33,6 +33,11 @@ function rentang(a: number[]) {
     if (v > max) max = v;
   }
   return { min, max };
+}
+
+function benar(judul: string, syarat: boolean) {
+  if (!syarat) gagal++;
+  console.log(`${syarat ? "ok  " : "GAGAL"} ${judul}`);
 }
 
 function dekat(judul: string, dapat: number, harus: number, toleransi = 1e-6) {
@@ -164,6 +169,75 @@ cek("sisi pendek tidak pernah di bawah 2", ukuranPetak({ minE: 0, maxE: 10000, m
   // di sini supaya kalau suatu hari ortofotonya diganti dan kotaknya melebar,
   // baris ini gagal dan catatannya ikut diperbarui, bukan diam-diam basi.
   cek("DF_7 (E 465139,2) masih di LUAR kotak", 465139.1519 > bpp.maxE, true);
+}
+
+// ── DEM: pencuplikan relief ─────────────────────────────────────────────────
+{
+  // 3x3 sel di atas KOTAK (E 1000–1400). Nilainya menanjak per KOLOM: 0, 128,
+  // 255 — jadi hasil cuplikan sepanjang E bisa dihitung di kepala.
+  const nilai = new Uint8ClampedArray([0, 128, 255, 0, 128, 255, 0, 128, 255]);
+  const dem: PetakDem = {
+    nx: 3, ny: 3, nilai,
+    ada: new Uint8Array(9).fill(1),
+    minZ: 10, maxZ: 20, kotak: KOTAK,
+  };
+  // Tengah sel kolom c / baris r — konvensi yang sama dengan bangunJaring().
+  const Ec = (c: number) => 1000 + (400 * (c + 0.5)) / 3;
+  const Nr = (r: number) => 5200 - (200 * (r + 0.5)) / 3;
+
+  dekat("tepat di tengah sel tengah: 128 → 15,02 m", sampelDem(dem, Ec(1), Nr(1))!, 10 + (128 / 255) * 10, 1e-9);
+  dekat("di tengah kolom kiri: 0 → minZ", sampelDem(dem, Ec(0), Nr(1))!, 10, 1e-9);
+  dekat("separuh jalan antar kolom: rata-rata keduanya", sampelDem(dem, (Ec(0) + Ec(1)) / 2, Nr(1))!, 10 + (64 / 255) * 10, 1e-9);
+
+  // Di luar titik tengah sel TERLUAR tidak ada empat tetangga untuk
+  // diinterpolasi. Bukan kekurangan: menebak di sana berarti mengarang lereng
+  // di tepi survei. Pada pemakaian sungguhan DEM (800x449) jauh lebih rapat
+  // daripada jaringnya (520 sel), jadi tepi jaring tetap kebagian.
+  cek("di tepi timur kotak: null", sampelDem(dem, KOTAK.maxE, Nr(1)), null);
+  cek("di tepi barat kotak: null", sampelDem(dem, KOTAK.minE, Nr(1)), null);
+  cek("di tepi utara kotak: null", sampelDem(dem, Ec(1), KOTAK.maxN), null);
+  cek("jauh di luar kotak: null", sampelDem(dem, 9999, 9999), null);
+
+  // Satu tetangga nodata menggugurkan seluruh sampel — bukan "pakai yang ada".
+  const ada = new Uint8Array(9).fill(1);
+  ada[4] = 0;
+  cek(
+    "satu tetangga nodata → seluruh sampel ditolak",
+    sampelDem({ ...dem, ada }, (Ec(0) + Ec(1)) / 2, (Nr(0) + Nr(1)) / 2),
+    null
+  );
+}
+
+// ── DEM: jaring ikut bentuk tanah ───────────────────────────────────────────
+{
+  // DEM sengaja LEBIH RAPAT daripada citranya, seperti pemakaian sungguhan
+  // (DEM 800x449 di bawah jaring 520 sel). Dengan begitu tepi jaring pun masih
+  // punya empat tetangga untuk diinterpolasi.
+  const demRata = (n: number, ada?: Uint8Array): PetakDem => ({
+    nx: 16, ny: 16,
+    nilai: new Uint8ClampedArray(256).fill(n),
+    ada: ada ?? new Uint8Array(256).fill(1),
+    minZ: 0, maxZ: 100, kotak: KOTAK,
+  });
+  const citra = petak(4, 4, () => [9, 9, 9]);
+
+  const j = bangunJaring(citra, KOTAK, 0, demRata(128));
+  cek("DEM rata: seluruh titik pada satu tinggi", [...new Set(j.z.map((v) => Math.round(v)))], [50]);
+  cek("semua sel terpakai", j.x.length, 16);
+
+  // `z` jadi PERGESERAN saat relief aktif, bukan tinggi mutlak — supaya kontrol
+  // yang sama di panel tetap berguna menaikkan seluruh lantai.
+  const naik = bangunJaring(citra, KOTAK, 7, demRata(128));
+  cek("z menggeser seluruh lantai", [...new Set(naik.z.map((v) => Math.round(v)))], [57]);
+
+  // Sel tanpa data tinggi tidak boleh ikut digambar: menambalnya dengan tinggi
+  // karangan berarti melukis lereng yang tidak pernah disurvei.
+  const bolong = new Uint8Array(256).fill(1);
+  for (let i = 0; i < 16 * 5; i++) bolong[i] = 0; // lima baris teratas DEM kosong
+  const potong = bangunJaring(citra, KOTAK, 0, demRata(128, bolong));
+  benar("baris tanpa data tinggi menghilangkan titiknya", potong.x.length < 16);
+  benar("segitiganya ikut berkurang", potong.i.length < j.i.length);
+  benar("sisanya tetap tergambar", potong.i.length > 0);
 }
 
 console.log(gagal === 0 ? "\nSemua lolos." : `\n${gagal} pemeriksaan gagal.`);

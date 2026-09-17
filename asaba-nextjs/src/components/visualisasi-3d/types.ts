@@ -63,6 +63,10 @@ export interface BasemapSite {
   maxN: number;
   /** Elevasi bidangnya, meter. Null = turunkan dari data. */
   z: number | null;
+  /** Relief dari kontur survei; null = lantainya bidang datar. */
+  demUrl: string | null;
+  demMinZ: number | null;
+  demMaxZ: number | null;
 }
 
 export interface PayloadDeformasi {

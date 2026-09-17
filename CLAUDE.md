@@ -7,6 +7,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - `asaba-nextjs/` — **the active application.** Next.js 16 + React 19, Prisma/MySQL, MQTT. All work happens here.
 - `RTS ANIMATION ASSET/` — numbered PNG sprite frames for the RTS animation component.
 - `tools/ecw/` — one-off Docker recipe for decoding a site's `.ecw` orthophoto into the base map assets. Never runs at runtime and is not part of `npm run build`.
+- `tools/dxf/` — one-off script turning a site's survey contour `.dxf` into the DEM raster that gives the 3D scene its terrain. Same deal: never runs at runtime.
 
 `db_demo (2).sql` at root is a dump of the legacy schema.
 
@@ -112,23 +113,26 @@ Every row `kolam_bpp` has ever written holds **`sensor8` = Easting (~464 000), `
 
 Displacement *magnitudes* are unaffected — `sqrt(DE²+DN²+DZ²)` is the same either way, so thresholds and alerts have always been right, and `kirim-peringatan.ts` never mentions a direction. What the swap corrupts is anything *directional*: the `N`/`E` column headers, `arah8ID()` bearings, and `utm2ll()` lat/lng. Before fixing another site, check which convention the swap has already been applied at — fixing it twice puts it back.
 
-#### The recorded coordinates are computed from the horizontal angle **wrong**
+#### The coordinates the logger sends are computed from the angles **wrong**
 
-Two compounding bugs on `rts.sensor5` (HA), confirmed 17 Sep 2026 against the field survey map `Peta Prisma Robotik BPP 1-4.pdf`:
-
-1. **Unit** — HA is in **gon** (400 to a circle) but is used as if degrees. The ×0.9 is missing.
-2. **Sign** — the angle is subtracted instead of added.
+**Both** angle columns are in **gon** (400 to a circle) and both are used as if degrees, and on top of that the horizontal angle's sign is flipped. Confirmed 17 Sep 2026 against two independent field sources — the survey map `Peta Prisma Robotik BPP 1-4.pdf` and the contour survey `Situasi_BPP_260731.dxf`.
 
 ```
 what the logger records :  bearing = 89.70° − HA_gon         (spread 0.61°)
-what is actually true   :  bearing = 0.9 × HA_gon + 302.49°  (spread 1.00°)
+what is actually true   :  bearing = 0.9 × HA_gon + 302.35°  (spread 1.00°)
 ```
 
-Every prism therefore lands on the wrong side of the instrument — DF_7 by 1 824 m. The instrument cannot be fixed in the field, so the correction lives in `src/lib/koreksi-azimut.ts`, parameterised per site by `t_site.ha_faktor_derajat` / `ha_orientasi_deg` (migration `015`). `/api/datamasuk/adr` applies it before anything touches `sensor8`/`sensor9`; `scripts/perbaiki-azimut-rts.ts` repairs history.
+The damage: every prism lands on the wrong side of the instrument (DF_7 by 1 824 m), every distance is 0.7–2% short, and every elevation is nonsense — the logger put DF_7 at −176.7 m in an area the contours place at 11–43 m.
 
-Only the **bearing** is rewritten. Horizontal distance and elevation come from SD and VA, which never touch HA, and are already right — so radial displacement magnitudes, thresholds and alert history are unchanged. The correction recomputes the azimuth from raw HA rather than rotating, which makes it **idempotent**: re-running it is a no-op.
+The instrument cannot be fixed in the field, so the correction lives in `src/lib/koreksi-azimut.ts`, parameterised per site by `t_site.ha_faktor_derajat` / `ha_orientasi_deg` (migrations `015`, `016`). `/api/datamasuk/adr` applies it before anything touches `sensor8`/`sensor9`/`sensor10`; `scripts/perbaiki-azimut-rts.ts` repairs history.
 
-`ha_orientasi_deg` (302.352°) was derived by reading marker positions off that PDF, good to about ±0.5° — ±10 m of absolute position at the farthest prism. That error is a constant rotation applied to every epoch identically, so it cancels completely out of deformation. Replace the one number in `t_site` once a surveyed backsight azimuth exists; no code changes.
+E, N and Z are **rebuilt from HA/VA/SD**, never patched from the logger's coordinates — those carry the very errors being corrected. Migration `015` originally patched only the bearing and kept the logger's distance, reasoning that distance never touches HA. True of HA, but distance comes from VA, which had the same unit bug; the 7–28 m residual that looked like orientation uncertainty was distance error. Patching part of a wrong number inherits the rest.
+
+Because it recomputes rather than adjusts, the correction is **idempotent** — re-running it is a no-op, and the raw observations stay untouched so history can always be recomputed again.
+
+`config_adr.ts_high` is deliberately **not** added to Z. It reads 10 for `kolam_bpp`, which would float every prism 9–12 m above the surveyed contours; `config_adr.coor_z` equals `t_site.rts_z` exactly, so `rts_z` is already the instrument's elevation (the shelter tower), not its ground mark. With nothing added the six prisms sit −0.7 … +1.8 m off the contour surface.
+
+`ha_orientasi_deg` (302.351°) was derived by reading marker positions off the PDF, good to about ±0.5°. That error is a constant rotation applied to every epoch identically, so it cancels completely out of deformation — it only shifts absolute position. Replace the one number in `t_site` once a surveyed backsight azimuth exists; no code changes.
 
 ### Single sources of truth
 
@@ -143,6 +147,8 @@ Several modules exist because the same rule was previously duplicated and drifte
 The Visualisasi 3D page can draw a site's drone orthophoto as the floor of the Plotly scene. Everything about *which* photo and *where* it sits comes from `t_site.basemap_*` (migration `014`), never from code — see `src/lib/sites.ts`. `src/components/visualisasi-3d/basemap.ts` turns the image into a `mesh3d` with one colour per vertex, because Plotly cannot texture a 3D scene: `layout.images` is 2D-only, and `surface` interpolates `surfacecolor` *before* the colorscale lookup, which turns palette indices into rainbows at every colour boundary.
 
 Assets live in `public/basemap/`: a JPEG for colour plus a 1-bit PNG marking the photographed area. The mask exists because a drone orthophoto is an irregular polygon inside a rectangular frame — 36% of BPP 1-4 is empty margin, and drawing it makes the base map an opaque slab. Alpha inside a colour PNG would take the file from 448 KB to 4.3 MB; the separate mask is 8 KB.
+
+**Terrain.** With `basemap_dem_*` set (migration `017`) the floor stops being a flat plane and takes its height from the site's survey contours — `tools/dxf/kontur-ke-dem.py` rasterises them into an 8-bit grey+alpha PNG, alpha marking where the survey has no data. `sampelDem()` rejects any sample touching a nodata cell rather than extrapolating, so the terrain ends where the survey does instead of inventing slopes. The vertical axis uses `aspectmode: "manual"` with a user multiplier, because 32 m of relief across 2.5 km is invisible at true scale; the multiplier stretches the *whole* Z axis — terrain, prisms and vectors together — so nothing appears to float.
 
 **Regenerating the asset from an ECW** — full recipe and its traps in `tools/ecw/README.md`. The short version: ECW is proprietary, nothing here reads it without the Hexagon SDK, so `tools/ecw/` builds `libecwj2-3.3` in a container and drives it from a small C program. Bounding box comes from the ECW header (`fOriginX/Y` is the top-left *corner* of the top-left cell, not its centre) — never from eyeballing a map. Adding a second site's orthophoto needs no code change, only the assets plus a `t_site` row update.
 

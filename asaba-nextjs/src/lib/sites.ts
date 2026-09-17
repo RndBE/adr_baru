@@ -59,6 +59,13 @@ export interface SiteBasemap {
   maxN: number;
   /** Elevasi bidangnya, meter. Null = biarkan penampil menurunkannya dari data. */
   z: number | null;
+  /**
+   * Relief: PNG abu-abu + alfa, nilai abu dipetakan linier dari demMinZ..demMaxZ,
+   * alfa 0 = tidak ada data tinggi. Null = lantainya bidang datar.
+   */
+  demUrl: string | null;
+  demMinZ: number | null;
+  demMaxZ: number | null;
 }
 
 export interface SiteConfig {
@@ -178,6 +185,9 @@ type SiteRow = {
   basemap_min_n: number | null;
   basemap_max_n: number | null;
   basemap_z: number | null;
+  basemap_dem_url: string | null;
+  basemap_dem_min_z: number | null;
+  basemap_dem_max_z: number | null;
   ha_faktor_derajat: number | null;
   ha_orientasi_deg: number | null;
   rotasi_deg: number | null;
@@ -255,6 +265,17 @@ export function toSiteConfig(row: SiteRow): SiteConfig {
             minN: row.basemap_min_n as number,
             maxN: row.basemap_max_n as number,
             z: row.basemap_z,
+            // Relief hanya dipakai kalau berkas DAN kedua batas Z-nya ada.
+            // Nilai abu tanpa batasnya tidak bisa diterjemahkan jadi meter, dan
+            // menebaknya menghasilkan relief yang tingginya karangan.
+            demUrl:
+              row.basemap_dem_url &&
+              row.basemap_dem_min_z !== null &&
+              row.basemap_dem_max_z !== null
+                ? row.basemap_dem_url
+                : null,
+            demMinZ: row.basemap_dem_min_z,
+            demMaxZ: row.basemap_dem_max_z,
           }
         : null,
     // Koreksi azimut menuntut KEDUA angkanya. Satu saja terisi berarti

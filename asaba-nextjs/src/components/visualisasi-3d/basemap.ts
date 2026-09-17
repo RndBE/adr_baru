@@ -24,6 +24,17 @@
  * Segitiga hanya dibuat kalau ketiga titiknya bergambar, sehingga base map
  * mengikuti bentuk aslinya dan tidak jadi lempeng yang menutupi apa pun di
  * baliknya saat kamera dimiringkan.
+ *
+ * ── Relief ──────────────────────────────────────────────────────────────────
+ *
+ * Kalau site punya DEM, tinggi tiap titik jaring diambil dari sana, bukan dari
+ * satu angka datar. Sumbernya kontur survei yang sudah diraster
+ * (tools/dxf/kontur-ke-dem.py) dan dilayani sebagai PNG abu-abu + alfa.
+ *
+ * Titik yang DEM-nya tidak berdata tidak dipakai segitiga mana pun — sama
+ * perlakuannya dengan tepi kosong ortofoto. Ortofoto BPP 1-4 memang lebih luas
+ * daripada surveinya, dan menambal bagian itu dengan tinggi karangan berarti
+ * menggambar lereng yang tidak ada.
  */
 
 /** Kotak batas ortofoto dalam meter UTM. Sama isinya dengan SiteBasemap. */
@@ -32,6 +43,63 @@ export interface KotakUtm {
   maxE: number;
   minN: number;
   maxN: number;
+}
+
+/**
+ * DEM yang sudah dibaca dari PNG-nya.
+ *
+ * `nilai` adalah angka abu mentah 0-255; meternya baru muncul setelah
+ * dipetakan ke minZ..maxZ. Disimpan mentah supaya pemetaannya terjadi di satu
+ * tempat saja — sampelDem() — dan tidak bisa berbeda antar pemanggil.
+ */
+export interface PetakDem {
+  nx: number;
+  ny: number;
+  /** Panjang nx*ny, nilai abu 0-255. */
+  nilai: Uint8ClampedArray;
+  /** Panjang nx*ny; 0 = sel tanpa data tinggi. */
+  ada: Uint8Array;
+  minZ: number;
+  maxZ: number;
+  /** Kotak yang ditutupi raster ini. Biasanya sama dengan kotak ortofoto. */
+  kotak: KotakUtm;
+}
+
+/**
+ * Tinggi di satu titik UTM, meter. Null bila titik itu di luar raster atau
+ * salah satu dari empat sel tetangganya tidak berdata.
+ *
+ * Interpolasinya bilinier dan dikerjakan SENDIRI, bukan diserahkan ke
+ * penghalusan canvas: canvas akan ikut mencampur sel nodata dengan sel berdata
+ * di tepi survei, dan hasilnya lereng palsu yang menjulur ke wilayah yang
+ * justru tidak disurvei. Menolak seluruh sampel yang menyentuh nodata membuat
+ * tepi itu terpotong tegas.
+ */
+export function sampelDem(dem: PetakDem, E: number, N: number): number | null {
+  const { nx, ny, kotak } = dem;
+  const lebar = kotak.maxE - kotak.minE;
+  const tinggi = kotak.maxN - kotak.minN;
+  if (!(lebar > 0) || !(tinggi > 0)) return null;
+
+  // Titik tengah sel (i,j) ada di (i+0,5)/nx — konvensi yang sama dengan
+  // bangunJaring(), supaya keduanya tidak bergeser setengah sel satu sama lain.
+  const fx = ((E - kotak.minE) / lebar) * nx - 0.5;
+  const fy = ((kotak.maxN - N) / tinggi) * ny - 0.5;
+  const x0 = Math.floor(fx);
+  const y0 = Math.floor(fy);
+  if (x0 < 0 || y0 < 0 || x0 + 1 >= nx || y0 + 1 >= ny) return null;
+
+  const idx = [y0 * nx + x0, y0 * nx + x0 + 1, (y0 + 1) * nx + x0, (y0 + 1) * nx + x0 + 1];
+  for (const i of idx) if (dem.ada[i] === 0) return null;
+
+  const tx = fx - x0;
+  const ty = fy - y0;
+  const v =
+    dem.nilai[idx[0]] * (1 - tx) * (1 - ty) +
+    dem.nilai[idx[1]] * tx * (1 - ty) +
+    dem.nilai[idx[2]] * (1 - tx) * ty +
+    dem.nilai[idx[3]] * tx * ty;
+  return dem.minZ + (v / 255) * (dem.maxZ - dem.minZ);
 }
 
 /** Hasil pembacaan citra: nx*ny sel, RGBA berurutan baris demi baris. */
@@ -85,7 +153,12 @@ export function ukuranPetak(kotak: KotakUtm, kerapatan: number) {
  * titik kosong di pojok akan memaksa scene selebar bingkai penuh ortofoto
  * walaupun bagian itu tidak tergambar.
  */
-export function bangunJaring(petak: PetakCitra, kotak: KotakUtm, z: number): JaringBasemap {
+export function bangunJaring(
+  petak: PetakCitra,
+  kotak: KotakUtm,
+  z: number,
+  dem?: PetakDem | null
+): JaringBasemap {
   const { nx, ny, rgba, topeng } = petak;
   const lebar = kotak.maxE - kotak.minE;
   const tinggi = kotak.maxN - kotak.minN;
@@ -101,7 +174,33 @@ export function bangunJaring(petak: PetakCitra, kotak: KotakUtm, z: number): Jar
   // -1 = titik ini belum pernah dipakai segitiga.
   const indeks = new Int32Array(nx * ny).fill(-1);
 
-  const bergambar = (sel: number) => (topeng ? topeng[sel] !== 0 : true);
+  // Tinggi tiap sel dihitung SEKALI di muka, bukan di dalam titik(): sel yang
+  // DEM-nya kosong harus menggugurkan segitiganya, dan itu perlu diketahui
+  // sebelum titiknya dibuat.
+  const tinggiSel = new Float64Array(nx * ny);
+  const punyaTinggi = new Uint8Array(nx * ny);
+  for (let row = 0; row < ny; row++) {
+    for (let col = 0; col < nx; col++) {
+      const sel = row * nx + col;
+      if (!dem) {
+        tinggiSel[sel] = z;
+        punyaTinggi[sel] = 1;
+        continue;
+      }
+      const E = kotak.minE + (lebar * (col + 0.5)) / nx;
+      const N = kotak.maxN - (tinggi * (row + 0.5)) / ny;
+      const t = sampelDem(dem, E, N);
+      if (t === null) continue;
+      // `z` jadi PERGESERAN saat relief aktif, bukan tinggi mutlak — supaya
+      // kontrol yang sama di panel tetap berguna untuk menaikkan atau
+      // menurunkan seluruh lantai tanpa merusak bentuknya.
+      tinggiSel[sel] = t + z;
+      punyaTinggi[sel] = 1;
+    }
+  }
+
+  const bergambar = (sel: number) =>
+    punyaTinggi[sel] !== 0 && (topeng ? topeng[sel] !== 0 : true);
 
   const titik = (col: number, row: number): number => {
     const sel = row * nx + col;
@@ -112,7 +211,7 @@ export function bangunJaring(petak: PetakCitra, kotak: KotakUtm, z: number): Jar
     // Baris 0 citra = tepi UTARA ortofoto, jadi N menurun seiring row.
     x.push(kotak.minE + (lebar * (col + 0.5)) / nx);
     y.push(kotak.maxN - (tinggi * (row + 0.5)) / ny);
-    zz.push(z);
+    zz.push(tinggiSel[sel]);
     const p = sel * 4;
     vertexcolor.push([rgba[p], rgba[p + 1], rgba[p + 2]]);
     return baru;
@@ -190,13 +289,57 @@ function kePetak(img: HTMLImageElement, nx: number, ny: number): Uint8ClampedArr
 }
 
 /**
+ * Baca DEM apa adanya, tanpa penskalaan.
+ *
+ * Digambar pada ukuran aslinya dengan penghalusan DIMATIKAN. Mengecilkannya
+ * lewat canvas akan mencampur sel nodata dengan sel berdata di tepi survei dan
+ * menghasilkan tinggi antara yang tidak pernah diukur siapa pun; pengecilan ke
+ * kerapatan jaring dilakukan belakangan oleh sampelDem(), yang menolak sampel
+ * yang menyentuh nodata.
+ */
+async function muatDem(
+  url: string,
+  minZ: number,
+  maxZ: number,
+  kotak: KotakUtm
+): Promise<PetakDem> {
+  const img = await muatCitra(url);
+  const nx = img.naturalWidth;
+  const ny = img.naturalHeight;
+  const c = document.createElement("canvas");
+  c.width = nx;
+  c.height = ny;
+  const ctx = c.getContext("2d", { willReadFrequently: true });
+  if (!ctx) throw new Error("Canvas 2D tidak tersedia");
+  ctx.imageSmoothingEnabled = false;
+  ctx.drawImage(img, 0, 0);
+  const d = ctx.getImageData(0, 0, nx, ny).data;
+
+  const nilai = new Uint8ClampedArray(nx * ny);
+  const ada = new Uint8Array(nx * ny);
+  for (let i = 0; i < nx * ny; i++) {
+    nilai[i] = d[i * 4];
+    // Alfa di sini penanda "ada data", bukan transparansi. Nilainya hanya 0
+    // atau 255; ambang di tengah menampung pembulatan peramban.
+    ada[i] = d[i * 4 + 3] > 127 ? 1 : 0;
+  }
+  return { nx, ny, nilai, ada, minZ, maxZ, kotak };
+}
+
+/**
  * Muat ortofoto (dan topengnya) lalu ubah jadi jaring siap gambar.
  *
  * Topeng boleh gagal dimuat tanpa menggagalkan base map-nya: ortofoto tanpa
  * topeng tetap berguna, cuma bingkainya ikut tergambar.
  */
 export async function muatJaringBasemap(
-  sumber: { url: string; nodataUrl: string | null } & KotakUtm,
+  sumber: {
+    url: string;
+    nodataUrl: string | null;
+    demUrl?: string | null;
+    demMinZ?: number | null;
+    demMaxZ?: number | null;
+  } & KotakUtm,
   kerapatan: number,
   z: number
 ): Promise<JaringBasemap> {
@@ -218,5 +361,17 @@ export async function muatJaringBasemap(
     }
   }
 
-  return bangunJaring({ nx, ny, rgba, topeng }, sumber, z);
+  // Relief boleh gagal dimuat tanpa menggagalkan base map-nya: ortofoto pada
+  // bidang datar tetap berguna, cuma tidak menunjukkan bentuk tanahnya.
+  let dem: PetakDem | null = null;
+  if (sumber.demUrl && sumber.demMinZ !== null && sumber.demMinZ !== undefined &&
+      sumber.demMaxZ !== null && sumber.demMaxZ !== undefined) {
+    try {
+      dem = await muatDem(sumber.demUrl, sumber.demMinZ, sumber.demMaxZ, sumber);
+    } catch {
+      dem = null;
+    }
+  }
+
+  return bangunJaring({ nx, ny, rgba, topeng }, sumber, z, dem);
 }
