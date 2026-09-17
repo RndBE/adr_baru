@@ -120,6 +120,16 @@ export interface JaringBasemap {
   j: number[];
   k: number[];
   vertexcolor: [number, number, number][];
+  /**
+   * Pergeseran tegak yang SEDANG diterapkan pada `z`, meter.
+   *
+   * Ada supaya menaikkan lantai tidak perlu menyusun ulang jaringnya — dan,
+   * yang jauh lebih penting, supaya tidak ada yang tergoda menimpa `z` dengan
+   * satu angka. Itu persis yang dilakukan versi pertama halaman ini
+   * (`jaring.z.fill(...)`), yang meratakan seluruh relief setiap kali digambar
+   * sementara jaringnya sendiri sudah benar.
+   */
+  geser: number;
 }
 
 /**
@@ -193,7 +203,8 @@ export function bangunJaring(
       if (t === null) continue;
       // `z` jadi PERGESERAN saat relief aktif, bukan tinggi mutlak — supaya
       // kontrol yang sama di panel tetap berguna untuk menaikkan atau
-      // menurunkan seluruh lantai tanpa merusak bentuknya.
+      // menurunkan seluruh lantai tanpa merusak bentuknya. Halaman memanggil
+      // dengan 0 dan menggesernya belakangan lewat terapkanGeser().
       tinggiSel[sel] = t + z;
       punyaTinggi[sel] = 1;
     }
@@ -233,7 +244,23 @@ export function bangunJaring(
     }
   }
 
-  return { x, y, z: zz, i: iArr, j: jArr, k: kArr, vertexcolor };
+  return { x, y, z: zz, i: iArr, j: jArr, k: kArr, vertexcolor, geser: 0 };
+}
+
+/**
+ * Naikkan atau turunkan seluruh lantai, tanpa merusak bentuknya.
+ *
+ * Menggeser SELISIHNYA saja, bukan menulis ulang dari nilai dasar — jadi tidak
+ * perlu menyimpan salinan tinggi aslinya untuk ratusan ribu titik. Dipanggil
+ * berulang dengan angka yang sama tidak mengubah apa pun.
+ */
+export function terapkanGeser(jaring: JaringBasemap, geser: number): JaringBasemap {
+  if (!Number.isFinite(geser)) return jaring;
+  const delta = geser - jaring.geser;
+  if (delta === 0) return jaring;
+  for (let i = 0; i < jaring.z.length; i++) jaring.z[i] += delta;
+  jaring.geser = geser;
+  return jaring;
 }
 
 /** Trace Plotly untuk jaring yang sudah jadi. */

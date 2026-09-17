@@ -27,6 +27,7 @@ import {
 } from "@/components/visualisasi-3d/deformasi-3d";
 import {
   muatJaringBasemap,
+  terapkanGeser,
   traceBasemap,
   ukuranPetak,
   type JaringBasemap,
@@ -47,11 +48,17 @@ declare global {
   }
 }
 
-// Versi cache DINAIKKAN: bentuk CachePayload bertambah `basemap`, dan yang
-// lebih penting, titik yang tersimpan di v1 dibuat sebelum E/N di
-// /api/deformasi dibetulkan — memulihkannya akan menggambar prisma di tempat
-// yang salah, tanpa tanda apa pun bahwa datanya basi.
-const CACHE_KEY = "vis3d_cache_v2";
+// Versi cache dinaikkan tiap kali bentuk CachePayload berubah, supaya entri
+// lama tidak dipulihkan dengan medan yang hilang.
+//
+// Tapi versi saja TIDAK cukup, dan itu sudah terbukti dua kali dalam satu hari:
+// isi cache ini hasil HITUNGAN SERVER, jadi ia basi setiap kali cara server
+// menghitung berubah — bukan hanya saat bentuknya berubah. 17 September 2026
+// cache v2 menyimpan `basemap` yang direkam sebelum kolom DEM ada, dan
+// kunjungan berikutnya menggambar lantai datar tanpa satu pun tanda bahwa
+// reliefnya ada di server. Karena itu pemulihan cache sekarang SELALU disusul
+// pengambilan ulang — lihat efek pemuat sesi di bawah.
+const CACHE_KEY = "vis3d_cache_v3";
 
 /**
  * Jumlah sel base map pada sisi terpanjang ortofoto.
@@ -151,7 +158,7 @@ export default function Visualisasi3DPage() {
    * Pengali sumbu Z. Beda tinggi seluruh site cuma 32 m di atas bentangan
    * 2,5 km, jadi pada skala sebenarnya reliefnya tidak menyampaikan apa pun.
    */
-  const [lebihTinggi, setLebihTinggi] = useState("3");
+  const [lebihTinggi, setLebihTinggi] = useState("5");
   const [basemapSibuk, setBasemapSibuk] = useState(false);
   const [basemapGalat, setBasemapGalat] = useState("");
   /**
@@ -259,18 +266,25 @@ export default function Visualisasi3DPage() {
     ) => {
       if (!window.Plotly || !plotRef.current) return;
 
-      // Elevasi bidang diterapkan di sini, bukan saat jaringnya disusun:
-      // memindahkan lantai naik-turun cuma mengganti satu angka per titik,
-      // sementara menyusun ulang jaringnya berarti mengunduh dan membaca
-      // ulang seluruh citra.
+      // Tinggi lantai diterapkan di sini, bukan saat jaringnya disusun:
+      // menggesernya naik-turun cuma menambah satu angka ke tiap titik,
+      // sementara menyusun ulang jaringnya berarti mengunduh dan membaca ulang
+      // seluruh citra beserta DEM-nya.
+      //
+      // Yang digeser SELISIHNYA. Versi sebelumnya menulis `jaring.z.fill(z)` —
+      // benar selama lantainya bidang datar, tapi begitu relief masuk, baris
+      // itu meratakan seluruh bentuk tanah setiap kali digambar, padahal
+      // jaringnya sendiri sudah benar.
       let traceBm: Record<string, unknown> | null = null;
       const jaring = jaringRef.current;
       if (basemapTampil && jaring) {
-        const zDipakai = basemapZ.trim()
-          ? parseFloat(basemapZ.replace(",", "."))
-          : zOtomatis;
-        if (Number.isFinite(zDipakai)) {
-          if (jaring.z[0] !== zDipakai) jaring.z.fill(zDipakai);
+        // Tanpa relief, angka di panel adalah elevasi MUTLAK bidangnya —
+        // jaringnya disusun di nol, jadi pergeserannya sama dengan elevasinya.
+        // Dengan relief, angka itu pergeseran terhadap tanah, bawaannya nol.
+        const bawaan = basemap?.demUrl ? 0 : zOtomatis;
+        const geser = basemapZ.trim() ? parseFloat(basemapZ.replace(",", ".")) : bawaan;
+        if (Number.isFinite(geser)) {
+          terapkanGeser(jaring, geser);
           const op = parseFloat(basemapOpasitas.replace(",", "."));
           traceBm = traceBasemap(jaring, Number.isFinite(op) ? Math.min(Math.max(op, 0.05), 1) : 1);
         }
@@ -287,7 +301,7 @@ export default function Visualisasi3DPage() {
       });
       setSudahRender(true);
     },
-    [rtsE, rtsN, rtsZ, coneScale, minLinear, basemapTampil, basemapZ, basemapOpasitas, zOtomatis, lebihTinggi]
+    [rtsE, rtsN, rtsZ, coneScale, minLinear, basemapTampil, basemapZ, basemapOpasitas, zOtomatis, lebihTinggi, basemap]
   );
 
   const handleLoad = useCallback(async () => {
@@ -389,10 +403,17 @@ export default function Visualisasi3DPage() {
     idTerakhirRef.current = selectedLogId;
 
     if (pakaiCache && titikRef.current) {
-      // Sesi pertama datang dari cache — tidak perlu menembak server lagi.
+      // Cache dipakai untuk paint PERTAMA saja — supaya panggung tidak kosong
+      // selama menunggu jaringan — lalu tetap disusul pengambilan ulang.
+      //
+      // Versi sebelumnya berhenti di sini dan sengaja tidak menembak server.
+      // Cepat, tapi isi cache ini hasil hitungan server: setiap kali cara
+      // server menghitung berubah, kunjungan pertama menampilkan angka lama
+      // tanpa tanda apa pun. Itu terjadi dua kali pada 17 September 2026 —
+      // sekali sesudah koordinat dibetulkan, sekali lagi sesudah relief
+      // ditambahkan dan lantainya tetap tampil datar.
       cacheDipakaiRef.current = true;
       render(titikRef.current, { E: rtsE, N: rtsN, Z: rtsZ, scale: coneScale, lin: minLinear });
-      return;
     }
     handleLoad();
     // eslint-disable-next-line react-hooks/exhaustive-deps

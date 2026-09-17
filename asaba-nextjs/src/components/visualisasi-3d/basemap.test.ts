@@ -14,7 +14,7 @@
  *      kesalahan yang tetap terlihat "masuk akal" pada foto tambang.
  *   2. Titik jaring duduk di TENGAH selnya, bukan di tepi kotak.
  */
-import { bangunJaring, sampelDem, ukuranPetak, type PetakCitra, type PetakDem, type KotakUtm } from "./basemap";
+import { bangunJaring, sampelDem, terapkanGeser, ukuranPetak, type PetakCitra, type PetakDem, type KotakUtm } from "./basemap";
 
 let gagal = 0;
 function cek(judul: string, dapat: unknown, harus: unknown) {
@@ -238,6 +238,46 @@ cek("sisi pendek tidak pernah di bawah 2", ukuranPetak({ minE: 0, maxE: 10000, m
   benar("baris tanpa data tinggi menghilangkan titiknya", potong.x.length < 16);
   benar("segitiganya ikut berkurang", potong.i.length < j.i.length);
   benar("sisanya tetap tergambar", potong.i.length > 0);
+}
+
+// ── Menggeser lantai tidak boleh meratakannya ───────────────────────────────
+{
+  // Bug nyata, 17 September 2026: halaman menggeser lantai dengan
+  // `jaring.z.fill(z)`. Benar selama lantainya bidang datar, tapi begitu relief
+  // masuk baris itu meratakan seluruh bentuk tanah tiap kali digambar —
+  // jaringnya benar, yang tergambar rata. Pemeriksaan ini yang menahannya.
+  const miring: PetakDem = {
+    nx: 16, ny: 16,
+    // Menanjak per kolom. Bentuk inilah yang harus bertahan sesudah digeser.
+    nilai: new Uint8ClampedArray(Array.from({ length: 256 }, (_, n) => (n % 16) * 17)),
+    ada: new Uint8Array(256).fill(1),
+    minZ: 0, maxZ: 255, kotak: KOTAK,
+  };
+  const jar = bangunJaring(petak(4, 4, () => [1, 2, 3]), KOTAK, 0, miring);
+  const zAwal = [...jar.z];
+
+  benar("relief benar-benar bervariasi", new Set(zAwal.map((v) => Math.round(v))).size > 1);
+  cek("pergeseran awal nol", jar.geser, 0);
+
+  terapkanGeser(jar, 12);
+  cek("geser tercatat", jar.geser, 12);
+  cek(
+    "setiap titik naik persis 12 m — bentuknya utuh",
+    jar.z.map((v, n) => Math.round((v - zAwal[n]) * 1e6) / 1e6),
+    zAwal.map(() => 12)
+  );
+
+  // Dipanggil ulang dengan angka sama tidak boleh menggeser dua kali.
+  const sebelum = [...jar.z];
+  terapkanGeser(jar, 12);
+  cek("pemanggilan ulang dengan angka sama: tidak bergerak", jar.z, sebelum);
+
+  terapkanGeser(jar, 0);
+  cek(
+    "kembali ke nol mengembalikan tinggi semula",
+    jar.z.map((v) => Math.round(v * 1e6) / 1e6),
+    zAwal.map((v) => Math.round(v * 1e6) / 1e6)
+  );
 }
 
 console.log(gagal === 0 ? "\nSemua lolos." : `\n${gagal} pemeriksaan gagal.`);
