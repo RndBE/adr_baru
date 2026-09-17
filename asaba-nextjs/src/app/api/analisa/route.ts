@@ -77,12 +77,33 @@ export async function GET(request: NextRequest) {
     // rentang pukul 00:00-06:59 WIB masih terbaca tanggal kemarin, sehingga
     // grafik "hari ini" membuka hari yang salah tiap dini hari — sementara
     // rts.waktu yang dicocokkan justru jam dinding WIB.
+    // Bacaan gagal tembak WAJIB disaring sebelum masuk grafik maupun rata-rata.
+    //
+    // Prisma yang dibidik tapi tidak ketemu mengirim N/E/Z "000,00,00", dan di
+    // MySQL itu bernilai nol. Tanpa penyaring ini akibatnya dua lapis:
+    //
+    //   Grafik mentah — koordinat nol jadi titik data sah, dan jaraknya terhadap
+    //   acuan R0 sebesar koordinat UTM penuh: ratusan kilometer dalam mm.
+    //
+    //   Rata-rata per jam — nol ikut dibagi. Satu bacaan sah dari enam
+    //   menghasilkan tepat seperenam nilai sebenarnya. Terlihat di lapangan
+    //   17 September 2026 pada DF_1: Northing 464295,7953 tampil sebagai
+    //   77382,6364 (÷6), 154765,2739 (÷3), 193456,5929 (÷2,4) — deretan pecahan
+    //   yang persis jumlah bacaan sah per jamnya, dan pergeseran terbaca
+    //   2.440.030.221 mm.
+    //
+    // Aturannya sama dengan valid1 di /api/deformasi dan pergeseranMm() di
+    // lib/evaluasi-siklus.ts: sah bila tidak SELURUH sumbunya nol. Disaring,
+    // bukan dinolkan — jam tanpa bacaan sah lebih jujur hilang dari grafik
+    // daripada muncul sebagai titik yang tidak pernah diukur.
+    const SAH = "AND NOT (sensor8+0 = 0 AND sensor9+0 = 0 AND sensor10+0 = 0)";
+
     if (type === "hari") {
       const tanggal = tgl ?? waktuDbLokal().slice(0, 10);
       rawData = await prisma.$queryRawUnsafe(
         `SELECT waktu, ${kolom} as nilai
          FROM rts
-         WHERE sensor1 = ? AND waktu >= ? AND waktu <= ?
+         WHERE sensor1 = ? AND waktu >= ? AND waktu <= ? ${SAH}
          ORDER BY waktu ASC
          LIMIT 500`,
         id_prisma,
@@ -95,7 +116,7 @@ export async function GET(request: NextRequest) {
       rawData = await prisma.$queryRawUnsafe(
         `SELECT waktu, ${kolom} as nilai
          FROM rts
-         WHERE sensor1 = ? AND waktu >= ? AND waktu <= ?
+         WHERE sensor1 = ? AND waktu >= ? AND waktu <= ? ${SAH}
          ORDER BY waktu ASC
          LIMIT 500`,
         id_prisma,
@@ -108,7 +129,7 @@ export async function GET(request: NextRequest) {
       rawData = await prisma.$queryRawUnsafe(
         `SELECT waktu, ${kolom} as nilai
          FROM rts
-         WHERE sensor1 = ? AND waktu >= ? AND waktu <= ?
+         WHERE sensor1 = ? AND waktu >= ? AND waktu <= ? ${SAH}
          ORDER BY waktu ASC
          LIMIT 500`,
         id_prisma,
@@ -136,7 +157,7 @@ export async function GET(request: NextRequest) {
              DATE_FORMAT(waktu, '%Y-%m-%d %H:00:00') as waktu_jam,
              AVG(CAST(${kolom} AS DECIMAL(20,6))) as nilai_avg
            FROM rts
-           WHERE sensor1 = ? AND waktu >= ? AND waktu <= ?
+           WHERE sensor1 = ? AND waktu >= ? AND waktu <= ? ${SAH}
            GROUP BY waktu_jam
            ORDER BY waktu_jam ASC
            LIMIT 500`,
@@ -155,7 +176,7 @@ export async function GET(request: NextRequest) {
         rawData = await prisma.$queryRawUnsafe(
           `SELECT waktu, ${kolom} as nilai
            FROM rts
-           WHERE sensor1 = ? AND waktu >= ? AND waktu <= ?
+           WHERE sensor1 = ? AND waktu >= ? AND waktu <= ? ${SAH}
            ORDER BY waktu ASC
            LIMIT 500`,
           id_prisma,
