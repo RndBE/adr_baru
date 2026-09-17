@@ -70,10 +70,26 @@ export interface KebijakanPeredam {
  * dinding, volume maksimum terkunci di 48 pesan per hari per prisma apa pun
  * jadwalnya.
  *
- * `konfirmasiSiklus` justru KEBALIKANNYA — dihitung dalam siklus, karena satu
- * siklus adalah satu kali seluruh prisma ditembak ulang, dan itulah satuan
- * "bacaan berturut-turut" yang sebenarnya. Akibatnya perlu disadari: pada
- * `track_every` 60 menit, tiga siklus berarti peringatan tertunda tiga jam.
+ * `konfirmasiSiklus` diturunkan ke 1 pada 17 September 2026 — tidak ada
+ * konfirmasi, tiap perubahan tingkat langsung dikabarkan. Diminta setelah
+ * peringatan mengering di lapangan: pada site kolam_bpp, nilai yang melompat
+ * antara ~20 dan ~330 mm membuat hitungan "tiga siklus beruntun" terus ter-reset
+ * sebelum sampai tiga. Tingkat yang DIAKUI jadi tertinggal jauh dari yang
+ * terukur — P5 terbaca 331 mm tapi masih tercatat Waspada, P7 terbaca 239 mm
+ * tapi masih Siaga — dan berjam-jam tidak ada satu pun pesan berangkat.
+ *
+ * Yang hilang karena ini harus disadari: satu bacaan meleset kini cukup untuk
+ * menerbitkan pesan. Peredaman tersisa dua lapis — jeda 30 menit antar KENAIKAN
+ * per prisma, dan histeresis 10% yang menahan penurunan. Pesan PULIH tidak kena
+ * jeda sama sekali (lihat nilaiPeredam), jadi prisma yang bergetar di sekitar
+ * ambang bisa mengirim kabar pulih setiap siklus.
+ *
+ * Kalau volumenya jadi tak tertahankan, naikkan angka ini lebih dulu sebelum
+ * menyentuh yang lain — inilah tuas yang paling langsung.
+ *
+ * Satuannya SIKLUS, bukan waktu, karena satu siklus adalah satu kali seluruh
+ * prisma ditembak ulang, dan itulah satuan "bacaan berturut-turut" yang
+ * sebenarnya. Pada `track_every` 60 menit, tiap siklus berarti tiap jam.
  *
  * `kirimMulaiDari` semula "Siaga" — hanya dua tingkat teratas yang dikabarkan,
  * dengan alasan Waspada masih jauh dari keadaan yang menuntut tindakan. Diubah
@@ -93,7 +109,7 @@ export interface KebijakanPeredam {
  * per hari per prisma tetap terkunci.
  */
 export const KEBIJAKAN_BAWAAN: KebijakanPeredam = {
-  konfirmasiSiklus: 3,
+  konfirmasiSiklus: 1,
   jedaMs: 30 * 60 * 1000,
   kirimMulaiDari: "Waspada",
   histeresisRasio: 0.1,

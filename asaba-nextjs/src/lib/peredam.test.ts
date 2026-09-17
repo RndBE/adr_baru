@@ -7,7 +7,13 @@
  * Kalau peredam ini benar, jendela seperti itu tidak menghasilkan satu pun pesan.
  */
 import { type AmbangSite } from "./ambang";
-import { keadaanAwal, nilaiPeredam, tingkatEfektif, type KeadaanPrisma } from "./peredam";
+import {
+  KEBIJAKAN_BAWAAN,
+  keadaanAwal,
+  nilaiPeredam,
+  tingkatEfektif,
+  type KeadaanPrisma,
+} from "./peredam";
 
 let gagal = 0;
 function cek(judul: string, dapat: unknown, harus: unknown) {
@@ -23,6 +29,15 @@ const AMBANG: AmbangSite = {
 };
 
 const MENIT = 60_000;
+
+/**
+ * Bawaan `konfirmasiSiklus` turun ke 1 pada 17 September 2026 — tiap perubahan
+ * tingkat langsung dikabarkan. Uji di bawah yang memang menguji MEKANISME
+ * "harus terlihat N siklus beruntun" karena itu menyebut angkanya tegas: yang
+ * dijaga adalah logikanya, bukan nilai bawaan yang boleh berubah sewaktu-waktu
+ * mengikuti kebutuhan lapangan.
+ */
+const KONFIRMASI_3 = { konfirmasiSiklus: 3 } as const;
 
 /** Jalankan deret bacaan, kembalikan jumlah pesan dan urutan alasannya. */
 function jalankan(
@@ -61,7 +76,7 @@ function jalankan(
     { mm: 48, menit: 7 },   // Normal
     { mm: 205, menit: 9 },  // Awas
     { mm: 49, menit: 11 },  // Normal
-  ]);
+  ], KONFIRMASI_3);
   cek("jendela 11 menit yang berkedip -> tidak ada pesan", pesan.length, 0);
 }
 
@@ -71,7 +86,7 @@ function jalankan(
     { mm: 120, menit: 0 },
     { mm: 125, menit: 15 },
     { mm: 130, menit: 30 },
-  ]);
+  ], KONFIRMASI_3);
   cek("tiga siklus beruntun -> satu pesan", pesan, [{ dari: "Normal", ke: "Siaga", menit: 30 }]);
   cek("dua siklus pertama menunggu konfirmasi", alasan.slice(0, 2), ["belum-konfirmasi", "belum-konfirmasi"]);
 }
@@ -84,7 +99,7 @@ function jalankan(
     { mm: 30, menit: 30 },  // Normal — calon batal
     { mm: 120, menit: 45 }, // calon Siaga mulai dari 1 lagi
     { mm: 120, menit: 60 }, // (2)
-  ]);
+  ], KONFIRMASI_3);
   cek("selingan memutus hitungan -> belum ada pesan", pesan.length, 0);
 }
 
@@ -98,7 +113,7 @@ function jalankan(
     { mm: 60, menit: 0 },
     { mm: 62, menit: 15 },
     { mm: 61, menit: 30 },
-  ]);
+  ], KONFIRMASI_3);
   cek("Waspada dikirim", pesan.length, 1);
   cek("tingkatnya diakui", keadaan.tingkat, "Waspada");
   cek("tidak ada alasan diam pada siklus ketiga", alasan[2], "KIRIM");
@@ -114,7 +129,7 @@ function jalankan(
       { mm: 62, menit: 15 },
       { mm: 61, menit: 30 },
     ],
-    { kirimMulaiDari: "Siaga" }
+    { ...KONFIRMASI_3, kirimMulaiDari: "Siaga" }
   );
   cek("dengan ambang Siaga: Waspada didiamkan", pesan.length, 0);
   cek("dengan ambang Siaga: tingkat tetap diakui", keadaan.tingkat, "Waspada");
@@ -131,7 +146,7 @@ function jalankan(
     { mm: 10, menit: 90 },
     { mm: 11, menit: 105 },
     { mm: 12, menit: 120 },
-  ]);
+  ], KONFIRMASI_3);
   cek("naik ke Waspada lalu pulih ke Normal: dua pesan", pesan.length, 2);
   cek("pesan kedua adalah pulih", pesan[1] && `${pesan[1].dari}->${pesan[1].ke}`, "Waspada->Normal");
 }
@@ -145,7 +160,7 @@ function jalankan(
     { mm: 210, menit: 15 },
     { mm: 215, menit: 20 },
     { mm: 220, menit: 25 },  // terkonfirmasi Awas, tapi baru 15 menit sejak kirim
-  ]);
+  ], KONFIRMASI_3);
   cek("kenaikan kedua tertahan jeda 30 menit", pesan.length, 1);
   cek("alasannya jeda, bukan yang lain", alasan[5], "dalam-jeda");
 }
@@ -159,7 +174,7 @@ function jalankan(
     { mm: 210, menit: 45 },
     { mm: 215, menit: 50 },
     { mm: 220, menit: 55 },  // KIRIM Awas — 45 menit sejak pesan terakhir
-  ]);
+  ], KONFIRMASI_3);
   cek("setelah jeda lewat, Awas berangkat", pesan.map((p) => p.ke), ["Siaga", "Awas"]);
 }
 
@@ -177,7 +192,7 @@ function jalankan(
       { mm: 10, menit: 2 },
       { mm: 10, menit: 3 },
     ],
-    undefined,
+    KONFIRMASI_3,
     awal
   );
   cek("pulih ke Normal dikirim walau masih dalam jeda", pesan, [
@@ -192,7 +207,7 @@ function jalankan(
   };
   const { pesan, alasan, keadaan } = jalankan(
     [{ mm: 120, menit: 0 }, { mm: 120, menit: 15 }, { mm: 120, menit: 30 }],
-    undefined,
+    KONFIRMASI_3,
     awal
   );
   cek("Awas -> Siaga tidak dikirim", pesan.length, 0);
@@ -216,6 +231,39 @@ cek("dari Normal tidak ada yang ditahan", tingkatEfektif(10, AMBANG, "Normal", 0
     { konfirmasiSiklus: 1 }
   );
   cek("getaran di sekitar ambang tidak menurunkan tingkat", keadaan.tingkat, "Siaga");
+}
+
+// ── Bawaan sekarang: tanpa konfirmasi ────────────────────────────────────────
+//
+// Diminta 17 September 2026 setelah peringatan mengering di lapangan. Pada
+// kolam_bpp, nilai yang melompat antara ~20 dan ~330 mm membuat hitungan tiga
+// siklus terus ter-reset sebelum sampai tiga: P5 terbaca 331 mm tapi masih
+// tercatat Waspada, P7 terbaca 239 mm tapi masih Siaga, dan berjam-jam tidak ada
+// satu pun pesan berangkat. Uji ini menjaga supaya bawaannya tidak diam-diam
+// dinaikkan lagi tanpa keputusan yang sama.
+{
+  const { pesan, keadaan } = jalankan([{ mm: 120, menit: 0 }]);
+  cek("satu bacaan Siaga langsung berangkat", pesan.length, 1);
+  cek("tingkatnya langsung diakui", keadaan.tingkat, "Siaga");
+}
+cek("bawaan konfirmasiSiklus = 1", KEBIJAKAN_BAWAAN.konfirmasiSiklus, 1);
+
+// Yang TIDAK ikut hilang: jeda 30 menit tetap menahan kenaikan beruntun.
+{
+  const { pesan } = jalankan([
+    { mm: 120, menit: 0 },
+    { mm: 260, menit: 10 },
+  ]);
+  cek("kenaikan kedua dalam 10 menit tetap tertahan jeda", pesan.length, 1);
+}
+
+// Dan histeresis tetap menahan penurunan yang menggantung di ambang.
+{
+  const { keadaan } = jalankan([
+    { mm: 120, menit: 0 },
+    { mm: 99, menit: 40 },
+  ]);
+  cek("turun ke 99 mm dari Siaga masih ditahan histeresis", keadaan.tingkat, "Siaga");
 }
 
 console.log(gagal === 0 ? "\nSEMUA LULUS" : `\n${gagal} GAGAL`);

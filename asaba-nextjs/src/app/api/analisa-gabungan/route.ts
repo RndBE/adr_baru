@@ -1,0 +1,280 @@
+import { NextRequest, NextResponse } from "next/server";
+import { prisma } from "@/lib/prisma";
+import { cariAcuanR0 } from "@/lib/log-kontrol";
+import { nfloat, rotateEN } from "@/lib/coordinates";
+import { getSite } from "@/lib/sites";
+
+/**
+ * GET /api/analisa-gabungan
+ *
+ * Riwayat pergeseran BEBERAPA prisma satu site pada satu rentang waktu, untuk
+ * halaman Analisa Gabungan.
+ *
+ * Bedanya dengan dua rute yang sudah ada, dan alasan rute ini perlu ada:
+ *
+ *   /api/deformasi terikat pada SATU sesi (`id_log`) dan riwayat hariannya
+ *   hanya sepanjang tanggal sesi itu. Rentang bebas tidak bisa dimintanya.
+ *
+ *   /api/analisa melayani rentang bebas, tapi satu prisma satu kolom sensor per
+ *   permintaan, dan mengembalikan koordinat UTM MENTAH — pemanggilnya harus
+ *   menggabung tiga sumbu sendiri lalu memutar bingkainya (lihat
+ *   components/monitoring/prism-history.ts). Untuk sepuluh prisma itu tiga
+ *   puluh permintaan, dan tiga puluh kesempatan hasilnya tidak sinkron.
+ *
+ * Di sini pergeseran dihitung di server dengan aturan yang sama persis dengan
+ * /api/deformasi — acuan R0 dari cariAcuanR0(), koreksi rotasi site, dan bacaan
+ * gagal tembak disaring — lalu dikembalikan sudah dalam MILIMETER relatif R0.
+ *
+ * Query params:
+ * - site   : slug site (wajib)
+ * - dari   : "YYYY-MM-DD HH:MM:SS" jam dinding WIB (wajib)
+ * - sampai : idem (wajib)
+ * - prisma : daftar id_prisma dipisah koma (opsional; bawaan seluruh prisma site)
+ */
+
+/** Batas baris yang ditarik sekali jalan. */
+const BATAS_BARIS = 20000;
+/** Rentang lebih panjang dari ini ditolak, bukan dipotong diam-diam. */
+const MAKS_HARI = 366;
+/**
+ * Rentang lebih dari dua hari dirata-rata per jam — ambang yang sama dengan
+ * /api/analisa, supaya grafik di dua halaman tidak merapatkan titik pada
+ * rentang yang sama dengan cara berbeda.
+ */
+const HARI_AGREGAT = 2;
+
+const WAKTU = /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/;
+
+export async function GET(request: NextRequest) {
+  try {
+    const { searchParams } = new URL(request.url);
+    const site = searchParams.get("site");
+    const dari = searchParams.get("dari");
+    const sampai = searchParams.get("sampai");
+    const pilihan = (searchParams.get("prisma") ?? "")
+      .split(",")
+      .map((s) => s.trim())
+      .filter(Boolean);
+
+    if (!site || !dari || !sampai) {
+      return NextResponse.json(
+        { success: false, error: "Parameter site, dari, dan sampai wajib diisi" },
+        { status: 400 }
+      );
+    }
+    // Bentuknya dikunci, bukan diserahkan ke MySQL. Stempel yang tidak dikenali
+    // akan diam-diam jadi rentang kosong, dan grafik kosong itu terbaca sebagai
+    // "tidak ada pergeseran" — padahal artinya "pertanyaannya tidak terkirim".
+    if (!WAKTU.test(dari) || !WAKTU.test(sampai)) {
+      return NextResponse.json(
+        { success: false, error: "dari/sampai harus berbentuk YYYY-MM-DD HH:MM:SS" },
+        { status: 400 }
+      );
+    }
+    if (dari >= sampai) {
+      return NextResponse.json(
+        { success: false, error: "dari harus lebih awal dari sampai" },
+        { status: 400 }
+      );
+    }
+    const rentangHari =
+      (Date.parse(`${sampai.replace(" ", "T")}Z`) - Date.parse(`${dari.replace(" ", "T")}Z`)) /
+      86400000;
+    if (rentangHari > MAKS_HARI) {
+      return NextResponse.json(
+        { success: false, error: `Rentang maksimal ${MAKS_HARI} hari` },
+        { status: 400 }
+      );
+    }
+
+    const siteConfig = await getSite(site);
+
+    // Prisma milik SITE ini. id_prisma cuma nomor slot yang dipakai ulang antar
+    // site, jadi penyaringnya harus site + slot — bukan slot saja.
+    const prismaSite = await prisma.$queryRaw<
+      Array<{ id_prisma: string; nama_prisma: string; id_logger: number | null }>
+    >`
+      SELECT id_prisma, nama_prisma, id_logger
+      FROM t_prisma WHERE site = ${site} ORDER BY id_prisma
+    `;
+    const dipilih = pilihan.length
+      ? prismaSite.filter((p) => pilihan.includes(p.id_prisma))
+      : prismaSite;
+
+    if (dipilih.length === 0) {
+      return NextResponse.json({
+        success: true,
+        data: kosong(site, siteConfig, dari, sampai, null),
+      });
+    }
+
+    const idR0 = await cariAcuanR0(site);
+    if (!idR0) {
+      // Tanpa acuan tidak ada yang bisa disebut "pergeseran". Dikembalikan
+      // sebagai keadaan yang dijelaskan, bukan galat — halaman perlu tahu
+      // bedanya "belum ada acuan" dan "permintaannya gagal".
+      return NextResponse.json({
+        success: true,
+        data: kosong(site, siteConfig, dari, sampai, null),
+      });
+    }
+    const [logR0] = await prisma.$queryRaw<Array<{ datetime: Date | null }>>`
+      SELECT datetime FROM log_kontrol WHERE id_log = ${idR0} LIMIT 1
+    `;
+
+    const slot = dipilih.map(() => "?").join(",");
+    const idSlot = dipilih.map((p) => p.id_prisma);
+
+    // ── Acuan R0 tiap prisma ──
+    // Satu kueri untuk semua, bukan satu per prisma: pada sesi acuan yang sama
+    // itu perjalanan bolak-balik yang sia-sia.
+    const barisR0 = await prisma.$queryRawUnsafe<Array<Record<string, unknown>>>(
+      `SELECT sensor1, sensor8, sensor9, sensor10
+       FROM rts WHERE id_kontrol = ? AND sensor1 IN (${slot})
+       ORDER BY waktu ASC`,
+      idR0,
+      ...idSlot
+    );
+
+    type Acuan = { N: number; E: number; Z: number };
+    const acuan = new Map<string, Acuan>();
+    for (const b of barisR0) {
+      const id = String(b.sensor1);
+      if (acuan.has(id)) continue; // yang paling awal, sama dengan /api/deformasi
+      let N = nfloat(b.sensor8);
+      let E = nfloat(b.sensor9);
+      const Z = nfloat(b.sensor10);
+      // Acuan yang seluruh sumbunya nol bukan acuan — prisma itu tidak pernah
+      // benar-benar terbidik pada sesi R0, dan memakainya akan menghasilkan
+      // pergeseran sebesar koordinat UTM penuh.
+      if (N === 0 && E === 0 && Z === 0) continue;
+      if (siteConfig.rotation) {
+        const [rE, rN] = rotateEN(E, N, siteConfig.rotation);
+        E = rE;
+        N = rN;
+      }
+      acuan.set(id, { N, E, Z });
+    }
+
+    // ── Pembacaan pada rentang ──
+    const perJam = rentangHari > HARI_AGREGAT;
+    // Bacaan gagal tembak ("000,00,00" → nol di MySQL) disaring di SQL, bukan
+    // setelah dirata-rata: pada mode per jam, nol yang ikut dibagi menghasilkan
+    // pecahan tepat sebesar jumlah bacaan sahnya. Aturan yang sama dengan
+    // valid1 di /api/deformasi dan SAH di /api/analisa.
+    const SAH = "AND NOT (sensor8+0 = 0 AND sensor9+0 = 0 AND sensor10+0 = 0)";
+    const kondisiLogger = siteConfig.idLogger ? "AND code_logger = ?" : "";
+    const argLogger = siteConfig.idLogger ? [siteConfig.idLogger] : [];
+
+    const barisRentang = await prisma.$queryRawUnsafe<Array<Record<string, unknown>>>(
+      perJam
+        ? `SELECT sensor1,
+                  DATE_FORMAT(waktu, '%Y-%m-%d %H:00:00') AS t,
+                  AVG(CAST(sensor8 AS DECIMAL(20,6))) AS n,
+                  AVG(CAST(sensor9 AS DECIMAL(20,6))) AS e,
+                  AVG(CAST(sensor10 AS DECIMAL(20,6))) AS z
+           FROM rts
+           WHERE sensor1 IN (${slot}) AND waktu >= ? AND waktu <= ? ${SAH} ${kondisiLogger}
+           GROUP BY sensor1, t
+           ORDER BY t ASC
+           LIMIT ${BATAS_BARIS}`
+        : // Stempelnya diformat di SQL, sama dengan mode per jam. Kalau kolom
+          // DATETIME dikembalikan apa adanya, Prisma menyerahkannya sebagai
+          // objek Date dan String(Date) merendernya menurut zona waktu SERVER —
+          // dua mode jadi mengirim bentuk stempel yang berbeda untuk data yang
+          // sama, dan jam dindingnya bergantung pada mesin yang menjalankan.
+          `SELECT sensor1, DATE_FORMAT(waktu, '%Y-%m-%d %H:%i:%s') AS t,
+                  sensor8 AS n, sensor9 AS e, sensor10 AS z
+           FROM rts
+           WHERE sensor1 IN (${slot}) AND waktu >= ? AND waktu <= ? ${SAH} ${kondisiLogger}
+           ORDER BY waktu ASC
+           LIMIT ${BATAS_BARIS}`,
+      ...idSlot,
+      dari,
+      sampai,
+      ...argLogger
+    );
+
+    const titik = new Map<string, Array<{ t: string; dnMm: number; deMm: number; dzMm: number }>>();
+    for (const b of barisRentang) {
+      const id = String(b.sensor1);
+      const a = acuan.get(id);
+      if (!a) continue;
+      let N = nfloat(b.n);
+      let E = nfloat(b.e);
+      const Z = nfloat(b.z);
+      if (N === 0 && E === 0 && Z === 0) continue;
+      if (siteConfig.rotation) {
+        const [rE, rN] = rotateEN(E, N, siteConfig.rotation);
+        E = rE;
+        N = rN;
+      }
+      if (!titik.has(id)) titik.set(id, []);
+      titik.get(id)!.push({
+        t: String(b.t),
+        dnMm: (N - a.N) * 1000,
+        deMm: (E - a.E) * 1000,
+        dzMm: (Z - a.Z) * 1000,
+      });
+    }
+
+    const tanpaAcuan: string[] = [];
+    const tanpaBacaan: string[] = [];
+    const hasil = dipilih.map((p) => {
+      const adaAcuan = acuan.has(p.id_prisma);
+      const t = titik.get(p.id_prisma) ?? [];
+      if (!adaAcuan) tanpaAcuan.push(p.nama_prisma || p.id_prisma);
+      else if (t.length === 0) tanpaBacaan.push(p.nama_prisma || p.id_prisma);
+      return {
+        id_prisma: p.id_prisma,
+        nama_prisma: p.nama_prisma || p.id_prisma,
+        acuan_sah: adaAcuan,
+        titik: t,
+      };
+    });
+
+    return NextResponse.json({
+      success: true,
+      data: {
+        ...kosong(site, siteConfig, dari, sampai, logR0?.datetime ?? null),
+        r0: { id_log: idR0, waktu: logR0?.datetime ?? null },
+        per_jam: perJam,
+        terpotong: barisRentang.length >= BATAS_BARIS,
+        prisma: hasil,
+        dibuang: { tanpa_acuan: tanpaAcuan, tanpa_bacaan: tanpaBacaan },
+      },
+    });
+  } catch (error) {
+    console.error("[GET /api/analisa-gabungan]", error);
+    return NextResponse.json(
+      { success: false, error: "Gagal menghitung analisa gabungan" },
+      { status: 500 }
+    );
+  }
+}
+
+function kosong(
+  slug: string,
+  siteConfig: Awaited<ReturnType<typeof getSite>>,
+  dari: string,
+  sampai: string,
+  waktuR0: Date | null
+) {
+  return {
+    site: {
+      slug: siteConfig.slug || slug,
+      nama: siteConfig.nama,
+      badge_color: siteConfig.badgeColor,
+      terkalibrasi: siteConfig.terkalibrasi,
+      data_dummy: siteConfig.dataDummy,
+      tidak_dikenal: siteConfig.tidakDikenal,
+    },
+    r0: waktuR0 ? { id_log: null, waktu: waktuR0 } : null,
+    dari,
+    sampai,
+    per_jam: false,
+    terpotong: false,
+    prisma: [] as Array<unknown>,
+    dibuang: { tanpa_acuan: [] as string[], tanpa_bacaan: [] as string[] },
+  };
+}

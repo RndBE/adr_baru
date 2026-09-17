@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
+import { nfloat } from "@/lib/coordinates";
 
 
 /**
@@ -111,16 +112,30 @@ export async function GET(request: NextRequest) {
         // sensor8/9/10 = N, E, Z target (PROTOKOL_MQTT_ADR bagian F). Sempat
         // tertukar di sini: sensor8 dialiaskan ke E dan sensor9 ke N, jadi
         // kolom N dan E di keluaran saling tukar.
-        const data_kirim = (rtsData as Array<Record<string, unknown>>).map((v) => ({
-          id_prisma: v.sensor1,
-          N: v.sensor8,
-          E: v.sensor9,
-          Z: v.sensor10,
-          status:
-            v.sensor8 !== 0 && v.sensor9 !== 0 && v.sensor10 !== 0
-              ? "Success"
-              : "Failed",
-        }));
+        const data_kirim = (rtsData as Array<Record<string, unknown>>).map((v) => {
+          // Ketiga kolom ini VARCHAR di tabel rts, bukan angka, dan tembakan
+          // gagal tersimpan sebagai string "000,00,00". Penanda lama
+          // membandingkannya ketat dengan angka, dan perbandingan ketat antara
+          // string dan angka SELALU menghasilkan "tidak sama" — cabang "Failed"
+          // karena itu tidak pernah tercapai, dan setiap tembakan gagal
+          // dilaporkan berhasil. nfloat() sudah mengenali "000,00,00" dan
+          // string kosong sebagai nol.
+          const N = nfloat(v.sensor8);
+          const E = nfloat(v.sensor9);
+          const Z = nfloat(v.sensor10);
+          return {
+            id_prisma: v.sensor1,
+            N: v.sensor8,
+            E: v.sensor9,
+            Z: v.sensor10,
+            // Sah bila tidak SELURUH sumbunya nol — aturan yang sama dengan
+            // valid1 di /api/deformasi, bacaanSah() di monitoring/derive.ts,
+            // dan pergeseranMm() di lib/evaluasi-siklus.ts. Syarat lama
+            // menuntut ketiganya bukan nol, yang akan menyebut prisma dengan Z
+            // sah bernilai nol sebagai gagal.
+            status: N !== 0 || E !== 0 || Z !== 0 ? "Success" : "Failed",
+          };
+        });
         return { ...lg, data_kirim };
       })
     );
