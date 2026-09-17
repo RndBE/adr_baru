@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import useSWR from "swr";
 import { hitungStatusRts } from "@/lib/status-rts";
+import type { IntervalGabungan } from "@/lib/interval-gabungan";
 
 const fetcher = (url: string) => fetch(url).then((r) => r.json());
 
@@ -233,13 +234,14 @@ export function useRtsConnectionStatus(idLoggerDiminta?: string | null) {
 export function useAnalisaGabungan(
   site: string | null,
   dari: string,
-  sampai: string
+  sampai: string,
+  interval: IntervalGabungan = "auto"
 ) {
   const url =
     site && dari && sampai
       ? `/api/analisa-gabungan?site=${encodeURIComponent(site)}&dari=${encodeURIComponent(
           dari
-        )}&sampai=${encodeURIComponent(sampai)}`
+        )}&sampai=${encodeURIComponent(sampai)}&interval=${interval}`
       : null;
   const { data, error, isLoading, mutate } = useSWR(url, fetcher, {
     revalidateOnFocus: false,

@@ -38,6 +38,7 @@ npx tsx src/lib/kirim-peringatan.test.ts    # penerima, subjek, dan badan pesan 
 npx tsx src/components/monitoring/derive.test.ts  # "gagal ditembak" vs "tidak bergerak"
 npx tsx src/components/monitoring/prism-history.test.ts  # sumbu riwayat prisma: N tetap N, E tetap E
 npx tsx src/components/monitoring/gabungan.test.ts  # analisa gabungan beberapa prisma
+npx tsx src/lib/interval-gabungan.test.ts    # pilihan interval: mentah / per jam / per hari
 npx tsx src/lib/grafik-ke-png.test.ts        # var(--...) diselesaikan sebelum SVG dirasterkan
 npx tsx src/components/visualisasi-3d/basemap.test.ts  # georeferensi ortofoto di scene 3D
 npx tsx src/components/peta-arah.test.ts     # arah panah pergeseran di peta

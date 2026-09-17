@@ -21,6 +21,7 @@ import {
   namaBerkasGabungan,
 } from "@/lib/excel-analisa-gabungan";
 import { StatusDot } from "./panel";
+import { KETERANGAN_RAPAT, type IntervalRapat } from "@/lib/interval-gabungan";
 import { WARNA_STATUS, statusTerburuk, type AmbangSite, type StatusLabel } from "./status";
 import type { PrismaRingkas } from "./derive";
 import {
@@ -305,7 +306,7 @@ export function AnalisaGabungan({
   kunci,
   loading,
   kosong,
-  perJam,
+  interval,
   namaSite,
   rentangTeks,
   r0Teks,
@@ -318,7 +319,8 @@ export function AnalisaGabungan({
   loading: boolean;
   /** Belum ada rentang yang dimuat sama sekali. */
   kosong: boolean;
-  perJam: boolean;
+  /** Serapat apa pembacaan dirapatkan — yang BERLAKU, bukan yang diminta. */
+  interval: IntervalRapat;
   /** Dipakai judul & nama berkas Excel. */
   namaSite: string;
   rentangTeks: string;
@@ -396,7 +398,7 @@ export function AnalisaGabungan({
         basis,
         labelBasis: BASIS.find((b) => b.id === basis)?.label ?? basis,
         r0Teks,
-        perJam,
+        interval,
         hasil,
         seri,
         grafik,
@@ -662,7 +664,7 @@ export function AnalisaGabungan({
               </p>
               <p className="text-[11.5px] text-(--ink-3)">
                 {seri.baris.length} titik · {akhir ? "jarak dari acuan R0" : "gerak dari awal rentang"}, mm
-                {perJam ? " · dirata-rata per jam" : ""}
+                {` · ${KETERANGAN_RAPAT[interval]}`}
               </p>
             </div>
             {seri.baris.length === 0 ? (
@@ -680,14 +682,14 @@ export function AnalisaGabungan({
                         type="number"
                         scale="time"
                         domain={["dataMin", "dataMax"]}
-                        tickFormatter={(v: number) => fmtTick(v, { tanggal: perJam })}
+                        tickFormatter={(v: number) => fmtTick(v, { tanggal: interval !== "mentah" })}
                         tick={{ fontSize: 11, fill: "var(--ink-3)", fontFamily: FONT_MONO }}
                         axisLine={false}
                         tickLine={false}
                         tickCount={6}
                         interval="preserveStartEnd"
                         padding={{ left: 6, right: 6 }}
-                        minTickGap={perJam ? 56 : 32}
+                        minTickGap={interval === "mentah" ? 32 : 56}
                       />
                       <YAxis
                         tickFormatter={(v: number) => v.toFixed(1)}

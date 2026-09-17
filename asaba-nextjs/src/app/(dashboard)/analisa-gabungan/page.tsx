@@ -18,6 +18,15 @@ import { ambangDariSite } from "@/components/monitoring/status";
 import { keMs } from "@/components/monitoring/prism-history";
 import type { LogKontrolRow } from "@/components/monitoring/derive";
 import type { PrismaRentang } from "@/components/monitoring/gabungan";
+import {
+  AUTO_HARI,
+  AUTO_JAM,
+  INTERVAL,
+  JUDUL_INTERVAL,
+  KETERANGAN_RAPAT,
+  LABEL_INTERVAL,
+  type IntervalGabungan,
+} from "@/lib/interval-gabungan";
 
 /**
  * Analisa Gabungan — beberapa prisma satu site dibaca sebagai satu kelompok,
@@ -85,6 +94,13 @@ function AnalisaGabunganContent() {
   });
   const [kunciSesi, setKunciSesi] = useState<string | null>(null);
 
+  // Serapat apa pembacaan dirapatkan. Dipegang terpisah dari rentang karena
+  // keduanya dijawab operator pada saat berbeda: rentang lewat popover yang
+  // ditahan sampai "Tampilkan", interval langsung sekali klik.
+  //
+  // Bawaannya "auto" — perilaku yang sama dengan sebelum pilihan ini ada.
+  const [interval, pilihInterval] = useState<IntervalGabungan>("auto");
+
   // Begitu tanggal sesi terakhir diketahui, rentang BAWAAN digeser ke sana.
   // Rentang yang sudah disetel operator tidak diganggu.
   const kunciBaru = `${site}|${tanggalSesi?.getTime() ?? ""}`;
@@ -107,7 +123,15 @@ function AnalisaGabunganContent() {
   const dariStr = stempelDb(rentang.dari, rentang.jamDari, "awal");
   const sampaiStr = stempelDb(rentang.sampai, rentang.jamSampai, "akhir");
 
-  const { hasil, isLoading, isError } = useAnalisaGabungan(site || null, dariStr, sampaiStr);
+  const { hasil, isLoading, isError } = useAnalisaGabungan(
+    site || null,
+    dariStr,
+    sampaiStr,
+    interval
+  );
+  // Yang BERLAKU, bukan yang diminta — "auto" baru jadi salah satu dari tiga di
+  // server, dan layar harus menyebut hasilnya, bukan pertanyaannya.
+  const rapat = hasil?.interval ?? "mentah";
 
   const siteAktif = bySlug(site);
   const ambang = useMemo(() => ambangDariSite(siteAktif), [siteAktif]);
@@ -172,14 +196,43 @@ function AnalisaGabunganContent() {
             })}
           </div>
 
-          <div className="ml-auto flex items-center gap-2.5">
+          <div className="ml-auto flex flex-wrap items-center gap-2.5">
+            <div
+              role="tablist"
+              aria-label="Interval pembacaan"
+              className="inline-flex gap-1 rounded-[10px] bg-(--paper) p-1 ring-1 ring-(--line)"
+            >
+              {INTERVAL.map((id) => (
+                <button
+                  key={id}
+                  type="button"
+                  role="tab"
+                  aria-selected={interval === id}
+                  title={JUDUL_INTERVAL[id]}
+                  disabled={!site}
+                  onClick={() => pilihInterval(id)}
+                  className={cn(
+                    "inline-flex h-8 cursor-pointer items-center rounded-[7px] px-3 text-[12.5px] font-semibold outline-none transition-colors focus-visible:ring-2 focus-visible:ring-(--navy)/40 disabled:cursor-not-allowed disabled:opacity-50",
+                    interval === id
+                      ? "bg-white text-(--ink) shadow-sm"
+                      : "text-(--ink-3) hover:text-(--ink-2)"
+                  )}
+                >
+                  {LABEL_INTERVAL[id]}
+                </button>
+              ))}
+            </div>
             <RentangWaktu
               dari={rentang.dari}
               sampai={rentang.sampai}
               jamDari={rentang.jamDari}
               jamSampai={rentang.jamSampai}
               disabled={!site}
-              catatan="Lebih dari 2 hari dirata-rata per jam."
+              catatan={
+                interval === "auto"
+                  ? `Mode otomatis: sampai ${AUTO_JAM} hari data mentah, sampai ${AUTO_HARI} hari per jam, lebih panjang dari itu per hari.`
+                  : `Interval "${LABEL_INTERVAL[interval]}" dipakai apa adanya, sepanjang apa pun rentangnya.`
+              }
               onTerapkan={(dari, sampai, jamDari, jamSampai) =>
                 setRentang({ dari, sampai, jamDari, jamSampai, bawaan: false })
               }
@@ -204,6 +257,7 @@ function AnalisaGabunganContent() {
           <PanelHeader title="Analisa gabungan">
             <Chip>{siteAktif?.nama ?? (site ? site.toUpperCase() : "—")}</Chip>
             <Chip mono>{rentangTeks}</Chip>
+            <Chip>{KETERANGAN_RAPAT[rapat]}</Chip>
             {r0Teks && <span>acuan R0 {r0Teks}</span>}
             {hasil?.terpotong && (
               <span className="text-amber-700">
@@ -239,7 +293,7 @@ function AnalisaGabunganContent() {
               kunci={site}
               loading={isLoading}
               kosong={!site}
-              perJam={!!hasil?.per_jam}
+              interval={rapat}
               namaSite={siteAktif?.nama ?? (site ? site.toUpperCase() : "—")}
               rentangTeks={rentangTeks}
               r0Teks={r0Teks}

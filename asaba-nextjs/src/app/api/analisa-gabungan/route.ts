@@ -3,6 +3,12 @@ import { prisma } from "@/lib/prisma";
 import { cariAcuanR0 } from "@/lib/log-kontrol";
 import { nfloat, rotateEN } from "@/lib/coordinates";
 import { getSite } from "@/lib/sites";
+import {
+  bacaInterval,
+  FORMAT_STEMPEL,
+  resolusiInterval,
+  type IntervalGabungan,
+} from "@/lib/interval-gabungan";
 
 /**
  * GET /api/analisa-gabungan
@@ -30,18 +36,13 @@ import { getSite } from "@/lib/sites";
  * - dari   : "YYYY-MM-DD HH:MM:SS" jam dinding WIB (wajib)
  * - sampai : idem (wajib)
  * - prisma : daftar id_prisma dipisah koma (opsional; bawaan seluruh prisma site)
+ * - interval: auto | mentah | jam | hari (opsional; bawaan auto)
  */
 
 /** Batas baris yang ditarik sekali jalan. */
 const BATAS_BARIS = 20000;
 /** Rentang lebih panjang dari ini ditolak, bukan dipotong diam-diam. */
 const MAKS_HARI = 366;
-/**
- * Rentang lebih dari dua hari dirata-rata per jam — ambang yang sama dengan
- * /api/analisa, supaya grafik di dua halaman tidak merapatkan titik pada
- * rentang yang sama dengan cara berbeda.
- */
-const HARI_AGREGAT = 2;
 
 const WAKTU = /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/;
 
@@ -55,6 +56,16 @@ export async function GET(request: NextRequest) {
       .split(",")
       .map((s) => s.trim())
       .filter(Boolean);
+    const intervalPilihan = bacaInterval(searchParams.get("interval"));
+    if (intervalPilihan === null) {
+      // Ditolak, bukan dijatuhkan ke "auto". Halaman yang salah eja
+      // parameternya akan menerima rata-rata per jam sambil menampilkan tombol
+      // "Data mentah" dalam keadaan aktif — salah yang tidak terlihat.
+      return NextResponse.json(
+        { success: false, error: "interval harus auto, mentah, jam, atau hari" },
+        { status: 400 }
+      );
+    }
 
     if (!site || !dari || !sampai) {
       return NextResponse.json(
@@ -101,10 +112,15 @@ export async function GET(request: NextRequest) {
       ? prismaSite.filter((p) => pilihan.includes(p.id_prisma))
       : prismaSite;
 
+    // Mode yang berlaku ikut dikirim pada jawaban kosong juga: halaman
+    // memakainya untuk memberi label sumbu waktu, dan "mentah" yang dikarang
+    // di sini akan tampil sebagai pilihan aktif yang tidak pernah diminta.
+    const rapat = resolusiInterval(intervalPilihan, rentangHari);
+
     if (dipilih.length === 0) {
       return NextResponse.json({
         success: true,
-        data: kosong(site, siteConfig, dari, sampai, null),
+        data: kosong(site, siteConfig, dari, sampai, null, intervalPilihan, rapat),
       });
     }
 
@@ -115,7 +131,7 @@ export async function GET(request: NextRequest) {
       // bedanya "belum ada acuan" dan "permintaannya gagal".
       return NextResponse.json({
         success: true,
-        data: kosong(site, siteConfig, dari, sampai, null),
+        data: kosong(site, siteConfig, dari, sampai, null, intervalPilihan, rapat),
       });
     }
     const [logR0] = await prisma.$queryRaw<Array<{ datetime: Date | null }>>`
@@ -166,7 +182,6 @@ export async function GET(request: NextRequest) {
     }
 
     // ── Pembacaan pada rentang ──
-    const perJam = rentangHari > HARI_AGREGAT;
     // Bacaan gagal tembak ("000,00,00" → nol di MySQL) disaring di SQL, bukan
     // setelah dirata-rata: pada mode per jam, nol yang ikut dibagi menghasilkan
     // pecahan tepat sebesar jumlah bacaan sahnya. Aturan yang sama dengan
@@ -175,29 +190,36 @@ export async function GET(request: NextRequest) {
     const kondisiLogger = siteConfig.idLogger ? "AND code_logger = ?" : "";
     const argLogger = siteConfig.idLogger ? [siteConfig.idLogger] : [];
 
+    // Satu bentuk kueri untuk ketiga mode; yang berbeda hanya seberapa kasar
+    // stempelnya dibulatkan sebelum GROUP BY. Mode "mentah" pun ikut
+    // dikelompokkan — pada ketelitian detik penuh, jadi pembacaan yang berbeda
+    // tetap berdiri sendiri. Yang runtuh cuma baris kembar pada detik yang
+    // SAMA untuk prisma yang sama, dan itu memang ada: 17 September 2026 P7
+    // menulis 731 baris sementara prisma lain 279. Kembaran itu bukan sekadar
+    // sampah; seriGabungan() menutup satu kelompok begitu sebuah prisma muncul
+    // dua kali, jadi tiap running P7 terpecah jadi tiga baris grafik yang
+    // semuanya "tidak lengkap".
+    //
+    // Stempelnya diformat di SQL, tidak dikembalikan sebagai DATETIME. Kolom
+    // DATETIME diserahkan Prisma sebagai objek Date, dan String(Date)
+    // merendernya menurut zona waktu SERVER — jam dindingnya jadi bergantung
+    // pada mesin yang menjalankan.
+    //
+    // FORMAT_STEMPEL diinterpolasi ke SQL, bukan diikat sebagai parameter:
+    // DATE_FORMAT butuh literal. Aman karena kuncinya sudah disempitkan
+    // bacaInterval() jadi salah satu dari tiga nilai tetap — tidak ada teks
+    // dari permintaan yang sampai ke sini.
     const barisRentang = await prisma.$queryRawUnsafe<Array<Record<string, unknown>>>(
-      perJam
-        ? `SELECT sensor1,
-                  DATE_FORMAT(waktu, '%Y-%m-%d %H:00:00') AS t,
-                  AVG(CAST(sensor8 AS DECIMAL(20,6))) AS e,
-                  AVG(CAST(sensor9 AS DECIMAL(20,6))) AS n,
-                  AVG(CAST(sensor10 AS DECIMAL(20,6))) AS z
-           FROM rts
-           WHERE sensor1 IN (${slot}) AND waktu >= ? AND waktu <= ? ${SAH} ${kondisiLogger}
-           GROUP BY sensor1, t
-           ORDER BY t ASC
-           LIMIT ${BATAS_BARIS}`
-        : // Stempelnya diformat di SQL, sama dengan mode per jam. Kalau kolom
-          // DATETIME dikembalikan apa adanya, Prisma menyerahkannya sebagai
-          // objek Date dan String(Date) merendernya menurut zona waktu SERVER —
-          // dua mode jadi mengirim bentuk stempel yang berbeda untuk data yang
-          // sama, dan jam dindingnya bergantung pada mesin yang menjalankan.
-          `SELECT sensor1, DATE_FORMAT(waktu, '%Y-%m-%d %H:%i:%s') AS t,
-                  sensor8 AS e, sensor9 AS n, sensor10 AS z
-           FROM rts
-           WHERE sensor1 IN (${slot}) AND waktu >= ? AND waktu <= ? ${SAH} ${kondisiLogger}
-           ORDER BY waktu ASC
-           LIMIT ${BATAS_BARIS}`,
+      `SELECT sensor1,
+              DATE_FORMAT(waktu, '${FORMAT_STEMPEL[rapat]}') AS t,
+              AVG(CAST(sensor8 AS DECIMAL(20,6))) AS e,
+              AVG(CAST(sensor9 AS DECIMAL(20,6))) AS n,
+              AVG(CAST(sensor10 AS DECIMAL(20,6))) AS z
+       FROM rts
+       WHERE sensor1 IN (${slot}) AND waktu >= ? AND waktu <= ? ${SAH} ${kondisiLogger}
+       GROUP BY sensor1, t
+       ORDER BY t ASC
+       LIMIT ${BATAS_BARIS}`,
       ...idSlot,
       dari,
       sampai,
@@ -247,7 +269,8 @@ export async function GET(request: NextRequest) {
       data: {
         ...kosong(site, siteConfig, dari, sampai, logR0?.datetime ?? null),
         r0: { id_log: idR0, waktu: logR0?.datetime ?? null },
-        per_jam: perJam,
+        interval: rapat,
+        interval_diminta: intervalPilihan,
         terpotong: barisRentang.length >= BATAS_BARIS,
         prisma: hasil,
         dibuang: { tanpa_acuan: tanpaAcuan, tanpa_bacaan: tanpaBacaan },
@@ -267,7 +290,9 @@ function kosong(
   siteConfig: Awaited<ReturnType<typeof getSite>>,
   dari: string,
   sampai: string,
-  waktuR0: Date | null
+  waktuR0: Date | null,
+  intervalDiminta: IntervalGabungan = "auto",
+  rapat: ReturnType<typeof resolusiInterval> = "mentah"
 ) {
   return {
     site: {
@@ -281,7 +306,8 @@ function kosong(
     r0: waktuR0 ? { id_log: null, waktu: waktuR0 } : null,
     dari,
     sampai,
-    per_jam: false,
+    interval: rapat,
+    interval_diminta: intervalDiminta,
     terpotong: false,
     prisma: [] as Array<unknown>,
     dibuang: { tanpa_acuan: [] as string[], tanpa_bacaan: [] as string[] },

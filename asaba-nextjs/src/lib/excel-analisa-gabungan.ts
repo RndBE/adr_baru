@@ -4,6 +4,7 @@ import type {
   RingkasanGabungan,
   SeriGabungan,
 } from "@/components/monitoring/gabungan";
+import { KETERANGAN_RAPAT, type IntervalRapat } from "@/lib/interval-gabungan";
 
 /**
  * Berkas Excel halaman Analisa Gabungan.
@@ -39,7 +40,8 @@ export interface IsiExcelGabungan {
   labelBasis: string;
   /** Tanggal sesi acuan R0; null bila belum ketemu. */
   r0Teks: string | null;
-  perJam: boolean;
+  /** Serapat apa pembacaan dirapatkan — yang BERLAKU, bukan yang diminta. */
+  interval: IntervalRapat;
   hasil: RingkasanGabungan;
   seri: SeriGabungan;
   /** Null bila grafiknya belum tergambar saat Unduh ditekan. */
@@ -82,7 +84,7 @@ export async function buatExcelAnalisaGabungan(isi: IsiExcelGabungan): Promise<B
         ? `${hasil.diabaikan.length} — ${hasil.diabaikan.map((n) => n.replace(/_/g, " ")).join(", ")}`
         : "tidak ada",
     ],
-    ["Pembacaan", isi.perJam ? "dirata-rata per jam" : "tiap pembacaan"],
+    ["Pembacaan", KETERANGAN_RAPAT[isi.interval]],
   ];
   for (const [k, v] of meta) {
     const r = s1.addRow([k, v]);
