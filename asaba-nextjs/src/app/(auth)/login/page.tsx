@@ -54,24 +54,25 @@ function JudulLembar({ ringkas = false }: { ringkas?: boolean }) {
 /**
  * Kop lembar: logo pemilik sistem.
  *
- * Warnanya TIDAK diubah — di sini latarnya putih, jadi navy dan busur
- * kuningnya justru terbaca apa adanya. Versi putih penuh (knockout) hanya
- * dipakai di sidebar yang latarnya navy.
+ * Warnanya TIDAK diubah — di sini latarnya putih, jadi "b" merah dan "e"
+ * navy-nya justru terbaca apa adanya. Versi putih penuh (knockout,
+ * logo_beacon_putih.png) hanya dipakai di sidebar yang latarnya navy.
  *
  * Tempatnya di atas judul, bukan di kaki: halaman ini dibaca sebagai lembar
  * ukur, dan lembar resmi berkop pemiliknya di kepala.
  *
- * Lebarnya dipatok lebih sempit dari kop BBWS sebelumnya (420px): lockup ini
- * 4,1:1, bukan 8,2:1, jadi pada lebar yang sama tingginya dua kali lipat.
+ * Lebarnya dipatok pada TINGGI yang sama dengan kop-kop sebelumnya (±58px),
+ * bukan pada lebar yang sama: lockup ini 3,4:1, sedangkan Asaba sebelumnya
+ * 4,1:1 dan BBWS 8,2:1 — pada lebar yang sama ia akan menjulang.
  */
 function KopInstansi({ className }: { className?: string }) {
   return (
     <img
-      src="/logo_asaba.png"
-      alt="PT Asaba Surveying Solutions"
-      width={540}
-      height={131}
-      className={cn("h-auto w-full max-w-[240px] object-contain", className)}
+      src="/logo_beacon.png"
+      alt="Beacon Engineering"
+      width={499}
+      height={148}
+      className={cn("h-auto w-full max-w-[200px] object-contain", className)}
     />
   );
 }
@@ -162,7 +163,7 @@ export default function LoginPage() {
           batas yang jelas dan bayangannya bernada navy, senada aplikasi. */}
       <main className="flex w-full flex-col justify-center px-5 py-10 sm:px-8 lg:w-[44%] lg:px-10 xl:px-14 2xl:w-[42%]">
         <div className="mx-auto mb-8 w-full max-w-[440px] lg:hidden">
-          <KopInstansi className="mb-6 max-w-[200px]" />
+          <KopInstansi className="mb-6 max-w-[170px]" />
           <JudulLembar ringkas />
         </div>
 
