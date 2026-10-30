@@ -12,7 +12,7 @@ import {
   TOMBOL_SEKUNDER,
   TOMBOL_UTAMA,
 } from "@/components/monitoring/modal-shell";
-import { validasiSapuan } from "@/lib/protokol-rts";
+import { langkahPerSisi, validasiSapuan } from "@/lib/protokol-rts";
 import {
   arahGagalTerkirim,
   BATAS_JAWAB_PERTAMA_MS,
@@ -59,8 +59,8 @@ export function useBatasJawabSapuan(
  * diketahui dari uji lapangan — itulah gunanya panel ini.
  */
 const PRESET = [
-  { nama: "Contoh dokumen", step: "0,30,00", Hlebar: "1,00,00", Vlebar: "1,00,00", rehat: "500" },
-  { nama: "Halus", step: "0,10,00", Hlebar: "0,30,00", Vlebar: "0,30,00", rehat: "500" },
+  { nama: "Contoh dokumen", step: "0,30,00", Hlebar: "1,00,00", Vlebar: "1,00,00", rehat: "5000" },
+  { nama: "Halus", step: "0,10,00", Hlebar: "0,30,00", Vlebar: "0,30,00", rehat: "5000" },
 ];
 
 const LABEL_FASE: Record<KeadaanSapuan["fase"], string> = {
@@ -105,6 +105,47 @@ async function kirimJson(url: string, body: unknown): Promise<{ ok: boolean; dat
   } catch {
     return { ok: false, data: { error: "Tidak bisa menghubungi server" } };
   }
+}
+
+/** Kisi lebih lebar dari ini tidak digambar: titiknya menjadi noktah yang tidak bisa dibaca. */
+const MAKS_SISI_PRATINJAU = 25;
+
+/**
+ * Gambar kecil pola sapuan: satu noktah = satu titik bidik, noktah oranye di
+ * tengah = arah bidik saat sapuan dimulai. Murni ilustrasi bentuk — jaraknya
+ * tidak diskalakan ke derajat.
+ */
+function PratinjauKisi({ kolom, baris }: { kolom: number; baris: number }) {
+  if (kolom > MAKS_SISI_PRATINJAU || baris > MAKS_SISI_PRATINJAU) return null;
+  const sel = 10;
+  const lebar = kolom * sel;
+  const tinggi = baris * sel;
+  const titik = [];
+  for (let b = 0; b < baris; b++) {
+    for (let k = 0; k < kolom; k++) {
+      const tengah = k === (kolom - 1) / 2 && b === (baris - 1) / 2;
+      titik.push(
+        <circle
+          key={`${k}-${b}`}
+          cx={k * sel + sel / 2}
+          cy={b * sel + sel / 2}
+          r={tengah ? 3.2 : 2}
+          className={tengah ? "fill-amber-500" : "fill-(--ink-3)"}
+        />
+      );
+    }
+  }
+  return (
+    <svg
+      viewBox={`0 0 ${lebar} ${tinggi}`}
+      role="img"
+      aria-label={`Pola sapuan ${kolom} kolom kali ${baris} baris; titik oranye di tengah adalah arah bidik awal`}
+      className="shrink-0 rounded-[6px] border border-(--line) bg-white p-1"
+      style={{ width: Math.min(88, Math.max(40, lebar * 1.6)), aspectRatio: `${lebar} / ${tinggi}` }}
+    >
+      {titik}
+    </svg>
+  );
 }
 
 function ringkasParameter(p: ParameterUji): string {
@@ -153,6 +194,16 @@ export function UjiSapuanModal({
     () => validasiSapuan({ step, Hlebar: hlebar, Vlebar: vlebar, rehat }),
     [step, hlebar, vlebar, rehat]
   );
+  // Bentuk kisi sapuan: kolom = titik ke kiri/kanan (HA), baris = ke atas/bawah (VA).
+  // Hasil kali keduanya sama dengan rencana.titik.
+  const kisi = useMemo(() => {
+    if (!cek.ok) return null;
+    const { stepDerajat, hlebarDerajat, vlebarDerajat } = cek.rencana;
+    return {
+      kolom: 2 * langkahPerSisi(hlebarDerajat, stepDerajat) + 1,
+      baris: 2 * langkahPerSisi(vlebarDerajat, stepDerajat) + 1,
+    };
+  }, [cek]);
   const belumDiisi = step.trim() === "" && hlebar.trim() === "" && vlebar.trim() === "";
   const jarakM = Number(jarak) > 0 ? Number(jarak) : null;
   const nomorSlot = Number(slot);
@@ -348,7 +399,7 @@ export function UjiSapuanModal({
               2 · Parameter sapuan
             </h4>
             <div className="flex flex-wrap items-center gap-1.5">
-              <span className="text-[11.5px] text-(--ink-3)">Titik awal:</span>
+              <span className="text-[11.5px] text-(--ink-3)">Contoh isian:</span>
               {PRESET.map((p) => (
                 <button
                   key={p.nama}
@@ -368,49 +419,69 @@ export function UjiSapuanModal({
             </div>
           </div>
 
+          <p className="mb-3 text-[12px] leading-relaxed text-(--ink-2)">
+            Instrumen menyisir pola <strong>kotak</strong> di sekitar arah bidik. Tiap{" "}
+            <strong>titik</strong> adalah satu posisi bidik: instrumen berputar ke sana lalu menembak. Kalau
+            prisma kena, sapuan <strong>berhenti</strong> di titik itu. Kalau tidak, lanjut sampai semua titik habis.
+          </p>
+
           <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
             <div>
               <label htmlFor="us-step" className={LABEL}>
-                Step <span className="font-normal text-(--ink-3)">HA &amp; VA</span>
+                Step <span className="font-normal text-(--ink-3)">jarak antar titik</span>
               </label>
               <input id="us-step" value={step} onChange={(e) => setStep(e.target.value)} disabled={aktif} placeholder="20" className={cn(INPUT, "font-mono tabular-nums")} />
             </div>
             <div>
               <label htmlFor="us-hlebar" className={LABEL}>
-                Hlebar <span className="font-normal text-(--ink-3)">± tiap sisi</span>
+                Hlebar <span className="font-normal text-(--ink-3)">kiri-kanan, ± tiap sisi</span>
               </label>
               <input id="us-hlebar" value={hlebar} onChange={(e) => setHlebar(e.target.value)} disabled={aktif} placeholder="0,00,01" className={cn(INPUT, "font-mono tabular-nums")} />
             </div>
             <div>
               <label htmlFor="us-vlebar" className={LABEL}>
-                Vlebar <span className="font-normal text-(--ink-3)">± tiap sisi</span>
+                Vlebar <span className="font-normal text-(--ink-3)">atas-bawah, ± tiap sisi</span>
               </label>
               <input id="us-vlebar" value={vlebar} onChange={(e) => setVlebar(e.target.value)} disabled={aktif} placeholder="0,00,01" className={cn(INPUT, "font-mono tabular-nums")} />
             </div>
             <div>
               <label htmlFor="us-rehat" className={LABEL}>
-                Rehat <span className="font-normal text-(--ink-3)">ms, 0–10000</span>
+                Rehat <span className="font-normal text-(--ink-3)">jeda tiap titik, ms</span>
               </label>
               <input id="us-rehat" type="number" min={0} max={10000} value={rehat} onChange={(e) => setRehat(e.target.value)} disabled={aktif} placeholder="5000" className={cn(INPUT, "font-mono tabular-nums")} />
             </div>
           </div>
           <p className="mt-2 text-[11.5px] leading-relaxed text-(--ink-3)">
-            Sudut dalam <span className="font-mono">d,m,s</span> atau derajat desimal; lebih dari 0 dan
-            paling besar 45°. Rehat kosong memakai setelan tersimpan di instrumen.
+            Step, Hlebar, dan Vlebar dalam <span className="font-mono">d,m,s</span> (mis.{" "}
+            <span className="font-mono">0,30,00</span> = 0,5°) atau derajat desimal; lebih dari 0 dan paling
+            besar 45°. Rehat 0–10000 ms; kosong memakai setelan tersimpan di instrumen.
           </p>
 
           <div aria-live="polite" className="mt-3 rounded-[10px] bg-(--paper) px-3.5 py-2.5 text-[12.5px] leading-relaxed">
             {cek.ok ? (
               <>
-                <div className="flex flex-wrap items-center gap-x-4 gap-y-1">
-                  <span>
-                    <span className="font-mono font-semibold tabular-nums text-(--ink)">{cek.rencana.titik}</span> titik
-                  </span>
-                  <span>
-                    minimal{" "}
-                    <span className="font-mono font-semibold tabular-nums text-(--ink)">{formatDurasi(cek.rencana.minimalDetik)}</span>
-                  </span>
-                  <span className="text-(--ink-3)">belum termasuk waktu ukur tiap titik</span>
+                <div className="flex items-start gap-3.5">
+                  {kisi && <PratinjauKisi kolom={kisi.kolom} baris={kisi.baris} />}
+                  <div className="min-w-0">
+                    <p>
+                      <span className="font-mono font-semibold tabular-nums text-(--ink)">{cek.rencana.titik}</span> titik
+                      {kisi && (
+                        <span className="text-(--ink-3)">
+                          {" "}
+                          ({kisi.kolom} kiri-kanan × {kisi.baris} atas-bawah)
+                        </span>
+                      )}
+                    </p>
+                    <p>
+                      Kalau semua titik dijalani:{" "}
+                      <span className="font-mono font-semibold tabular-nums text-(--ink)">
+                        ≥ {formatDurasi(cek.rencana.minimalDetik)}
+                      </span>{" "}
+                      <span className="text-(--ink-3)">
+                        (belum termasuk waktu ukur tiap titik; lebih singkat kalau prisma kena lebih awal)
+                      </span>
+                    </p>
+                  </div>
                 </div>
                 {jarakM !== null && (
                   <p className="mt-1 text-(--ink-2)">
