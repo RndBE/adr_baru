@@ -1047,3 +1047,363 @@ export function bacaKonfirmasiConfig(
     beda,
   };
 }
+
+// ── Uji sapuan custom: command "autosearch" (ADR_RTS_PORTING §3.2) ───────────
+//
+//   {"set_10284":{"command":"autosearch","jenis":"custom","step":"0,30,00",
+//                 "Hlebar":"1,00,00","Vlebar":"1,00,00","rehat":500}}
+//
+// Balasannya SEMUA di bawah kunci `autosearch` (huruf kecil) — bukan
+// `AutoSearch` milik `auto_search`. Urutannya:
+//
+//   {"autosearch":{"value":"check"}}                       cek instrumen menyala
+//   {"autosearch":{"value":"read"}}                        baca titik tengah
+//   {"autosearch":{"ke":0,"dari":0,"tahap":"sweep","titik":25,
+//                  "langkah_ha":1800.0,"langkah_va":1800.0}}   sapuan mulai
+//   {"Rotate":{"value":"ok","ms":850}}                     per titik (kunci LAIN)
+//   {"autosearch":{"tembakan":1,"dari":25,"ha":"..","va":"..","SDis":""}}
+//   {"autosearch":{"ke":0,"tahap":"sweep","value":"ketemu","titik_ke":7,...}}
+//   {"autosearch":{"jenis":"custom","rehat":500,"value":"ketemu","SDis":"4.1120",...}}
+//
+// Perangkap:
+//
+// 1. DUA pesan `value:"ketemu"` di kunci yang sama. Yang bertanda `tahap:"sweep"`
+//    hanya menutup sapuan; hasil akhir yang sebenarnya datang sesudahnya dan
+//    TIDAK memuat `tahap`. Berhenti di pesan pertama berarti kehilangan `SDis`.
+// 2. `dibatalkan` membawa `tembakan`/`dari` juga, jadi bentuknya mirip pesan
+//    per titik. `tahap` harus diperiksa lebih dulu daripada `tembakan`.
+// 3. `Rotate` per titik terbit di tingkat atas, dan kunci yang sama dipakai jog
+//    dan turning_target. Pemanggil tidak boleh menyimpulkan apa pun darinya
+//    selain lewat status "sedang uji sapuan" miliknya sendiri.
+// 4. `SDis` kosong = prisma belum kena, BUKAN jarak nol.
+// 5. `langkah_ha`/`langkah_va` dalam DETIK BUSUR (1800 = 0,5°), sedangkan
+//    `step` di perintah dalam d,m,s atau derajat desimal.
+
+/** Batas atas sudut yang diterima firmware untuk step/Hlebar/Vlebar. */
+export const MAKS_SUDUT_SAPUAN_DERAJAT = 45;
+
+/** Langkah ke tiap sisi dari titik tengah, maksimum (jadi titik ≤ 61 × 61). */
+export const MAKS_LANGKAH_PER_SISI = 30;
+
+export const RENTANG_REHAT_SAPUAN_MS = { min: 0, maks: 10000 };
+
+/**
+ * Lama putar satu titik dari SATU contoh di dokumen (`Rotate ... "ms":850`).
+ * Bukan ketetapan, dan belum termasuk waktu ukur — jadi dipakai hanya sebagai
+ * batas bawah perkiraan, tidak pernah sebagai janji.
+ */
+export const MS_PUTAR_PER_TITIK_CONTOH = 850;
+
+// Pembagian lebar/step memakai toleransi: 300/30 harus 10, bukan 9 karena galat
+// float. Firmware melakukan hal yang sama.
+const TOLERANSI_BAGI = 1e-9;
+
+/**
+ * Urai sudut sapuan ke derajat desimal. Bentuk yang diterima firmware: "d,m,s"
+ * atau derajat desimal. Mengembalikan null untuk yang tidak bisa diurai.
+ *
+ * Bilangan negatif DIURAI (bukan null) supaya pemanggil bisa membedakan
+ * "bentuknya salah" dari "nilainya ≤ 0" — firmware punya dua pesan galat itu.
+ * Menit/detik ≥ 60 ditolak: firmware tidak menyebut perilakunya, dan satu
+ * kesalahan ketik di sini lebih murah daripada sapuan salah ukuran di lapangan.
+ */
+export function uraiSudutSapuan(v: unknown): number | null {
+  if (typeof v === "number") return Number.isFinite(v) ? v : null;
+  if (typeof v !== "string") return null;
+  const t = v.trim();
+  if (t === "") return null;
+
+  if (t.includes(",")) {
+    const bagian = t.split(",").map((b) => b.trim());
+    if (bagian.length !== 3 || bagian.some((b) => !/^\d+(\.\d+)?$/.test(b))) return null;
+    const [d, m, s] = bagian.map(Number);
+    if (m >= 60 || s >= 60) return null;
+    return d + m / 60 + s / 3600;
+  }
+  return /^-?\d+(\.\d+)?$/.test(t) ? Number(t) : null;
+}
+
+/** Jumlah langkah dari titik tengah ke satu sisi: ⌊lebar / step⌋. */
+export function langkahPerSisi(lebar: number, step: number): number {
+  return Math.floor(lebar / step + TOLERANSI_BAGI);
+}
+
+/** (2·⌊Hlebar/step⌋+1) × (2·⌊Vlebar/step⌋+1) — rumus yang sama dengan firmware. */
+export function hitungTitikSapuan(step: number, hlebar: number, vlebar: number): number {
+  return (2 * langkahPerSisi(hlebar, step) + 1) * (2 * langkahPerSisi(vlebar, step) + 1);
+}
+
+export type PermintaanSapuan = {
+  step?: unknown;
+  Hlebar?: unknown;
+  Vlebar?: unknown;
+  rehat?: unknown;
+};
+
+export type RencanaSapuan = {
+  stepDerajat: number;
+  hlebarDerajat: number;
+  vlebarDerajat: number;
+  /** undefined = tidak dikirim, firmware memakai setelan `rehat` tersimpan. */
+  rehat?: number;
+  titik: number;
+  /** Batas BAWAH: titik × (putar contoh + rehat). Waktu ukur belum dihitung. */
+  minimalDetik: number;
+};
+
+export type HasilValidasiSapuan =
+  | { ok: true; rencana: RencanaSapuan }
+  | { ok: false; galat: string };
+
+/**
+ * Periksa permintaan sapuan SEBELUM dikirim, dengan batas yang sama dengan
+ * firmware (§3.2) — instrumen yang sudah diperintah bergerak tidak bisa
+ * ditarik kembali, dan penolakan firmware baru datang lewat MQTT.
+ */
+export function validasiSapuan(p: PermintaanSapuan): HasilValidasiSapuan {
+  const step = uraiSudutSapuan(p.step);
+  const hlebar = uraiSudutSapuan(p.Hlebar);
+  const vlebar = uraiSudutSapuan(p.Vlebar);
+  if (step === null || hlebar === null || vlebar === null) {
+    return {
+      ok: false,
+      galat: "step, Hlebar, dan Vlebar wajib, bentuk d,m,s atau derajat desimal",
+    };
+  }
+  for (const n of [step, hlebar, vlebar]) {
+    if (n <= 0 || n > MAKS_SUDUT_SAPUAN_DERAJAT) {
+      return {
+        ok: false,
+        galat: `nilai harus lebih dari 0 dan maksimum ${MAKS_SUDUT_SAPUAN_DERAJAT} derajat`,
+      };
+    }
+  }
+
+  let rehat: number | undefined;
+  if (p.rehat !== undefined && p.rehat !== null && p.rehat !== "") {
+    const r = Number(p.rehat);
+    if (
+      !Number.isInteger(r) ||
+      r < RENTANG_REHAT_SAPUAN_MS.min ||
+      r > RENTANG_REHAT_SAPUAN_MS.maks
+    ) {
+      return {
+        ok: false,
+        galat: `rehat dalam milidetik, ${RENTANG_REHAT_SAPUAN_MS.min} sampai ${RENTANG_REHAT_SAPUAN_MS.maks}`,
+      };
+    }
+    rehat = r;
+  }
+
+  // Firmware membatasi 30 langkah per sisi. Dokumen tidak menyebut apakah ia
+  // menolak atau memotongnya; ditolak di sini supaya operator tidak mengira
+  // rentang yang dimintanya tersapu penuh.
+  const lebihHa = langkahPerSisi(hlebar, step);
+  const lebihVa = langkahPerSisi(vlebar, step);
+  if (lebihHa > MAKS_LANGKAH_PER_SISI || lebihVa > MAKS_LANGKAH_PER_SISI) {
+    return {
+      ok: false,
+      galat: `terlalu banyak langkah: Hlebar/step = ${lebihHa}, Vlebar/step = ${lebihVa}, maksimum ${MAKS_LANGKAH_PER_SISI} per sisi — perbesar step atau perkecil lebar`,
+    };
+  }
+
+  const titik = hitungTitikSapuan(step, hlebar, vlebar);
+  const msPerTitik = MS_PUTAR_PER_TITIK_CONTOH + (rehat ?? 0);
+  return {
+    ok: true,
+    rencana: {
+      stepDerajat: step,
+      hlebarDerajat: hlebar,
+      vlebarDerajat: vlebar,
+      rehat,
+      titik,
+      minimalDetik: Math.ceil((titik * msPerTitik) / 1000),
+    },
+  };
+}
+
+/**
+ * Susun payload MQTT untuk uji sapuan. `step`/`Hlebar`/`Vlebar` dikirim sebagai
+ * teks apa adanya (dipangkas) — firmware yang mengurai d,m,s maupun desimal,
+ * dan mengonversinya di sini hanya menambah satu tempat salah bulat.
+ */
+export function buatPayloadSapuan(
+  idLogger: string | number,
+  aksi: "mulai" | "stop",
+  p: PermintaanSapuan = {}
+): Record<string, unknown> {
+  const isi: Record<string, unknown> =
+    aksi === "stop"
+      ? { command: "autosearch", jenis: "stop" }
+      : {
+          command: "autosearch",
+          jenis: "custom",
+          step: String(p.step).trim(),
+          Hlebar: String(p.Hlebar).trim(),
+          Vlebar: String(p.Vlebar).trim(),
+        };
+  if (aksi === "mulai" && p.rehat !== undefined && p.rehat !== null && p.rehat !== "") {
+    isi.rehat = Number(p.rehat);
+  }
+  return { [`set_${idLogger}`]: isi };
+}
+
+export type JenisBalasanSapuan =
+  /** check / read / search / measure — masih berjalan. */
+  | "tahap"
+  /** Sapuan dimulai: `titik` dan langkah dalam detik busur. */
+  | "mulai"
+  /** Hasil tembak satu titik (atau putar ke titik itu gagal). */
+  | "titik"
+  /** Sapuan ditutup (ketemu / habis / dibatalkan). Hasil akhir MASIH menyusul. */
+  | "akhir"
+  /** Hasil akhir yang sebenarnya. Tidak ada pesan lagi sesudahnya. */
+  | "hasil"
+  /** Perintah ditolak atau berhenti sebelum sapuan jalan. */
+  | "ditolak"
+  /** Jawaban atas `jenis:"stop"`. */
+  | "stop"
+  | "bukan";
+
+export type BalasanSapuan = {
+  jenis: JenisBalasanSapuan;
+  nilai: string;
+  /** true = perintah ini sudah berakhir; tidak akan ada pesan lagi untuknya. */
+  selesai: boolean;
+  /** mulai, akhir: jumlah titik. */
+  titik?: number;
+  /** mulai: langkah dalam DETIK BUSUR. */
+  langkahHaDetik?: number;
+  langkahVaDetik?: number;
+  /** titik, akhir: progres titik ke-n dari total. */
+  tembakan?: number;
+  dari?: number;
+  ha?: string;
+  va?: string;
+  /** titik: kosong dibaca sebagai "prisma belum kena". */
+  SDis?: string;
+  kena?: boolean;
+  rotateGagal?: boolean;
+  /** akhir "ketemu": titik ke berapa prisma ditemukan. */
+  titikKe?: number;
+  /** hasil: ketemu atau gagal. */
+  hasil?: "ketemu" | "gagal";
+  HA?: string;
+  VA?: string;
+  rehat?: number;
+  /** ditolak: pesan galat / alasan, apa adanya dari firmware. */
+  pesan?: string;
+  keterangan?: string;
+  /** stop: apakah ada sapuan yang sedang berjalan. */
+  berjalan?: boolean;
+};
+
+const NILAI_TAHAP_SAPUAN = ["check", "read", "search", "measure"];
+const NILAI_AKHIR_SAPUAN = ["ketemu", "habis", "dibatalkan"];
+
+/**
+ * Baca satu paket di bawah kunci `autosearch`. Pemanggil mengoper isi kunci itu
+ * (`data.autosearch`), bukan seluruh pesan.
+ */
+export function bacaBalasanSapuan(paket: unknown): BalasanSapuan {
+  const bukan: BalasanSapuan = { jenis: "bukan", nilai: "", selesai: false };
+  if (paket === null || typeof paket !== "object") return bukan;
+  const o = paket as Record<string, unknown>;
+
+  const s = (k: string) => (o[k] === undefined || o[k] === null ? undefined : String(o[k]));
+  const n = (k: string) => {
+    if (o[k] === undefined || o[k] === null || o[k] === "") return undefined;
+    const x = Number(o[k]);
+    return Number.isFinite(x) ? x : undefined;
+  };
+  const v = o.value ?? o.stage;
+  const nilai = v === undefined || v === null ? "" : String(v);
+
+  // Penolakan menutup PERINTAH ini. "sapuan sedang berjalan" berarti sapuan
+  // LAIN yang masih jalan — pesannya akan tetap datang, tapi bukan milik
+  // perintah yang baru ditolak.
+  if (o.error !== undefined) {
+    return {
+      jenis: "ditolak",
+      nilai: String(o.error),
+      selesai: true,
+      pesan: String(o.error),
+      keterangan: s("saran") ?? s("alasan"),
+    };
+  }
+
+  // `tahap` lebih dulu daripada `tembakan`: "dibatalkan" membawa keduanya.
+  if (o.tahap === "sweep") {
+    if (NILAI_AKHIR_SAPUAN.includes(nilai)) {
+      return {
+        jenis: "akhir",
+        nilai,
+        selesai: false,
+        titik: n("titik"),
+        titikKe: n("titik_ke"),
+        tembakan: n("tembakan"),
+        dari: n("dari"),
+        ha: s("ha"),
+        va: s("va"),
+      };
+    }
+    if (nilai === "" && o.titik !== undefined) {
+      return {
+        jenis: "mulai",
+        nilai: "sweep",
+        selesai: false,
+        titik: n("titik"),
+        langkahHaDetik: n("langkah_ha"),
+        langkahVaDetik: n("langkah_va"),
+      };
+    }
+  }
+
+  if (o.tembakan !== undefined) {
+    const SDis = s("SDis") ?? "";
+    const rotateGagal = nilai === "rotate gagal";
+    return {
+      jenis: "titik",
+      nilai,
+      selesai: false,
+      tembakan: n("tembakan"),
+      dari: n("dari"),
+      ha: s("ha"),
+      va: s("va"),
+      SDis,
+      rotateGagal,
+      kena: !rotateGagal && SDis.trim() !== "",
+    };
+  }
+
+  if (nilai === "ketemu" || nilai === "gagal") {
+    return {
+      jenis: "hasil",
+      nilai,
+      selesai: true,
+      hasil: nilai,
+      SDis: s("SDis"),
+      HA: s("HA"),
+      VA: s("VA"),
+      rehat: n("rehat"),
+    };
+  }
+
+  if (nilai === "stop diminta") {
+    return { jenis: "stop", nilai, selesai: false, berjalan: o.berjalan !== false };
+  }
+  if (nilai === "tidak ada sapuan berjalan") {
+    return { jenis: "stop", nilai, selesai: true, berjalan: false };
+  }
+
+  // Instrumen diam / sudut tak terbaca: perintah berakhir tanpa hasil akhir.
+  if (nilai === "RTS Off" || nilai === "read failed") {
+    return { jenis: "ditolak", nilai, selesai: true, pesan: nilai };
+  }
+
+  if (NILAI_TAHAP_SAPUAN.includes(nilai)) return { jenis: "tahap", nilai, selesai: false };
+  // Nilai asing tetap tampil sebagai progres, bukan dibuang: firmware yang
+  // lebih baru boleh menambah tahap.
+  if (nilai !== "") return { jenis: "tahap", nilai, selesai: false };
+  return bukan;
+}

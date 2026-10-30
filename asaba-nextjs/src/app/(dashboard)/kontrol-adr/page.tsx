@@ -44,8 +44,17 @@ import { AttitudeDial } from "@/components/kontrol-adr/attitude-dial";
 import { PrismaGrid } from "@/components/kontrol-adr/prisma-grid";
 import { ProcessSteps, type LangkahProses } from "@/components/kontrol-adr/process-steps";
 import { mapStatus, type PrismaCard, type TempPrisma } from "@/components/kontrol-adr/prisma";
+import { UjiSapuanModal, useBatasJawabSapuan } from "@/components/kontrol-adr/uji-sapuan-modal";
+import {
+  keadaanAwal as keadaanSapuanAwal,
+  terapkanArah,
+  terapkanBalasan as terapkanBalasanSapuan,
+  type KeadaanSapuan,
+} from "@/lib/uji-sapuan";
 import { topikBalasan } from "@/lib/mqtt";
 import {
+  bacaBalasanSapuan,
+  klasifikasiTurningTarget,
   nilaiRts,
   nilaiRtsLama,
   klasifikasiPower,
@@ -524,6 +533,13 @@ export default function KontrolAdrPage() {
   // berhenti di "terkirim", bukan "berlaku". Itu sebabnya ia langkah TERAKHIR
   // di antrean Simpan: tidak ada yang bisa ditunggu sesudahnya.
   const [trackEvery, setTrackEvery] = useState("0");
+
+  // ── Uji sapuan custom ─────────────────────────────────────────────────────
+  // Keadaannya dipegang di sini, bukan di modal: sapuan bisa berjalan lama dan
+  // balasannya tetap harus ditangkap walau modalnya sudah ditutup.
+  const [showUjiSapuan, setShowUjiSapuan] = useState(false);
+  const [sapuan, setSapuan] = useState<KeadaanSapuan>(keadaanSapuanAwal);
+  useBatasJawabSapuan(sapuan, setSapuan);
 
   // ── Rekaman SD (replay) ───────────────────────────────────────────────────
   const [showReplay, setShowReplay] = useState(false);
@@ -1097,6 +1113,22 @@ export default function KontrolAdrPage() {
               ok: true,
               pesan: `Instrumen memasang ${bSA.horizontal}° × ${bSA.vertical}°`,
             });
+          }
+
+          // {"autosearch":{…}} — uji sapuan custom (huruf KECIL, beda dengan
+          // `AutoSearch` milik auto_search). Seluruh urutan balasannya dibaca
+          // bacaBalasanSapuan(); `Rotate` per titik sengaja tidak disentuh di
+          // sini karena kunci yang sama dipakai jog dan turning_target.
+          const bSapuan = bacaBalasanSapuan(data.autosearch);
+          if (bSapuan.jenis !== "bukan") {
+            console.log("[KontrolADR] autosearch:", bSapuan.jenis, bSapuan.nilai, data.autosearch);
+            setSapuan((prev) => terapkanBalasanSapuan(prev, bSapuan, Date.now()));
+          }
+          // `TurningTarget` hanya berarti bagi panel uji sapuan saat ia sendiri
+          // yang menunggu arah (terapkanArah mengabaikan yang lain).
+          const kelasArah = klasifikasiTurningTarget(data.TurningTarget);
+          if (kelasArah !== "bukan") {
+            setSapuan((prev) => terapkanArah(prev, kelasArah));
           }
 
           // {"setHome":{"setHome":",0,061,41,90,199,18,72;"}}
@@ -2050,6 +2082,10 @@ export default function KontrolAdrPage() {
                   onClick={() => {
                     setSelectedSite(s.slug);
                     setAccessCodeError("");
+                    // Halaman berhenti mendengarkan balasan site lama begitu
+                    // berpindah, jadi keadaan sapuannya tidak bisa lagi
+                    // diperbarui — dibuang daripada dibiarkan "berjalan" selamanya.
+                    if (s.slug !== selectedSite) setSapuan(keadaanSapuanAwal());
                   }}
                   className={cn(
                     "inline-flex h-9 shrink-0 cursor-pointer items-center gap-2 rounded-full px-3.5 text-[13px] font-medium outline-none transition-colors focus-visible:ring-2 focus-visible:ring-(--navy)/40",
@@ -2100,6 +2136,20 @@ export default function KontrolAdrPage() {
               className={cn(tombol, "bg-white text-(--ink-2) ring-1 ring-(--line) hover:text-(--ink)")}
             >
               <Settings2 className="size-4" /> RTS Config
+            </button>
+            {/* Uji sapuan MENGGERAKKAN instrumen, tapi tombolnya di bar ini
+                karena ia alat uji lapangan, bukan bagian sesi pengukuran.
+                Titik menyala selama sapuan berjalan supaya terlihat dari luar
+                modal. */}
+            <button
+              type="button"
+              onClick={() => setShowUjiSapuan(true)}
+              className={cn(tombol, "bg-white text-(--ink-2) ring-1 ring-(--line) hover:text-(--ink)")}
+            >
+              <Crosshair className="size-4" /> Uji sapuan
+              {(sapuan.fase === "mengirim" || sapuan.fase === "berjalan") && (
+                <span aria-label="sedang berjalan" className="size-2 animate-pulse rounded-full bg-(--st-normal)" />
+              )}
             </button>
             <button
               type="button"
@@ -3397,6 +3447,23 @@ export default function KontrolAdrPage() {
             </>
           )}
         </ModalShell>
+      )}
+
+      {/* ─── Uji sapuan custom ───
+          Menggerakkan instrumen, jadi dikunci bersama perintah gerak lain, dan
+          juga selama AutoTracking: firmware menolaknya ("sedang sibuk"). */}
+      {showUjiSapuan && (
+        <UjiSapuanModal
+          site={selectedSite}
+          slotList={prismaCards
+            .map((c) => Number(c.name.replace(/^P/, "")))
+            .filter((n) => Number.isInteger(n) && n > 0)
+            .sort((a, b) => a - b)}
+          terkunci={alasanTerkunci ?? (isControlRunning ? "AutoTracking sedang berjalan, instrumen sibuk" : null)}
+          keadaan={sapuan}
+          setKeadaan={setSapuan}
+          onClose={() => setShowUjiSapuan(false)}
+        />
       )}
 
       {/* ─── Rekaman SD (replay) ───

@@ -50,6 +50,13 @@ import {
   KOLOM_REPLAY,
   SEBAB_TOLAK_REPLAY,
   MAKS_JUMLAH_REPLAY,
+  uraiSudutSapuan,
+  langkahPerSisi,
+  hitungTitikSapuan,
+  validasiSapuan,
+  buatPayloadSapuan,
+  bacaBalasanSapuan,
+  MAKS_LANGKAH_PER_SISI,
 } from "../src/lib/protokol-rts";
 
 let lulus = 0;
@@ -723,6 +730,216 @@ periksa(
   MEDAN_CONFIG_TER_ECHO.includes("autoSearch"),
   true
 );
+
+// ── Uji sapuan custom: command "autosearch" (ADR_RTS_PORTING §3.2) ──────────
+// Contoh balasan di bawah disalin dari dokumen itu.
+console.log("\nUji sapuan custom (autosearch):");
+
+// Sudut: d,m,s atau derajat desimal.
+periksa('"0,30,00" → 0,5°', uraiSudutSapuan("0,30,00"), 0.5);
+periksa('"1,00,00" → 1°', uraiSudutSapuan("1,00,00"), 1);
+periksa('"0.5" desimal', uraiSudutSapuan("0.5"), 0.5);
+periksa("angka 2", uraiSudutSapuan(2), 2);
+periksa('"-1" tetap terurai (nilainya yang ditolak)', uraiSudutSapuan("-1"), -1);
+periksa("menit 60 ditolak", uraiSudutSapuan("0,60,00"), null);
+periksa("dua bagian ditolak", uraiSudutSapuan("1,30"), null);
+periksa("huruf ditolak", uraiSudutSapuan("abc"), null);
+periksa("kosong ditolak", uraiSudutSapuan(""), null);
+periksa("undefined ditolak", uraiSudutSapuan(undefined), null);
+
+// Rumus titik: contoh dokumen 0,5° step, ±1° → 5 × 5 = 25.
+periksa("titik contoh dokumen = 25", hitungTitikSapuan(0.5, 1, 1), 25);
+periksa("langkah per sisi 1/0.5 = 2", langkahPerSisi(1, 0.5), 2);
+// Toleransi pembulatan: 0.6/0.2 = 2.9999999999999996 di float, harus tetap 3.
+periksa("0.6/0.2 = 3 langkah, bukan 2", langkahPerSisi(0.6, 0.2), 3);
+periksa("3/0.3 = 10 langkah", langkahPerSisi(3, 0.3), 10);
+periksa("lebar < step → hanya titik tengah di sumbu itu", hitungTitikSapuan(1, 0.5, 2), 1 * 5);
+periksa("maksimum 61 × 61 titik", hitungTitikSapuan(1, 30, 30), 61 * 61);
+
+// Validasi: pesan sama dengan firmware.
+const contoh = { step: "0,30,00", Hlebar: "1,00,00", Vlebar: "1,00,00", rehat: 500 };
+const ok1 = validasiSapuan(contoh);
+periksa("contoh dokumen lolos", ok1.ok, true);
+if (ok1.ok) {
+  periksa("rencana: 25 titik", ok1.rencana.titik, 25);
+  periksa("rencana: rehat 500", ok1.rencana.rehat, 500);
+  // 25 × (850 + 500) ms = 33,75 detik → dibulatkan naik.
+  periksa("rencana: minimal 34 detik", ok1.rencana.minimalDetik, 34);
+}
+const tanpaRehat = validasiSapuan({ step: "0,30,00", Hlebar: "1,00,00", Vlebar: "1,00,00" });
+periksa("tanpa rehat tetap lolos", tanpaRehat.ok, true);
+if (tanpaRehat.ok) periksa("tanpa rehat → undefined", tanpaRehat.rencana.rehat, undefined);
+
+periksa(
+  "medan kosong → galat bentuk",
+  validasiSapuan({ step: "0,30,00", Hlebar: "1,00,00" }),
+  { ok: false, galat: "step, Hlebar, dan Vlebar wajib, bentuk d,m,s atau derajat desimal" }
+);
+periksa(
+  "salah bentuk → galat bentuk",
+  validasiSapuan({ step: "x", Hlebar: "1", Vlebar: "1" }),
+  { ok: false, galat: "step, Hlebar, dan Vlebar wajib, bentuk d,m,s atau derajat desimal" }
+);
+periksa(
+  "nilai 0 ditolak",
+  validasiSapuan({ step: "0", Hlebar: "1", Vlebar: "1" }),
+  { ok: false, galat: "nilai harus lebih dari 0 dan maksimum 45 derajat" }
+);
+periksa(
+  "nilai negatif ditolak",
+  validasiSapuan({ step: "-1", Hlebar: "1", Vlebar: "1" }),
+  { ok: false, galat: "nilai harus lebih dari 0 dan maksimum 45 derajat" }
+);
+periksa(
+  "46° ditolak",
+  validasiSapuan({ step: "10", Hlebar: "46", Vlebar: "1" }),
+  { ok: false, galat: "nilai harus lebih dari 0 dan maksimum 45 derajat" }
+);
+periksa("45° tepat lolos", validasiSapuan({ step: "45", Hlebar: "45", Vlebar: "45" }).ok, true);
+periksa(
+  "rehat 10001 ditolak",
+  validasiSapuan({ ...contoh, rehat: 10001 }),
+  { ok: false, galat: "rehat dalam milidetik, 0 sampai 10000" }
+);
+periksa("rehat 0 lolos", validasiSapuan({ ...contoh, rehat: 0 }).ok, true);
+periksa("rehat 10000 lolos", validasiSapuan({ ...contoh, rehat: 10000 }).ok, true);
+periksa("rehat pecahan ditolak", validasiSapuan({ ...contoh, rehat: 1.5 }).ok, false);
+periksa("rehat negatif ditolak", validasiSapuan({ ...contoh, rehat: -1 }).ok, false);
+periksa("rehat string kosong dianggap tidak dikirim", validasiSapuan({ ...contoh, rehat: "" }).ok, true);
+
+// 30 langkah per sisi lolos, 31 ditolak.
+periksa(
+  `tepat ${MAKS_LANGKAH_PER_SISI} langkah per sisi lolos`,
+  validasiSapuan({ step: "1", Hlebar: "30", Vlebar: "30" }).ok,
+  true
+);
+const kebanyakan = validasiSapuan({ step: "0,0,10", Hlebar: "1,00,00", Vlebar: "1,00,00" });
+periksa("360 langkah per sisi ditolak", kebanyakan.ok, false);
+periksa(
+  "galat langkah menyebut batasnya",
+  !kebanyakan.ok && kebanyakan.galat.includes(`maksimum ${MAKS_LANGKAH_PER_SISI} per sisi`),
+  true
+);
+
+// Payload.
+periksa("payload mulai", buatPayloadSapuan(10284, "mulai", contoh), {
+  set_10284: {
+    command: "autosearch",
+    jenis: "custom",
+    step: "0,30,00",
+    Hlebar: "1,00,00",
+    Vlebar: "1,00,00",
+    rehat: 500,
+  },
+});
+periksa(
+  "payload tanpa rehat tidak memuat kunci rehat",
+  "rehat" in (buatPayloadSapuan("10284", "mulai", { step: "1", Hlebar: "2", Vlebar: "2" }).set_10284 as object),
+  false
+);
+periksa("payload stop", buatPayloadSapuan(10284, "stop"), {
+  set_10284: { command: "autosearch", jenis: "stop" },
+});
+periksa(
+  "payload memangkas spasi",
+  (buatPayloadSapuan(1, "mulai", { step: " 0,30,00 ", Hlebar: "1", Vlebar: "1" }).set_1 as { step: string }).step,
+  "0,30,00"
+);
+
+// Balasan — urutan dokumen.
+periksa('"check" → tahap', bacaBalasanSapuan({ value: "check" }), {
+  jenis: "tahap", nilai: "check", selesai: false,
+});
+periksa('"read" → tahap', bacaBalasanSapuan({ value: "read" }).jenis, "tahap");
+
+const mulai = bacaBalasanSapuan({
+  ke: 0, dari: 0, tahap: "sweep", titik: 25, langkah_ha: 1800.0, langkah_va: 1800.0,
+});
+periksa("mulai sapuan", mulai, {
+  jenis: "mulai", nilai: "sweep", selesai: false,
+  titik: 25, langkahHaDetik: 1800, langkahVaDetik: 1800,
+});
+
+const titikBelum = bacaBalasanSapuan({ tembakan: 1, dari: 25, ha: "151,08,07", va: "102,20,53", SDis: "" });
+periksa("titik: SDis kosong → belum kena", titikBelum.kena, false);
+periksa("titik: progres 1/25", [titikBelum.tembakan, titikBelum.dari], [1, 25]);
+periksa("titik: SDis tetap string kosong, bukan 0", titikBelum.SDis, "");
+const titikKena = bacaBalasanSapuan({ tembakan: 7, dari: 25, ha: "151,08,07", va: "102,20,53", SDis: "4.1120" });
+periksa("titik: SDis berisi → kena", titikKena.kena, true);
+periksa("titik: tidak selesai", titikKena.selesai, false);
+
+const rotateGagal = bacaBalasanSapuan({ tembakan: 3, dari: 25, ha: "1", va: "2", value: "rotate gagal" });
+periksa("rotate gagal → titik, bukan akhir", rotateGagal.jenis, "titik");
+periksa("rotate gagal → tidak dianggap kena", [rotateGagal.rotateGagal, rotateGagal.kena], [true, false]);
+periksa("rotate gagal → sapuan lanjut", rotateGagal.selesai, false);
+
+// Perangkap 1: dua "ketemu" di kunci yang sama.
+const akhirKetemu = bacaBalasanSapuan({
+  ke: 0, tahap: "sweep", value: "ketemu", titik_ke: 7, ha: "151,08,07", va: "102,20,53",
+});
+periksa("penutup sapuan 'ketemu' → akhir, BUKAN hasil", akhirKetemu.jenis, "akhir");
+periksa("penutup sapuan belum selesai (hasil menyusul)", akhirKetemu.selesai, false);
+periksa("penutup sapuan memuat titik_ke", akhirKetemu.titikKe, 7);
+const hasilKetemu = bacaBalasanSapuan({
+  jenis: "custom", rehat: 500, value: "ketemu", SDis: "4.1120", HA: "151,08,07", VA: "102,20,53",
+});
+periksa("hasil akhir 'ketemu' → hasil", hasilKetemu.jenis, "hasil");
+periksa("hasil akhir selesai", hasilKetemu.selesai, true);
+periksa("hasil akhir memuat SDis", [hasilKetemu.hasil, hasilKetemu.SDis, hasilKetemu.rehat], ["ketemu", "4.1120", 500]);
+
+const habis = bacaBalasanSapuan({ ke: 0, tahap: "sweep", value: "habis", titik: 25 });
+periksa("habis → akhir dengan jumlah titik", [habis.jenis, habis.nilai, habis.titik], ["akhir", "habis", 25]);
+const hasilGagal = bacaBalasanSapuan({ jenis: "custom", rehat: 500, value: "gagal", SDis: "", HA: "x", VA: "y" });
+periksa("hasil akhir 'gagal'", [hasilGagal.jenis, hasilGagal.hasil, hasilGagal.selesai], ["hasil", "gagal", true]);
+
+// Perangkap 2: "dibatalkan" membawa tembakan/dari, tapi bukan pesan titik.
+const batal = bacaBalasanSapuan({ ke: 0, tahap: "sweep", value: "dibatalkan", tembakan: 7, dari: 25 });
+periksa("dibatalkan → akhir, BUKAN titik", batal.jenis, "akhir");
+periksa("dibatalkan memuat progres terakhir", [batal.tembakan, batal.dari], [7, 25]);
+
+// Stop.
+periksa(
+  "stop diminta",
+  bacaBalasanSapuan({ value: "stop diminta", berjalan: true }),
+  { jenis: "stop", nilai: "stop diminta", selesai: false, berjalan: true }
+);
+periksa(
+  "stop tanpa sapuan berjalan",
+  bacaBalasanSapuan({ value: "tidak ada sapuan berjalan", berjalan: false }),
+  { jenis: "stop", nilai: "tidak ada sapuan berjalan", selesai: true, berjalan: false }
+);
+
+// Penolakan.
+periksa(
+  "ditolak: sibuk",
+  bacaBalasanSapuan({ error: "sedang sibuk", alasan: "AutoTracking" }),
+  { jenis: "ditolak", nilai: "sedang sibuk", selesai: true, pesan: "sedang sibuk", keterangan: "AutoTracking" }
+);
+const sapuanJalan = bacaBalasanSapuan({
+  error: "sapuan sedang berjalan", saran: "kirim jenis stop untuk membatalkan",
+});
+periksa("ditolak: sapuan lain berjalan memuat saran", sapuanJalan.keterangan, "kirim jenis stop untuk membatalkan");
+periksa("ditolak: nilai di luar batas", bacaBalasanSapuan({ error: "nilai harus lebih dari 0 dan maksimum 45 derajat" }).jenis, "ditolak");
+periksa(
+  "ditolak: RTS Off menutup perintah tanpa hasil akhir",
+  bacaBalasanSapuan({ value: "RTS Off" }),
+  { jenis: "ditolak", nilai: "RTS Off", selesai: true, pesan: "RTS Off" }
+);
+periksa("ditolak: read failed", [bacaBalasanSapuan({ value: "read failed" }).jenis, bacaBalasanSapuan({ value: "read failed" }).selesai], ["ditolak", true]);
+
+// jenis rts / manual: check → search|measure → hasil.
+periksa('"search" → tahap', bacaBalasanSapuan({ value: "search" }).jenis, "tahap");
+periksa('"measure" → tahap', bacaBalasanSapuan({ value: "measure" }).jenis, "tahap");
+const hasilRts = bacaBalasanSapuan({ jenis: "rts", value: "ketemu", SDis: "12.3" });
+periksa("hasil jenis rts", [hasilRts.jenis, hasilRts.SDis, hasilRts.selesai], ["hasil", "12.3", true]);
+
+// Bukan balasan sapuan.
+periksa("null → bukan", bacaBalasanSapuan(null).jenis, "bukan");
+periksa("string → bukan", bacaBalasanSapuan("check").jenis, "bukan");
+periksa("objek kosong → bukan", bacaBalasanSapuan({}).jenis, "bukan");
+periksa("nilai asing tetap tampil sebagai tahap", bacaBalasanSapuan({ value: "baru" }).jenis, "tahap");
+// Firmware lama memakai `stage`.
+periksa("kunci stage ikut terbaca", bacaBalasanSapuan({ stage: "check" }).jenis, "tahap");
 
 console.log(`\n${gagal === 0 ? "✅" : "❌"} ${lulus} lulus, ${gagal} gagal`);
 process.exit(gagal === 0 ? 0 : 1);
