@@ -11,7 +11,11 @@ import {
   type BalasanUkur,
   bacaManualHaVa,
   klasifikasiTurningTarget,
+  formatModeCari,
+  uraiModeCari,
+  type KodeModeCari,
 } from "@/lib/protokol-rts";
+import { PemilihModeCari } from "./pemilih-mode-cari";
 import {
   INPUT,
   LABEL,
@@ -179,6 +183,16 @@ export function PrismaModal({
    */
   const [jenis, setJenis] = useState<"bs" | "fs">(
     slot.jenis === "bs" ? "bs" : "fs"
+  );
+
+  /**
+   * Cara cari prisma saat AutoTracking, sebagai rantai berurutan. Bawaan
+   * "as" — sama dengan firmware untuk slot yang belum pernah diatur. Catatan
+   * tersimpan yang tak terbaca jatuh ke bawaan itu, bukan membuat modal gagal
+   * dibuka.
+   */
+  const [modeCari, setModeCari] = useState<KodeModeCari[]>(
+    () => (slot.registered ? uraiModeCari(slot.mode_cari) : null) ?? ["as"]
   );
 
   /**
@@ -603,6 +617,7 @@ export function PrismaModal({
           nama_prisma: namaPrisma,
           target_height: targetHeight,
           jenis,
+          mode_cari: formatModeCari(modeCari),
           site,
         }),
       });
@@ -621,6 +636,7 @@ export function PrismaModal({
   const adaGoTo = mode === "edit";
   const nomorCari = adaGoTo ? 3 : 2;
   const nomorJenis = nomorCari + 1;
+  const nomorModeCari = nomorJenis + 1;
 
   // Lingkaran nomor langkah jadi hijau begitu SALAH SATU jalur berhasil.
   const statusKunci: StatusPerintah = targetSiap
@@ -933,6 +949,16 @@ export function PrismaModal({
               </dl>
             )}
           </div>
+        </Langkah>
+
+        {/* ── Cara cari saat AutoTracking ──
+            Bukan syarat Simpan: tidak ada yang perlu dibuktikan ke instrumen,
+            jadi langkahnya tidak ikut terkunci. Cara cari ini yang dipakai
+            firmware tiap siklus produksi, bukan yang dipakai di modal ini —
+            pencarian di langkah 2 tetap AutoSearch atau manual seperti biasa.
+            Dikirim sebagai `mode` pada recordTarget saat Simpan. */}
+        <Langkah nomor={nomorModeCari} judul="Cara cari di AutoTracking">
+          <PemilihModeCari nilai={modeCari} onChange={setModeCari} disabled={loading} />
         </Langkah>
       </ol>
     </ModalShell>

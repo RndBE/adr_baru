@@ -1,0 +1,33 @@
+-- Cara cari prisma per slot: AutoSearch bawaan, sapuan custom, atau manual.
+--
+-- BELUM DIJALANKAN DI MANA PUN saat berkas ini ditulis. Kolomnya NOT NULL dengan
+-- bawaan 'as', jadi slot yang sudah ada berperilaku persis seperti sekarang:
+-- AutoSearch bawaan instrumen.
+--
+-- ── Kenapa perlu ────────────────────────────────────────────────────────────
+--
+-- AutoTracking (mode produksi firmware BL1100_ADR) memilih cara mencari prisma
+-- PER TARGET — ADR_RTS_PORTING §3.1, kunci `mode` pada `recordTarget` dan
+-- `targetSearch`:
+--
+--   as   AutoSearch bawaan instrumen (telemetri: "rts")
+--   ac   sapuan custom, langkah dan rentang dari setelan global (telemetri: "custom")
+--   man  langsung ukur di sudut rekaman (telemetri: "manual")
+--
+-- Satu slot menyimpan RANTAI sampai tiga kode, dicoba berurutan: "as+ac" =
+-- AutoSearch dulu, gagal baru kembali ke sudut acuan lalu menyapu custom.
+-- Pencarian bawaan sering gagal di target jauh (>1 km), dan rantai itulah yang
+-- membuatnya tetap dicoba lebih dulu tanpa kehilangan jaring pengaman.
+--
+-- Firmware yang menyimpannya. Kolom ini hanyalah catatan sisi web supaya daftar
+-- slot bisa menampilkannya tanpa bertanya ke alat — sama kedudukannya dengan
+-- `jenis`: "terakhir dikirim", bukan bukti keadaan alat. Nilainya ditulis hanya
+-- sesudah alat membalas OK (ubah saja) atau saat recordTarget dikirim (isi/ubah
+-- slot), dan tidak pernah dibaca balik sebagai kebenaran.
+--
+-- Bentuk isi: kode dipisah '+', tanpa spasi, huruf kecil, 1-3 kode tanpa ulangan
+-- ("as", "as+ac", "as+ac+man"). Terpanjang 9 karakter; VARCHAR(16) memberi ruang.
+-- Divalidasi di aplikasi (uraiModeCari), bukan di basis data — kolomnya VARCHAR,
+-- seperti `jenis`.
+
+ALTER TABLE `t_prisma` ADD COLUMN `mode_cari` VARCHAR(16) NOT NULL DEFAULT 'as';

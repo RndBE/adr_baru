@@ -10,6 +10,12 @@ export interface PrismaSlot {
   status_controller?: string;
   /** "bs" (backsight, titik acuan) atau "fs" (foresight, titik pantau). */
   jenis?: string;
+  /**
+   * Rantai cara cari di AutoTracking, dipisah "+": "as" (AutoSearch bawaan),
+   * "ac" (sapuan custom), "man" (manual) — mis. "as+ac". Catatan sisi web;
+   * yang menyimpannya firmware. Lihat migrasi 018.
+   */
+  mode_cari?: string;
   target_height: string | number;
   /** Sudut horizontal hasil pembelajaran, format derajat,menit,detik. */
   HA: string;

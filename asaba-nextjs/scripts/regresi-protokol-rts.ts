@@ -57,6 +57,16 @@ import {
   buatPayloadSapuan,
   bacaBalasanSapuan,
   MAKS_LANGKAH_PER_SISI,
+  uraiModeCari,
+  formatModeCari,
+  labelModeCari,
+  validasiModeCari,
+  bacaBalasanTargetSearch,
+  buatPayloadTargetSearch,
+  validasiSapuanGlobal,
+  buatPayloadSapuanGlobal,
+  bacaGalatSapuanGlobal,
+  KUNCI_SAPUAN_GLOBAL,
 } from "../src/lib/protokol-rts";
 
 let lulus = 0;
@@ -940,6 +950,150 @@ periksa("objek kosong → bukan", bacaBalasanSapuan({}).jenis, "bukan");
 periksa("nilai asing tetap tampil sebagai tahap", bacaBalasanSapuan({ value: "baru" }).jenis, "tahap");
 // Firmware lama memakai `stage`.
 periksa("kunci stage ikut terbaca", bacaBalasanSapuan({ stage: "check" }).jenis, "tahap");
+
+// ── Cara cari per slot: `mode` (ADR_RTS_PORTING §3.1) ───────────────────────
+console.log("\nCara cari per slot (mode):");
+
+periksa('"as" → [as]', uraiModeCari("as"), ["as"]);
+periksa('"as+ac" → rantai berurutan', uraiModeCari("as+ac"), ["as", "ac"]);
+periksa('"ac+as" → urutan dipertahankan', uraiModeCari("ac+as"), ["ac", "as"]);
+periksa('"as+ac+man" → tiga kode', uraiModeCari("as+ac+man"), ["as", "ac", "man"]);
+periksa("kosong → bawaan as", uraiModeCari(""), ["as"]);
+periksa("undefined → bawaan as", uraiModeCari(undefined), ["as"]);
+periksa("null → bawaan as", uraiModeCari(null), ["as"]);
+periksa("spasi dan huruf besar ditoleransi", uraiModeCari(" AS + Ac "), ["as", "ac"]);
+periksa("nama telemetri rts/custom/manual dikenali", uraiModeCari("rts+custom+manual"), ["as", "ac", "man"]);
+periksa("array diterima", uraiModeCari(["as", "ac"]), ["as", "ac"]);
+periksa("kode asing → null", uraiModeCari("as+xx"), null);
+periksa("kosong di tengah → null", uraiModeCari("as++ac"), null);
+periksa("empat kode → null", uraiModeCari("as+ac+man+as"), null);
+periksa("ulangan → null", uraiModeCari("as+as"), null);
+periksa("ulangan lewat alias → null", uraiModeCari("as+rts"), null);
+periksa("tanda lain → null", uraiModeCari("as,ac"), null);
+
+periksa("format: kode pendek dipisah +", formatModeCari(["as", "ac"]), "as+ac");
+periksa("format dari alias selalu kode pendek", formatModeCari(uraiModeCari("rts+custom") ?? []), "as+ac");
+periksa("label", labelModeCari(["as", "ac"]), "AutoSearch → Custom");
+periksa("validasi sah → null", validasiModeCari("as+ac"), null);
+periksa("validasi kosong → null", validasiModeCari(""), null);
+periksa("validasi salah → pesan", typeof validasiModeCari("zz"), "string");
+periksa(
+  "validasi menyebut batas tiga",
+  (validasiModeCari("as+ac+man+as") ?? "").includes("paling banyak 3"),
+  true
+);
+
+// Balasan targetSearch.
+const tsOk = bacaBalasanTargetSearch({ slot: 3, mode: "as+ac", record: "P3,0,...", value: "OK" });
+periksa("targetSearch OK", [tsOk.ada, tsOk.ok, tsOk.slot, tsOk.mode, tsOk.record], [true, true, 3, ["as", "ac"], "P3,0,..."]);
+const tsGalat = bacaBalasanTargetSearch({ error: "slot kosong", slot: 3 });
+periksa("targetSearch galat → tidak ok", [tsGalat.ada, tsGalat.ok, tsGalat.galat, tsGalat.slot], [true, false, "slot kosong", 3]);
+periksa("targetSearch value selain OK → tidak ok", bacaBalasanTargetSearch({ slot: 3, mode: "as", value: "gagal" }).ok, false);
+periksa("targetSearch tanpa value → tidak ok", bacaBalasanTargetSearch({ slot: 3, mode: "as" }).ok, false);
+periksa("targetSearch ok dengan huruf kecil", bacaBalasanTargetSearch({ slot: 1, mode: "as", value: "ok" }).ok, true);
+periksa("targetSearch mode telemetri dibaca", bacaBalasanTargetSearch({ slot: 1, mode: "custom", value: "OK" }).mode, ["ac"]);
+periksa("targetSearch mode tak terbaca → null", bacaBalasanTargetSearch({ slot: 1, mode: "zz", value: "OK" }).mode, null);
+periksa("targetSearch error + value OK → tidak ok", bacaBalasanTargetSearch({ error: "x", value: "OK" }).ok, false);
+periksa("null → tidak ada", bacaBalasanTargetSearch(null).ada, false);
+periksa("objek kosong → tidak ada", bacaBalasanTargetSearch({}).ada, false);
+periksa("string → tidak ada", bacaBalasanTargetSearch("OK").ada, false);
+
+periksa("payload targetSearch", buatPayloadTargetSearch(10284, 3, ["as", "ac"]), {
+  set_10284: { command: "set_rts", targetSearch: { slot: 3, mode: "as+ac" } },
+});
+
+// ── Sapuan custom GLOBAL: set_rts langkah/rentang/rehat ──────────────────────
+console.log("\nSapuan custom global (set_rts):");
+
+const gl = validasiSapuanGlobal({
+  langkahHA: "0,00,01", langkahVA: "0,00,01", rentangHA: "0,00,20", rentangVA: "0,00,20", rehat: 5000,
+});
+periksa("contoh lengkap lolos", gl.ok, true);
+if (gl.ok) {
+  periksa("titik 41 × 41 = 1681", gl.rencana.titik, 1681);
+  // 1681 × (850 + 5000) ms = 9833,85 dtk → dibulatkan naik.
+  periksa("minimal 9834 dtk", gl.rencana.minimalDetik, 9834);
+  periksa("semua kunci terkirim apa adanya", gl.rencana.dikirim, {
+    langkahHA: "0,00,01", langkahVA: "0,00,01", rentangHA: "0,00,20", rentangVA: "0,00,20", rehat: 5000,
+  });
+  periksa("tidak kosong", gl.rencana.kosong, false);
+}
+const kosongGl = validasiSapuanGlobal({ langkahHA: "", rentangHA: undefined, rehat: "  " });
+periksa("semua kosong → ok tapi kosong", kosongGl.ok && kosongGl.rencana.kosong, true);
+periksa("semua kosong → tidak ada yang dikirim", kosongGl.ok && Object.keys(kosongGl.rencana.dikirim).length, 0);
+
+const sebagian = validasiSapuanGlobal({ rentangHA: "1,00,00", rehat: "300" });
+periksa("sebagian lolos", sebagian.ok, true);
+if (sebagian.ok) {
+  periksa("sebagian: hanya yang diisi", sebagian.rencana.dikirim, { rentangHA: "1,00,00", rehat: 300 });
+  periksa("sebagian: titik tidak diketahui", [sebagian.rencana.titik, sebagian.rencana.minimalDetik], [null, null]);
+}
+
+periksa(
+  "sudut 0 ditolak dengan pesan firmware",
+  validasiSapuanGlobal({ langkahHA: "0" }),
+  { ok: false, galat: "Langkah HA: sudut lebih dari 0 dan maksimum 45 derajat" }
+);
+periksa(
+  "46° ditolak",
+  validasiSapuanGlobal({ rentangVA: "46" }),
+  { ok: false, galat: "Rentang VA: sudut lebih dari 0 dan maksimum 45 derajat" }
+);
+periksa("45° tepat lolos", validasiSapuanGlobal({ rentangVA: "45" }).ok, true);
+periksa(
+  "bentuk salah",
+  validasiSapuanGlobal({ langkahVA: "abc" }),
+  { ok: false, galat: "Langkah VA: bentuk d,m,s atau derajat desimal" }
+);
+periksa("menit 60 ditolak", validasiSapuanGlobal({ langkahHA: "0,60,00" }).ok, false);
+periksa(
+  "rehat 10001 ditolak",
+  validasiSapuanGlobal({ rehat: 10001 }),
+  { ok: false, galat: "Rehat: milidetik, 0 sampai 10000" }
+);
+periksa("rehat pecahan ditolak", validasiSapuanGlobal({ rehat: 1.5 }).ok, false);
+periksa("rehat 0 lolos", validasiSapuanGlobal({ rehat: 0 }).ok, true);
+periksa("rehat 10000 lolos", validasiSapuanGlobal({ rehat: "10000" }).ok, true);
+
+// 30 langkah per sisi dihitung per sumbu yang lengkap.
+periksa("HA 30 langkah lolos", validasiSapuanGlobal({ langkahHA: "1", rentangHA: "30" }).ok, true);
+const kebanyakanHa = validasiSapuanGlobal({ langkahHA: "0,00,01", rentangHA: "1,00,00" });
+periksa("HA 3600 langkah ditolak", kebanyakanHa.ok, false);
+periksa(
+  "galat langkah menyebut sumbunya",
+  !kebanyakanHa.ok && kebanyakanHa.galat.startsWith("HA: rentang/langkah = 3600"),
+  true
+);
+periksa(
+  "VA lengkap dihitung sendiri-sendiri",
+  validasiSapuanGlobal({ langkahHA: "1", rentangHA: "1", langkahVA: "0,00,01", rentangVA: "1,00,00" }).ok,
+  false
+);
+periksa(
+  "langkah tanpa rentang tidak diperiksa batas langkahnya",
+  validasiSapuanGlobal({ langkahHA: "0,00,01" }).ok,
+  true
+);
+
+periksa("payload hanya kunci yang diisi", buatPayloadSapuanGlobal(10284, { rentangHA: "1,00,00", rehat: 300 }), {
+  set_10284: { command: "set_rts", rentangHA: "1,00,00", rehat: 300 },
+});
+periksa("lima kunci protokol", [...KUNCI_SAPUAN_GLOBAL], ["langkahHA", "langkahVA", "rentangHA", "rentangVA", "rehat"]);
+
+periksa(
+  "galat per kunci terbaca",
+  bacaGalatSapuanGlobal({ error_langkahHA: "di luar rentang" }),
+  "Langkah HA: di luar rentang"
+);
+periksa(
+  "beberapa galat digabung",
+  bacaGalatSapuanGlobal({ error_rentangHA: "x", error_rehat: "y" }),
+  "Rentang HA: x; Rehat: y"
+);
+periksa("tanpa galat → null", bacaGalatSapuanGlobal({ updated: ["rehat"], set_rts: "OK" }), null);
+periksa("kunci error lain diabaikan", bacaGalatSapuanGlobal({ error_trackEvery: "x" }), null);
+periksa("bukan objek → null", bacaGalatSapuanGlobal("error_rehat"), null);
+periksa("null → null", bacaGalatSapuanGlobal(null), null);
 
 console.log(`\n${gagal === 0 ? "✅" : "❌"} ${lulus} lulus, ${gagal} gagal`);
 process.exit(gagal === 0 ? 0 : 1);

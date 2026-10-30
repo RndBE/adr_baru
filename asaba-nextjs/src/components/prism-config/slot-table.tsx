@@ -3,6 +3,7 @@
 import { useEffect, useRef } from "react";
 import { Loader2, Pencil, Plus, Trash2 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { labelModeCari, uraiModeCari } from "@/lib/protokol-rts";
 import { tampil, type PrismaSlot } from "./types";
 
 const TH =
@@ -29,6 +30,7 @@ export function SlotTable({
   onSelect,
   onSet,
   onEdit,
+  onModeCari,
   onHapus,
   adaPencarian,
 }: {
@@ -40,6 +42,8 @@ export function SlotTable({
   onSelect: (slot: number) => void;
   onSet: (row: PrismaSlot) => void;
   onEdit: (row: PrismaSlot) => void;
+  /** Ubah cara cari saja, tanpa merekam ulang sudut slot. */
+  onModeCari: (row: PrismaSlot) => void;
   onHapus: (row: PrismaSlot) => void;
   adaPencarian: boolean;
 }) {
@@ -79,7 +83,7 @@ export function SlotTable({
 
   return (
     <div ref={wadahRef} className="relative flex-1 overflow-auto">
-      <table className="w-full min-w-[680px] border-separate border-spacing-0 text-left">
+      <table className="w-full min-w-[820px] border-separate border-spacing-0 text-left">
         <thead>
           <tr>
             <th scope="col" className={cn(TH, "pl-5")}>
@@ -90,6 +94,13 @@ export function SlotTable({
             </th>
             <th scope="col" className={TH}>
               Jenis
+            </th>
+            <th
+              scope="col"
+              className={TH}
+              title="Urutan cara mencari prisma saat AutoTracking; klik untuk mengubah"
+            >
+              Cara cari
             </th>
             <th
               scope="col"
@@ -116,7 +127,7 @@ export function SlotTable({
         <tbody>
           {loading && rows.length === 0 ? (
             <tr>
-              <td colSpan={7} className="h-64 text-center">
+              <td colSpan={8} className="h-64 text-center">
                 <Loader2
                   className="mx-auto size-5 animate-spin text-(--navy)"
                   aria-label="Memuat daftar slot"
@@ -125,7 +136,7 @@ export function SlotTable({
             </tr>
           ) : rows.length === 0 ? (
             <tr>
-              <td colSpan={7} className="h-64 px-6 text-center text-[13px] text-(--ink-3)">
+              <td colSpan={8} className="h-64 px-6 text-center text-[13px] text-(--ink-3)">
                 {adaPencarian
                   ? "Tidak ada slot yang cocok dengan pencarian."
                   : "Belum ada slot untuk site ini."}
@@ -189,6 +200,27 @@ export function SlotTable({
                       </span>
                     ) : (
                       <span className="font-mono text-[11px] text-(--ink-3)">FS</span>
+                    )}
+                  </td>
+                  {/* Cara cari bisa diubah dari sel ini tanpa membuka prosedur
+                      slot: itu merekam ulang sudutnya, sedangkan yang berubah
+                      di sini hanya urutan cara mencarinya. */}
+                  <td className="border-b border-(--line) px-3 py-2.5 whitespace-nowrap">
+                    {!row.registered ? (
+                      <span className="text-[12.5px] text-(--ink-3)">—</span>
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          onModeCari(row);
+                        }}
+                        disabled={!terbuka}
+                        title={terbuka ? `Ubah cara cari slot ${row.slot}` : "Buka kunci konfigurasi dulu"}
+                        className="cursor-pointer rounded-[6px] px-1.5 py-0.5 text-[12px] font-medium text-(--ink-2) outline-none transition-colors hover:bg-white hover:text-(--ink) focus-visible:ring-2 focus-visible:ring-(--navy)/40 disabled:cursor-default disabled:hover:bg-transparent disabled:hover:text-(--ink-2)"
+                      >
+                        {labelModeCari(uraiModeCari(row.mode_cari) ?? ["as"])}
+                      </button>
                     )}
                   </td>
                   <td className={cn(TD_ANGKA, row.registered ? "text-(--ink)" : "text-(--ink-3)")}>

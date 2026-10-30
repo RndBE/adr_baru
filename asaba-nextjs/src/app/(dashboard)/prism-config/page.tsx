@@ -12,6 +12,7 @@ import { ConfigPanel } from "@/components/prism-config/config-panel";
 import { SlotTable } from "@/components/prism-config/slot-table";
 import { PrismaModal } from "@/components/prism-config/prisma-modal";
 import { HapusPrismaModal } from "@/components/prism-config/hapus-modal";
+import { ModeCariModal } from "@/components/prism-config/mode-cari-modal";
 import { AccessCodeModal } from "@/components/prism-config/access-code-modal";
 import { ArahkanModal } from "@/components/prism-config/arahkan-modal";
 import type { PrismaSlot, PrismConfigResponse } from "@/components/prism-config/types";
@@ -39,6 +40,7 @@ export default function PrismConfigPage() {
 
   const [modal, setModal] = useState<{ mode: "set" | "edit"; slot: PrismaSlot } | null>(null);
   const [hapusSlot, setHapusSlot] = useState<PrismaSlot | null>(null);
+  const [modeCariSlot, setModeCariSlot] = useState<PrismaSlot | null>(null);
   const [kodeTerbuka, setKodeTerbuka] = useState(false);
   const [terbuka, setTerbuka] = useState(false);
   // Arahkan RTS sengaja TIDAK di balik kunci kode akses. Kuncinya menjaga
@@ -323,6 +325,7 @@ export default function PrismConfigPage() {
                   onSelect={pilihSlot}
                   onSet={(row) => setModal({ mode: "set", slot: row })}
                   onEdit={(row) => setModal({ mode: "edit", slot: row })}
+                  onModeCari={(row) => setModeCariSlot(row)}
                   onHapus={(row) => setHapusSlot(row)}
                   adaPencarian={cari.trim() !== "" || hanyaTerisi}
                 />
@@ -340,6 +343,19 @@ export default function PrismConfigPage() {
           idLogger={idLogger}
           onClose={() => setModal(null)}
           onSuccess={setelahUbah}
+        />
+      )}
+
+      {modeCariSlot && (
+        <ModeCariModal
+          slot={modeCariSlot}
+          site={site}
+          idLogger={idLogger}
+          onClose={() => setModeCariSlot(null)}
+          onSuccess={() => {
+            setModeCariSlot(null);
+            muat();
+          }}
         />
       )}
 

@@ -1407,3 +1407,302 @@ export function bacaBalasanSapuan(paket: unknown): BalasanSapuan {
   if (nilai !== "") return { jenis: "tahap", nilai, selesai: false };
   return bukan;
 }
+
+// ── Cara cari prisma per slot: `mode` (ADR_RTS_PORTING §3.1) ─────────────────
+//
+//   {"set_10284":{"command":"set_rts","recordTarget":{"slot":3,"name":"P3",
+//                 "targetHigh":"0","mode":"as+ac"}}}
+//   {"set_10284":{"command":"set_rts","targetSearch":{"slot":3,"mode":"as+ac"}}}
+//   → {"targetSearch":{"slot":3,"mode":"as+ac","record":"…","value":"OK"}}
+//   → {"targetSearch":{"error":"<pesan>","slot":3}}
+//
+// Tiga kode, dan satu slot menyimpan RANTAI sampai tiga kode yang dicoba
+// berurutan: "as+ac" = AutoSearch dulu, gagal baru kembali ke sudut acuan lalu
+// sapuan custom. Kosong berarti "as".
+//
+// Perangkap:
+//
+// 1. Nama di TELEMETRI beda dengan kode di PERINTAH: `rts`/`custom`/`manual`
+//    lawan `as`/`ac`/`man`. Keduanya diterima saat membaca, tapi yang DIKIRIM
+//    selalu kode pendek.
+// 2. `targetSearch` hanya mengubah cara cari; sudut slot tidak disentuh.
+//    `recordTarget` sebaliknya MEREKAM ULANG arah bidik sekarang. Mengubah mode
+//    lewat `recordTarget` berarti menimpa sudut slot dengan arah teleskop
+//    seadanya — jadi ubah-saja memakai `targetSearch`.
+// 3. Sapuan custom (`ac`) memakai SATU set parameter global di firmware
+//    (langkahHA/VA, rentangHA/VA, rehat); belum ada parameter per target.
+
+export const KODE_MODE_CARI = ["as", "ac", "man"] as const;
+export type KodeModeCari = (typeof KODE_MODE_CARI)[number];
+
+export const MAKS_RANTAI_MODE_CARI = 3;
+
+export const INFO_MODE_CARI: Record<KodeModeCari, { nama: string; keterangan: string }> = {
+  as: { nama: "AutoSearch", keterangan: "Pencarian bawaan instrumen" },
+  ac: { nama: "Custom", keterangan: "Sapuan langkah dan rentang sendiri" },
+  man: { nama: "Manual", keterangan: "Langsung ukur di sudut rekaman" },
+};
+
+/** Nama yang muncul di telemetri `mode` → kode perintah. */
+const ALIAS_MODE_CARI: Record<string, KodeModeCari> = {
+  as: "as",
+  rts: "as",
+  ac: "ac",
+  custom: "ac",
+  man: "man",
+  manual: "man",
+};
+
+/**
+ * Urai rantai cara cari menjadi daftar kode. Kosong atau tidak diisi = ["as"]
+ * (bawaan firmware). Mengembalikan null untuk yang tidak sah: kode tak dikenal,
+ * lebih dari tiga, atau ada yang berulang.
+ *
+ * Ulangan ditolak: mencoba cara yang sama dua kali berturut-turut tidak
+ * menambah peluang, hanya waktu. Dokumen tidak menyebut firmware menolaknya;
+ * ini pagar sisi web.
+ */
+export function uraiModeCari(v: unknown): KodeModeCari[] | null {
+  if (v === undefined || v === null) return ["as"];
+  const teks = Array.isArray(v) ? v.map(String).join("+") : String(v);
+  const t = teks.trim().toLowerCase();
+  if (t === "") return ["as"];
+
+  const bagian = t.split("+").map((b) => b.trim());
+  if (bagian.length > MAKS_RANTAI_MODE_CARI) return null;
+
+  const hasil: KodeModeCari[] = [];
+  for (const b of bagian) {
+    const kode = ALIAS_MODE_CARI[b];
+    if (!kode || hasil.includes(kode)) return null;
+    hasil.push(kode);
+  }
+  return hasil;
+}
+
+/** Bentuk yang dikirim ke perangkat dan disimpan: kode pendek dipisah '+'. */
+export function formatModeCari(rantai: readonly KodeModeCari[]): string {
+  return rantai.join("+");
+}
+
+/** "AutoSearch → Custom", untuk ditampilkan. */
+export function labelModeCari(rantai: readonly KodeModeCari[]): string {
+  return rantai.map((k) => INFO_MODE_CARI[k].nama).join(" → ");
+}
+
+export function validasiModeCari(v: unknown): string | null {
+  if (uraiModeCari(v) !== null) return null;
+  return `Cara cari harus berisi paling banyak ${MAKS_RANTAI_MODE_CARI} dari as, ac, man, dipisah +, tanpa ulangan`;
+}
+
+export type BalasanTargetSearch = {
+  ada: boolean;
+  /** true hanya bila firmware menjawab value "OK". */
+  ok: boolean;
+  slot: number | null;
+  /** Rantai yang DIKEMBALIKAN firmware; null bila tidak ada atau tak terbaca. */
+  mode: KodeModeCari[] | null;
+  /** Rekaman slot (apa adanya, tidak ditafsirkan). */
+  record: string;
+  /** Pesan galat firmware, apa adanya. */
+  galat: string | null;
+};
+
+/**
+ * Baca isi kunci `targetSearch`. Mengoper isi kunci itu (`data.targetSearch`),
+ * bukan seluruh pesan.
+ *
+ * `ok` hanya benar bila `value` bernilai "OK" dan tidak ada `error`: balasan
+ * yang tidak dikenal tidak boleh dianggap sukses, karena sisi web menyimpan
+ * `mode_cari` ke basis data hanya setelah konfirmasi ini.
+ */
+export function bacaBalasanTargetSearch(paket: unknown): BalasanTargetSearch {
+  const kosong: BalasanTargetSearch = { ada: false, ok: false, slot: null, mode: null, record: "", galat: null };
+  if (paket === null || typeof paket !== "object") return kosong;
+  const o = paket as Record<string, unknown>;
+
+  const slot = o.slot === undefined || o.slot === null || o.slot === "" ? null : Number(o.slot);
+  const galat = o.error === undefined || o.error === null ? null : String(o.error);
+  const value = o.value === undefined || o.value === null ? "" : String(o.value);
+  if (galat === null && value === "" && o.mode === undefined) return kosong;
+
+  return {
+    ada: true,
+    ok: galat === null && value.toUpperCase() === "OK",
+    slot: slot !== null && Number.isFinite(slot) ? slot : null,
+    mode: o.mode === undefined ? null : uraiModeCari(o.mode),
+    record: o.record === undefined || o.record === null ? "" : String(o.record),
+    galat,
+  };
+}
+
+/** Susun payload `targetSearch` — ubah cara cari tanpa menyentuh sudut slot. */
+export function buatPayloadTargetSearch(
+  idLogger: string | number,
+  slot: number,
+  rantai: readonly KodeModeCari[]
+): Record<string, unknown> {
+  return {
+    [`set_${idLogger}`]: {
+      command: "set_rts",
+      targetSearch: { slot, mode: formatModeCari(rantai) },
+    },
+  };
+}
+
+// ── Sapuan custom GLOBAL: set_rts langkahHA/VA, rentangHA/VA, rehat ──────────
+//
+//   {"set_10284":{"command":"set_rts","langkahHA":"0,00,01","langkahVA":"0,00,01",
+//                 "rentangHA":"0,00,20","rentangVA":"0,00,20","rehat":5000}}
+//   → snapshot ack {"updated":[..],"set_rts":"OK",...}
+//   → atau {"error_langkahHA":"<pesan>"} per kunci yang ditolak
+//
+// Satu set parameter yang dipakai SEMUA target bermode `ac` di AutoTracking
+// (ADR_RTS_PORTING §3.1; RANCANGAN_SAPU_PER_TARGET §1). Belum ada parameter per
+// target — itu usulan yang menunggu firmware.
+//
+// Bedanya dengan uji sapuan (`command:"autosearch"`): di sini setelan TERSIMPAN
+// di instrumen dan dipakai siklus produksi berikutnya; uji sapuan hanya sekali
+// jalan dan tidak mengubah apa pun yang tersimpan.
+//
+// Tiap kunci berdiri sendiri, jadi boleh dikirim sebagian: kunci yang tidak
+// disebut tidak berubah di instrumen. `rentang` di sini adalah jangkauan ke
+// TIAP SISI (±), seperti `Hlebar`/`Vlebar` pada uji sapuan.
+
+export const KUNCI_SAPUAN_GLOBAL = ["langkahHA", "langkahVA", "rentangHA", "rentangVA", "rehat"] as const;
+export type KunciSapuanGlobal = (typeof KUNCI_SAPUAN_GLOBAL)[number];
+
+export const LABEL_SAPUAN_GLOBAL: Record<KunciSapuanGlobal, string> = {
+  langkahHA: "Langkah HA",
+  langkahVA: "Langkah VA",
+  rentangHA: "Rentang HA",
+  rentangVA: "Rentang VA",
+  rehat: "Rehat",
+};
+
+export type PermintaanSapuanGlobal = Partial<Record<KunciSapuanGlobal, unknown>>;
+
+export type RencanaSapuanGlobal = {
+  /** Hanya kunci yang diisi, persis seperti yang akan dikirim. */
+  dikirim: Partial<Record<KunciSapuanGlobal, string | number>>;
+  /** true = tidak ada yang diisi: tidak ada yang perlu dikirim. */
+  kosong: boolean;
+  /** Jumlah titik; hanya diketahui bila keempat sudut terisi. */
+  titik: number | null;
+  /** Batas bawah durasi per target, sama dengan uji sapuan (belum termasuk waktu ukur). */
+  minimalDetik: number | null;
+};
+
+export type HasilValidasiSapuanGlobal =
+  | { ok: true; rencana: RencanaSapuanGlobal }
+  | { ok: false; galat: string };
+
+const terisi = (v: unknown) => v !== undefined && v !== null && String(v).trim() !== "";
+
+/**
+ * Periksa setelan sapuan global SEBELUM dikirim. Batasnya sama dengan uji
+ * sapuan (§3.2): sudut > 0 dan ≤ 45°, rehat 0–10000 ms, maksimum 30 langkah per
+ * sisi. Pesan sudut meniru firmware ("sudut lebih dari 0 dan maksimum 45
+ * derajat") supaya galat dari sini dan dari alat terbaca sama.
+ *
+ * Isian kosong dilewati, bukan ditolak: kunci yang tidak dikirim tidak berubah
+ * di instrumen.
+ */
+export function validasiSapuanGlobal(p: PermintaanSapuanGlobal): HasilValidasiSapuanGlobal {
+  const dikirim: RencanaSapuanGlobal["dikirim"] = {};
+  const derajat: Partial<Record<KunciSapuanGlobal, number>> = {};
+
+  for (const k of ["langkahHA", "langkahVA", "rentangHA", "rentangVA"] as const) {
+    if (!terisi(p[k])) continue;
+    const n = uraiSudutSapuan(p[k]);
+    if (n === null) {
+      return { ok: false, galat: `${LABEL_SAPUAN_GLOBAL[k]}: bentuk d,m,s atau derajat desimal` };
+    }
+    if (n <= 0 || n > MAKS_SUDUT_SAPUAN_DERAJAT) {
+      return {
+        ok: false,
+        galat: `${LABEL_SAPUAN_GLOBAL[k]}: sudut lebih dari 0 dan maksimum ${MAKS_SUDUT_SAPUAN_DERAJAT} derajat`,
+      };
+    }
+    derajat[k] = n;
+    dikirim[k] = String(p[k]).trim();
+  }
+
+  if (terisi(p.rehat)) {
+    const r = Number(p.rehat);
+    if (!Number.isInteger(r) || r < RENTANG_REHAT_SAPUAN_MS.min || r > RENTANG_REHAT_SAPUAN_MS.maks) {
+      return {
+        ok: false,
+        galat: `Rehat: milidetik, ${RENTANG_REHAT_SAPUAN_MS.min} sampai ${RENTANG_REHAT_SAPUAN_MS.maks}`,
+      };
+    }
+    dikirim.rehat = r;
+  }
+
+  // Batas langkah per sisi hanya bisa dihitung per sumbu yang lengkap.
+  for (const [sumbu, langkah, rentang] of [
+    ["HA", "langkahHA", "rentangHA"],
+    ["VA", "langkahVA", "rentangVA"],
+  ] as const) {
+    const l = derajat[langkah];
+    const r = derajat[rentang];
+    if (l === undefined || r === undefined) continue;
+    const n = langkahPerSisi(r, l);
+    if (n > MAKS_LANGKAH_PER_SISI) {
+      return {
+        ok: false,
+        galat: `${sumbu}: rentang/langkah = ${n}, maksimum ${MAKS_LANGKAH_PER_SISI} per sisi — perbesar langkah atau perkecil rentang`,
+      };
+    }
+  }
+
+  const lengkap =
+    derajat.langkahHA !== undefined &&
+    derajat.langkahVA !== undefined &&
+    derajat.rentangHA !== undefined &&
+    derajat.rentangVA !== undefined;
+  const titik = lengkap
+    ? (2 * langkahPerSisi(derajat.rentangHA!, derajat.langkahHA!) + 1) *
+      (2 * langkahPerSisi(derajat.rentangVA!, derajat.langkahVA!) + 1)
+    : null;
+
+  return {
+    ok: true,
+    rencana: {
+      dikirim,
+      kosong: Object.keys(dikirim).length === 0,
+      titik,
+      minimalDetik:
+        titik === null
+          ? null
+          : Math.ceil((titik * (MS_PUTAR_PER_TITIK_CONTOH + Number(dikirim.rehat ?? 0))) / 1000),
+    },
+  };
+}
+
+/** Payload `set_rts` hanya dengan kunci yang diisi. */
+export function buatPayloadSapuanGlobal(
+  idLogger: string | number,
+  dikirim: RencanaSapuanGlobal["dikirim"]
+): Record<string, unknown> {
+  return { [`set_${idLogger}`]: { command: "set_rts", ...dikirim } };
+}
+
+/**
+ * Cari galat per kunci sapuan global di pesan tingkat atas, mis.
+ * `{"error_langkahHA":"..."}`. Mengembalikan null bila tidak ada.
+ *
+ * Galat ini datang TANPA array `updated`, jadi `bacaKonfirmasiConfig` tidak
+ * mengenalinya — tanpa pembaca ini langkahnya menunggu sampai habis waktu
+ * padahal alat sudah menolak.
+ */
+export function bacaGalatSapuanGlobal(data: unknown): string | null {
+  if (data === null || typeof data !== "object") return null;
+  const o = data as Record<string, unknown>;
+  const galat: string[] = [];
+  for (const k of KUNCI_SAPUAN_GLOBAL) {
+    const v = o[`error_${k}`];
+    if (v !== undefined && v !== null) galat.push(`${LABEL_SAPUAN_GLOBAL[k]}: ${String(v)}`);
+  }
+  return galat.length ? galat.join("; ") : null;
+}

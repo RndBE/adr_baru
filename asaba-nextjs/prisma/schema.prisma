@@ -121,6 +121,12 @@ model PrismaTarget {
   /// diperlakukan sama.
   jenis String @default("fs") @db.VarChar(2)
 
+  /// Rantai cara cari prisma di AutoTracking, dipisah "+": "as" (AutoSearch
+  /// bawaan), "ac" (sapuan custom), "man" (manual). "as+ac" = AutoSearch dulu,
+  /// gagal baru sapuan custom. Catatan sisi web — yang menyimpan firmware.
+  /// Lihat migrasi 018.
+  mode_cari String @default("as") @db.VarChar(16)
+
   @@unique([site, id_prisma], name: "uk_site_prisma")
   @@index([site, jenis])
   @@map("t_prisma")
@@ -450,6 +456,14 @@ model ConfigAdr {
   search_area_hor Float   @default(15) @db.Float
   search_area_ver Float   @default(15) @db.Float
   track_every     Int     @default(0)
+  /// Setelan sapuan custom GLOBAL — dipakai semua target bermode `ac`.
+  /// NULL = belum pernah dikirim dari aplikasi. Catatan "terakhir dikirim",
+  /// bukan bukti keadaan instrumen; lihat migrasi 019.
+  sapu_langkah_ha String? @db.VarChar(16)
+  sapu_langkah_va String? @db.VarChar(16)
+  sapu_rentang_ha String? @db.VarChar(16)
+  sapu_rentang_va String? @db.VarChar(16)
+  sapu_rehat      Int?
   /// Konfigurasi RTS bersifat per-site, bukan per-logger: satu unit RTS bisa
   /// dipakai di beberapa site dengan job name dan titik origin yang berbeda.
   ///

@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { publishMqtt, topikPerintah } from "@/lib/mqtt";
 import { getLoggerForSite } from "@/lib/sites";
+import { formatModeCari, uraiModeCari, validasiModeCari } from "@/lib/protokol-rts";
 
 /**
  * Tiga parameter yang selalu dibuat untuk setiap prisma baru.
@@ -50,7 +51,7 @@ export async function GET(request: NextRequest) {
     const registeredPrisma = await prisma.$queryRaw<Array<Record<string, unknown>>>`
       SELECT
         p.id, p.id_prisma, p.id_logger, p.nama_prisma, p.status_controller,
-        p.target_height, p.HA, p.VA, p.SlopDis, p.site, p.jenis,
+        p.target_height, p.HA, p.VA, p.SlopDis, p.site, p.jenis, p.mode_cari,
         tp.waktu, tp.N1, tp.E1, tp.Z1, tp.N0, tp.E0, tp.Z0, tp.status_get
       FROM t_prisma p
       LEFT JOIN temp_prisma tp
@@ -84,6 +85,7 @@ export async function GET(request: NextRequest) {
         // Slot kosong dibawa dengan bawaan yang sama dengan kolomnya, supaya
         // pilihan di modal tidak berangkat dari keadaan tak terpilih.
         jenis: "fs",
+        mode_cari: "as",
         registered: false,
       };
     });
@@ -122,6 +124,16 @@ export async function POST(request: NextRequest) {
     // Bawaan "fs": hampir semua prisma adalah titik pantau, backsight biasanya
     // hanya satu atau dua per site.
     const jenis = bacaJenis(body.jenis) ?? "fs";
+
+    // Cara cari: undefined = tidak diminta. Kolomnya jatuh ke bawaan 'as' dan
+    // `mode` TIDAK dikirim ke perangkat, supaya yang berlaku tetap bawaan
+    // firmware, bukan nilai yang kebetulan kita tulis.
+    const galatMode = body.mode_cari === undefined ? null : validasiModeCari(body.mode_cari);
+    if (galatMode) {
+      return NextResponse.json({ success: false, error: galatMode }, { status: 400 });
+    }
+    const modeCari =
+      body.mode_cari === undefined ? null : formatModeCari(uraiModeCari(body.mode_cari) ?? ["as"]);
 
     if (!slot_id || !nama_prisma) {
       return NextResponse.json(
@@ -180,8 +192,8 @@ export async function POST(request: NextRequest) {
       // sama lalu bertabrakan di primary key, dan hasil hitungannya juga
       // meleset begitu ada baris yang pernah dihapus.
       await tx.$executeRaw`
-        INSERT INTO t_prisma (id_logger, id_prisma, nama_prisma, status_controller, target_height, site, jenis)
-        VALUES (${id_logger}, ${id_prisma}, ${nama_prisma}, 'sensor9', ${target_height ?? 0}, ${site}, ${jenis})
+        INSERT INTO t_prisma (id_logger, id_prisma, nama_prisma, status_controller, target_height, site, jenis, mode_cari)
+        VALUES (${id_logger}, ${id_prisma}, ${nama_prisma}, 'sensor9', ${target_height ?? 0}, ${site}, ${jenis}, ${modeCari ?? "as"})
       `;
 
       // 2. INSERT ke temp_prisma
@@ -219,6 +231,7 @@ export async function POST(request: NextRequest) {
           targetHigh: String(target_height ?? "0"),
           HA: "0",
           VA: "0",
+          ...(modeCari !== null && { mode: modeCari }),
         },
       },
     };
@@ -256,6 +269,15 @@ export async function PUT(request: NextRequest) {
     // ditulis apa adanya ke kolom.
     const jenis = body.jenis === undefined ? undefined : bacaJenis(body.jenis);
 
+    // undefined = tidak diubah, dan `mode` tidak ikut dikirim: merekam ulang slot
+    // tanpa `mode` mempertahankan cara cari yang sudah tersimpan di firmware.
+    const galatMode = body.mode_cari === undefined ? null : validasiModeCari(body.mode_cari);
+    if (galatMode) {
+      return NextResponse.json({ success: false, error: galatMode }, { status: 400 });
+    }
+    const modeCari =
+      body.mode_cari === undefined ? null : formatModeCari(uraiModeCari(body.mode_cari) ?? ["as"]);
+
     if (!slot_id) {
       return NextResponse.json(
         { success: false, error: "slot_id wajib diisi" },
@@ -291,6 +313,7 @@ export async function PUT(request: NextRequest) {
     if (nama_prisma !== undefined) { updates.push("nama_prisma = ?"); nilai.push(nama_prisma); }
     if (target_height !== undefined) { updates.push("target_height = ?"); nilai.push(target_height); }
     if (jenis !== undefined && jenis !== null) { updates.push("jenis = ?"); nilai.push(jenis); }
+    if (modeCari !== null) { updates.push("mode_cari = ?"); nilai.push(modeCari); }
 
     if (updates.length > 0) {
       await prisma.$executeRawUnsafe(
@@ -309,6 +332,7 @@ export async function PUT(request: NextRequest) {
           slot: parseInt(String(slot_id)),
           name: nama_prisma ?? id_prisma,
           targetHigh: String(target_height ?? "0"),
+          ...(modeCari !== null && { mode: modeCari }),
         },
       },
     };

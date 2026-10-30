@@ -129,10 +129,13 @@ export function UjiSapuanModal({
 }) {
   const [slot, setSlot] = useState(keadaan.parameter?.slot?.toString() ?? keadaan.arahSlot?.toString() ?? slotList[0]?.toString() ?? "");
   const [jarak, setJarak] = useState(keadaan.parameter?.jarakM?.toString() ?? "");
-  const [step, setStep] = useState(keadaan.parameter?.step ?? PRESET[0].step);
-  const [hlebar, setHlebar] = useState(keadaan.parameter?.Hlebar ?? PRESET[0].Hlebar);
-  const [vlebar, setVlebar] = useState(keadaan.parameter?.Vlebar ?? PRESET[0].Vlebar);
-  const [rehat, setRehat] = useState(keadaan.parameter?.rehat ?? PRESET[0].rehat);
+  // Kosong sejak awal: angka bawaan di kotak mudah terkirim tanpa disadari,
+  // padahal ukuran sapuan yang cocok bergantung pada jarak target. Isian dari
+  // sapuan sebelumnya tetap dipulihkan saat modal dibuka lagi.
+  const [step, setStep] = useState(keadaan.parameter?.step ?? "");
+  const [hlebar, setHlebar] = useState(keadaan.parameter?.Hlebar ?? "");
+  const [vlebar, setVlebar] = useState(keadaan.parameter?.Vlebar ?? "");
+  const [rehat, setRehat] = useState(keadaan.parameter?.rehat ?? "");
   const [galat, setGalat] = useState("");
   const [tersalin, setTersalin] = useState(false);
   const [now, setNow] = useState(() => Date.now());
@@ -150,6 +153,7 @@ export function UjiSapuanModal({
     () => validasiSapuan({ step, Hlebar: hlebar, Vlebar: vlebar, rehat }),
     [step, hlebar, vlebar, rehat]
   );
+  const belumDiisi = step.trim() === "" && hlebar.trim() === "" && vlebar.trim() === "";
   const jarakM = Number(jarak) > 0 ? Number(jarak) : null;
   const nomorSlot = Number(slot);
 
@@ -369,25 +373,25 @@ export function UjiSapuanModal({
               <label htmlFor="us-step" className={LABEL}>
                 Step <span className="font-normal text-(--ink-3)">HA &amp; VA</span>
               </label>
-              <input id="us-step" value={step} onChange={(e) => setStep(e.target.value)} disabled={aktif} placeholder="0,30,00" className={cn(INPUT, "font-mono tabular-nums")} />
+              <input id="us-step" value={step} onChange={(e) => setStep(e.target.value)} disabled={aktif} placeholder="20" className={cn(INPUT, "font-mono tabular-nums")} />
             </div>
             <div>
               <label htmlFor="us-hlebar" className={LABEL}>
                 Hlebar <span className="font-normal text-(--ink-3)">± tiap sisi</span>
               </label>
-              <input id="us-hlebar" value={hlebar} onChange={(e) => setHlebar(e.target.value)} disabled={aktif} placeholder="1,00,00" className={cn(INPUT, "font-mono tabular-nums")} />
+              <input id="us-hlebar" value={hlebar} onChange={(e) => setHlebar(e.target.value)} disabled={aktif} placeholder="0,00,01" className={cn(INPUT, "font-mono tabular-nums")} />
             </div>
             <div>
               <label htmlFor="us-vlebar" className={LABEL}>
                 Vlebar <span className="font-normal text-(--ink-3)">± tiap sisi</span>
               </label>
-              <input id="us-vlebar" value={vlebar} onChange={(e) => setVlebar(e.target.value)} disabled={aktif} placeholder="1,00,00" className={cn(INPUT, "font-mono tabular-nums")} />
+              <input id="us-vlebar" value={vlebar} onChange={(e) => setVlebar(e.target.value)} disabled={aktif} placeholder="0,00,01" className={cn(INPUT, "font-mono tabular-nums")} />
             </div>
             <div>
               <label htmlFor="us-rehat" className={LABEL}>
                 Rehat <span className="font-normal text-(--ink-3)">ms, 0–10000</span>
               </label>
-              <input id="us-rehat" type="number" min={0} max={10000} value={rehat} onChange={(e) => setRehat(e.target.value)} disabled={aktif} placeholder="500" className={cn(INPUT, "font-mono tabular-nums")} />
+              <input id="us-rehat" type="number" min={0} max={10000} value={rehat} onChange={(e) => setRehat(e.target.value)} disabled={aktif} placeholder="5000" className={cn(INPUT, "font-mono tabular-nums")} />
             </div>
           </div>
           <p className="mt-2 text-[11.5px] leading-relaxed text-(--ink-3)">
@@ -422,6 +426,9 @@ export function UjiSapuanModal({
                   </p>
                 )}
               </>
+            ) : belumDiisi ? (
+              // Kotak masih kosong: belum ada yang salah, jadi bukan galat merah.
+              <p className="text-(--ink-3)">Isi step, Hlebar, dan Vlebar untuk melihat jumlah titik dan perkiraan durasi.</p>
             ) : (
               <p className="font-medium text-(--st-awas)">{cek.galat}</p>
             )}

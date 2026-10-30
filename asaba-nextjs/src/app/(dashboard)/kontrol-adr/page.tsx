@@ -46,6 +46,7 @@ import { ProcessSteps, type LangkahProses } from "@/components/kontrol-adr/proce
 import { mapStatus, type PrismaCard, type TempPrisma } from "@/components/kontrol-adr/prisma";
 import { UjiSapuanModal, useBatasJawabSapuan } from "@/components/kontrol-adr/uji-sapuan-modal";
 import {
+  formatDurasi,
   keadaanAwal as keadaanSapuanAwal,
   terapkanArah,
   terapkanBalasan as terapkanBalasanSapuan,
@@ -54,6 +55,11 @@ import {
 import { topikBalasan } from "@/lib/mqtt";
 import {
   bacaBalasanSapuan,
+  bacaGalatSapuanGlobal,
+  validasiSapuanGlobal,
+  KUNCI_SAPUAN_GLOBAL,
+  LABEL_SAPUAN_GLOBAL,
+  type KunciSapuanGlobal,
   klasifikasiTurningTarget,
   nilaiRts,
   nilaiRtsLama,
@@ -340,7 +346,7 @@ type KonfirmasiConfig = {
 type StatusLangkah = "antre" | "jalan" | "ok" | "gagal" | "dilewati" | "batal";
 
 type LangkahSimpan = {
-  kunci: "config" | "sapuan" | "jadwal";
+  kunci: "config" | "sapuan" | "custom" | "jadwal";
   label: string;
   status: StatusLangkah;
   pesan?: string;
@@ -355,6 +361,15 @@ type LangkahSimpan = {
  */
 const BATAS_ACK_CONFIG_MS = 20_000;
 const BATAS_ACK_SAPUAN_MS = 15_000;
+
+/** Setelan sapuan custom global; kotak kosong = tidak dikirim, tidak berubah di instrumen. */
+const SAPU_KOSONG: Record<KunciSapuanGlobal, string> = {
+  langkahHA: "",
+  langkahVA: "",
+  rentangHA: "",
+  rentangVA: "",
+  rehat: "",
+};
 
 /** Hasil satu langkah. `ok: false` menghentikan sisa antrean. */
 type HasilLangkah = { ok: boolean; pesan: string };
@@ -1076,12 +1091,16 @@ export default function KontrolAdrPage() {
           const konfCfg = bacaKonfirmasiConfig(data, configTerkirimRef.current);
           if (konfCfg.cocok) {
             console.log("[KontrolADR] konfirmasi config:", konfCfg.setRts, konfCfg.updated, konfCfg.beda);
-            setKonfirmasiConfig({
-              status: konfCfg.ok ? "ok" : "gagal",
-              updated: konfCfg.updated,
-              setRts: konfCfg.setRts,
-              beda: konfCfg.beda.length ? konfCfg.beda : undefined,
-            });
+            // Panel konfirmasi hanya untuk setelan job; ack sapuan custom punya
+            // baris sendiri di daftar langkah Simpan.
+            if (langkahAktifRef.current !== "custom") {
+              setKonfirmasiConfig({
+                status: konfCfg.ok ? "ok" : "gagal",
+                updated: konfCfg.updated,
+                setRts: konfCfg.setRts,
+                beda: konfCfg.beda.length ? konfCfg.beda : undefined,
+              });
+            }
             // Echo yang BERBEDA dari yang dikirim dihitung gagal walau logger
             // menjawab OK: setelan yang tersimpan bukan yang diminta, dan
             // melanjutkan antrean seolah berhasil akan menyembunyikan itu.
@@ -1097,6 +1116,15 @@ export default function KontrolAdrPage() {
                   ? { ok: true, pesan: `Logger menerima setelan (${konfCfg.setRts})` }
                   : { ok: false, pesan: konfCfg.setRts || "Logger menolak setelan" }
             );
+          }
+
+          // {"error_langkahHA":"…"} — penolakan per kunci sapuan custom. Datang
+          // TANPA array `updated`, jadi blok di atas tidak mengenalinya; tanpa
+          // ini langkahnya menunggu sampai habis waktu padahal alat sudah menolak.
+          const galatSapuCustom = bacaGalatSapuanGlobal(data);
+          if (galatSapuCustom && langkahAktifRef.current === "custom") {
+            console.log("[KontrolADR] galat sapuan custom:", galatSapuCustom);
+            ackConfigRef.current?.({ ok: false, pesan: `Instrumen menolak: ${galatSapuCustom}` });
           }
 
           // {"SearchArea":{"horizontal":15,"vertical":15}}
@@ -1275,6 +1303,13 @@ export default function KontrolAdrPage() {
   /** Nilai yang DIKEMBALIKAN instrumen — bukan isi kolom di atas. */
   const [searchArea, setSearchArea] = useState<BalasanSearchArea | null>(null);
 
+  /**
+   * Sapuan custom GLOBAL — langkah, rentang, dan rehat yang dipakai SEMUA target
+   * bermode Custom di AutoTracking. Kosong sejak awal dan tetap dilewati kalau
+   * tidak diisi: yang tidak dikirim tidak berubah di instrumen.
+   */
+  const [sapuCustom, setSapuCustom] = useState<Record<KunciSapuanGlobal, string>>(SAPU_KOSONG);
+
   // ── Alur Simpan berurutan ────────────────────────────────────────────────
   //
   // Ketiga kelompok dulu punya tombol Kirim sendiri-sendiri. Sekarang satu
@@ -1303,7 +1338,16 @@ export default function KontrolAdrPage() {
    */
   const dasarConfigRef = useRef<string | null>(null);
   const dasarSapuanRef = useRef<string | null>(null);
+  const dasarCustomRef = useRef<string | null>(null);
   const dasarJadwalRef = useRef<string | null>(null);
+
+  /**
+   * Langkah yang SEDANG menunggu ack konfigurasi. Sapuan custom dibalas dengan
+   * snapshot ack yang sama dengan config (`updated`, `set_rts`), jadi handler
+   * MQTT perlu tahu milik siapa balasan itu — kalau tidak, ack sapuan custom
+   * tampil di panel "konfirmasi config" seolah setelan job yang dikonfirmasi.
+   */
+  const langkahAktifRef = useRef<"config" | "custom" | null>(null);
 
   /**
    * Penampung `resolve` milik langkah yang sedang menunggu balasan MQTT.
@@ -1534,6 +1578,7 @@ export default function KontrolAdrPage() {
     // PowerOn mengembalikan rentang sapuannya ke sudut bawaan tanpa memberi
     // tahu siapa pun — jadi bukti dari sesi sebelumnya tidak berlaku lagi.
     dasarSapuanRef.current = null;
+    dasarCustomRef.current = null;
     dasarJadwalRef.current = null;
     dasarConfigRef.current = null;
 
@@ -1569,6 +1614,18 @@ export default function KontrolAdrPage() {
         if (d.search_area_hor != null) setSaHor(String(d.search_area_hor));
         if (d.search_area_ver != null) setSaVer(String(d.search_area_ver));
         if (d.track_every != null) setTrackEvery(String(d.track_every));
+
+        // Sapuan custom global: sama kedudukannya — catatan "terakhir dikirim",
+        // bukan bukti keadaan instrumen. NULL (belum pernah dikirim) jadi kotak
+        // kosong, bukan angka karangan. Dasarnya dibiarkan null seperti rentang
+        // sapuan di atas.
+        setSapuCustom({
+          langkahHA: String(d.sapu_langkah_ha ?? ""),
+          langkahVA: String(d.sapu_langkah_va ?? ""),
+          rentangHA: String(d.sapu_rentang_ha ?? ""),
+          rentangVA: String(d.sapu_rentang_va ?? ""),
+          rehat: String(d.sapu_rehat ?? ""),
+        });
 
         // Kelompok ini BOLEH dilewati kalau tidak diubah: sumber kebenarannya
         // database milik aplikasi ini sendiri, dan isinya dikirim ulang ke
@@ -1630,6 +1687,7 @@ export default function KontrolAdrPage() {
       autoSearch: String(rtsConfig.autoSearch),
     };
     setKonfirmasiConfig(null);
+    langkahAktifRef.current = "config";
 
     try {
       const res = await fetch("/api/config-adr", {
@@ -1701,7 +1759,40 @@ export default function KontrolAdrPage() {
     );
   };
 
-  // ── Langkah 3: jadwal AutoTracking, TANPA konfirmasi ─────────────────────
+  // ── Langkah 3: sapuan custom global, dikonfirmasi snapshot ack ───────────
+  //
+  // Setelan ini TERSIMPAN di instrumen dan dipakai semua target bermode Custom
+  // di siklus berikutnya. Dibalas dengan snapshot ack yang sama dengan setelan
+  // job, makanya menumpang `ackConfigRef` — aman karena antreannya berurutan,
+  // jadi hanya satu langkah yang menunggu pada satu waktu.
+  //
+  // `configTerkirimRef` DIKOSONGKAN dulu: ia masih memegang nilai setelan job
+  // dari langkah sebelumnya (atau dari Simpan yang lama bila langkah itu
+  // dilewati), dan membandingkannya dengan echo ack ini hanya menghasilkan
+  // selisih palsu.
+  const langkahCustom = async (): Promise<HasilLangkah> => {
+    configTerkirimRef.current = null;
+    langkahAktifRef.current = "custom";
+    try {
+      const res = await fetch("/api/kontrol/sapuan-global", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ site: selectedSite, ...sapuCustom }),
+      });
+      const json = await res.json();
+      if (!json.success) return { ok: false, pesan: json.error || "Gagal mengirim setelan sapuan custom" };
+    } catch (e: unknown) {
+      return { ok: false, pesan: e instanceof Error ? e.message : "Terjadi kesalahan jaringan" };
+    }
+
+    return tungguAck(
+      ackConfigRef,
+      BATAS_ACK_SAPUAN_MS,
+      "Tidak ada balasan dalam 15 detik. Perintahnya terkirim, tapi belum tentu diterima instrumen."
+    );
+  };
+
+  // ── Langkah 4: jadwal AutoTracking, TANPA konfirmasi ─────────────────────
   //
   // Perintah ini hanya dikenali firmware `_timeScheduled`; unit lain
   // mengabaikannya tanpa balasan apa pun. Tidak ada yang bisa ditunggu, jadi
@@ -1756,13 +1847,15 @@ export default function KontrolAdrPage() {
       validasiCycleTime(rtsConfig.cycleTime) ||
       validasiSearchArea(saHor, saVer) ||
       validasiTrackEvery(Number(trackEvery));
-    if (salah) {
-      setSimpanGalat(salah);
+    const cekCustom = validasiSapuanGlobal(sapuCustom);
+    if (salah || !cekCustom.ok) {
+      setSimpanGalat(salah || (!cekCustom.ok ? cekCustom.galat : ""));
       return;
     }
 
     const kiniConfig = JSON.stringify(rtsConfig);
     const kiniSapuan = `${Number(saHor)}x${Number(saVer)}`;
+    const kiniCustom = JSON.stringify(sapuCustom);
     const kiniJadwal = String(Number(trackEvery));
 
     const antre: LangkahSimpan[] = [
@@ -1775,6 +1868,17 @@ export default function KontrolAdrPage() {
         kunci: "sapuan",
         label: "Rentang sapuan",
         status: dasarSapuanRef.current === kiniSapuan ? "dilewati" : "antre",
+      },
+      {
+        kunci: "custom",
+        label: "Sapuan custom (langkah, rentang, rehat)",
+        // Kotak kosong semua = tidak ada yang dikirim, jadi dilewati; nilai di
+        // instrumen tetap yang tersimpan di sana. Selain itu sama dengan rentang
+        // sapuan: tidak dilewati sebelum ada bukti nilainya sudah terpasang.
+        status:
+          (cekCustom.ok && cekCustom.rencana.kosong) || dasarCustomRef.current === kiniCustom
+            ? "dilewati"
+            : "antre",
       },
       {
         kunci: "jadwal",
@@ -1796,11 +1900,13 @@ export default function KontrolAdrPage() {
     const jalankan: Record<LangkahSimpan["kunci"], () => Promise<HasilLangkah>> = {
       config: langkahConfig,
       sapuan: langkahSapuan,
+      custom: langkahCustom,
       jadwal: langkahJadwal,
     };
     const dasarBaru: Record<LangkahSimpan["kunci"], [React.RefObject<string | null>, string]> = {
       config: [dasarConfigRef, kiniConfig],
       sapuan: [dasarSapuanRef, kiniSapuan],
+      custom: [dasarCustomRef, kiniCustom],
       jadwal: [dasarJadwalRef, kiniJadwal],
     };
 
@@ -1828,6 +1934,7 @@ export default function KontrolAdrPage() {
       setSimpanJalan(false);
       ackConfigRef.current = null;
       ackSapuanRef.current = null;
+      langkahAktifRef.current = null;
     }
   };
 
@@ -2043,6 +2150,9 @@ export default function KontrolAdrPage() {
     "inline-flex h-9 cursor-pointer items-center justify-center gap-2 rounded-[9px] px-3.5 text-[13px] font-semibold outline-none transition-colors focus-visible:ring-2 focus-visible:ring-(--navy)/50 disabled:cursor-not-allowed disabled:opacity-50";
 
   /** Alasan sebuah perintah instrumen tidak bisa dijalankan, atau null. */
+  // Dihitung tiap render: murah, dan pratinjau di form harus mengikuti ketikan.
+  const cekSapuCustom = validasiSapuanGlobal(sapuCustom);
+
   const alasanTerkunci = !selectedSite
     ? "Pilih site dulu"
     : !isConnected
@@ -3025,8 +3135,77 @@ export default function KontrolAdrPage() {
                 </div>
               </fieldset>
 
+              {/* ── Sapuan custom (langkah, rentang, rehat) ─────────────────
+                  Langkah KETIGA di antrean Simpan. Satu set parameter yang
+                  dipakai SEMUA target bermode Custom di AutoTracking — belum
+                  ada parameter per target. Bukan Uji sapuan: itu sekali jalan
+                  dan tidak mengubah apa pun yang tersimpan di instrumen.
+
+                  Kotak yang dikosongkan tidak dikirim dan tidak mengubah nilai
+                  di instrumen. Kalau semuanya kosong, langkahnya dilewati. */}
+              <fieldset>
+                <legend className="mb-2 inline-flex items-center gap-2 font-display text-[12px] font-semibold uppercase tracking-[0.1em] text-(--ink-2)">
+                  <Crosshair className="size-3.5" /> Sapuan custom
+                </legend>
+                <div className="rounded-[10px] bg-(--paper) p-3.5">
+                  <p className="mb-3 text-[12px] leading-relaxed text-(--ink-2)">
+                    Dipakai semua target dengan cara cari <strong>Custom</strong>. Sudut dalam{" "}
+                    <span className="font-mono">d,m,s</span> atau derajat desimal, lebih dari 0 dan
+                    paling besar 45°. Rentang adalah jangkauan ke <strong>tiap sisi</strong> (±).
+                  </p>
+                  <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
+                    {KUNCI_SAPUAN_GLOBAL.map((k) => (
+                      <div key={k}>
+                        <label htmlFor={`cfg-sapu-${k}`} className={LABEL}>
+                          {LABEL_SAPUAN_GLOBAL[k]}
+                          {k.startsWith("rentang") && (
+                            <span className="font-normal text-(--ink-3)"> ± tiap sisi</span>
+                          )}
+                          {k === "rehat" && <span className="font-normal text-(--ink-3)"> ms</span>}
+                        </label>
+                        <input
+                          id={`cfg-sapu-${k}`}
+                          type={k === "rehat" ? "number" : "text"}
+                          min={k === "rehat" ? 0 : undefined}
+                          max={k === "rehat" ? 10000 : undefined}
+                          value={sapuCustom[k]}
+                          onChange={(e) => setSapuCustom((prev) => ({ ...prev, [k]: e.target.value }))}
+                          placeholder={k === "rehat" ? "0–10000" : "d,m,s"}
+                          className={cn(INPUT, "font-mono tabular-nums")}
+                        />
+                      </div>
+                    ))}
+                  </div>
+
+                  <div aria-live="polite" className="mt-3 text-[12.5px] leading-relaxed">
+                    {!cekSapuCustom.ok ? (
+                      <p className="font-medium text-(--st-awas)">{cekSapuCustom.galat}</p>
+                    ) : cekSapuCustom.rencana.titik !== null ? (
+                      <p className="text-(--ink-2)">
+                        <span className="font-mono font-semibold tabular-nums text-(--ink)">
+                          {cekSapuCustom.rencana.titik}
+                        </span>{" "}
+                        titik per target · minimal{" "}
+                        <span className="font-mono font-semibold tabular-nums text-(--ink)">
+                          {formatDurasi(cekSapuCustom.rencana.minimalDetik ?? 0)}
+                        </span>{" "}
+                        <span className="text-(--ink-3)">belum termasuk waktu ukur tiap titik</span>
+                      </p>
+                    ) : cekSapuCustom.rencana.kosong ? (
+                      <p className="text-(--ink-3)">
+                        Kosong: tidak dikirim, instrumen memakai nilai yang sudah tersimpan di dalamnya.
+                      </p>
+                    ) : (
+                      <p className="text-(--ink-3)">
+                        Isi keempat sudut untuk melihat jumlah titik dan perkiraan durasi.
+                      </p>
+                    )}
+                  </div>
+                </div>
+              </fieldset>
+
               {/* ── Jadwal AutoTracking (trackEvery) ────────────────────────
-                  Langkah KETIGA dan terakhir di antrean Simpan. Tempatnya di
+                  Langkah KEEMPAT dan terakhir di antrean Simpan. Tempatnya di
                   akhir bukan kebetulan: perintah ini HANYA ada di varian
                   firmware `_timeScheduled`, dan unit lain mengabaikannya tanpa
                   balasan apa pun. Tidak ada konfirmasi yang bisa ditunggu, jadi
