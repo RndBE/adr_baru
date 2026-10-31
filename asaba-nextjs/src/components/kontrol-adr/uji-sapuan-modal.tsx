@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState, type Dispatch, type SetStateAction } from "react";
-import { AlertTriangle, CheckCircle2, ClipboardCopy, Crosshair, Loader2, Send, Square, XCircle } from "lucide-react";
+import { AlertTriangle, ClipboardCopy, Crosshair, Loader2, Send, Square, XCircle } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Chip } from "@/components/monitoring/panel";
 import {
@@ -14,12 +14,10 @@ import {
 } from "@/components/monitoring/modal-shell";
 import { langkahPerSisi, validasiSapuan } from "@/lib/protokol-rts";
 import {
-  arahGagalTerkirim,
   BATAS_JAWAB_PERTAMA_MS,
   formatDurasi,
   formatMeter,
   lebarDiJarak,
-  mulaiArah,
   mulaiKirim,
   tutupTanpaJawaban,
   type EntriRiwayatUji,
@@ -154,21 +152,18 @@ function ringkasParameter(p: ParameterUji): string {
 
 export function UjiSapuanModal({
   site,
-  slotList,
   terkunci,
   keadaan,
   setKeadaan,
   onClose,
 }: {
   site: string;
-  slotList: number[];
   /** Alasan perintah gerak tidak boleh dikirim sekarang (logger putus, dll). */
   terkunci: string | null;
   keadaan: KeadaanSapuan;
   setKeadaan: Dispatch<SetStateAction<KeadaanSapuan>>;
   onClose: () => void;
 }) {
-  const [slot, setSlot] = useState(keadaan.parameter?.slot?.toString() ?? keadaan.arahSlot?.toString() ?? slotList[0]?.toString() ?? "");
   const [jarak, setJarak] = useState(keadaan.parameter?.jarakM?.toString() ?? "");
   // Kosong sejak awal: angka bawaan di kotak mudah terkirim tanpa disadari,
   // padahal ukuran sapuan yang cocok bergantung pada jarak target. Isian dari
@@ -206,24 +201,12 @@ export function UjiSapuanModal({
   }, [cek]);
   const belumDiisi = step.trim() === "" && hlebar.trim() === "" && vlebar.trim() === "";
   const jarakM = Number(jarak) > 0 ? Number(jarak) : null;
-  const nomorSlot = Number(slot);
-
-  const arahkan = async () => {
-    if (!Number.isInteger(nomorSlot) || nomorSlot < 1) return;
-    setGalat("");
-    setKeadaan((k) => mulaiArah(k, nomorSlot));
-    const { ok, data } = await kirimJson("/api/kontrol/go-to-target", { slot_id: nomorSlot, site });
-    if (!ok) {
-      setKeadaan((k) => arahGagalTerkirim(k));
-      setGalat(String(data.error ?? "Gagal mengirim perintah arahkan"));
-    }
-  };
 
   const mulai = async () => {
     if (!cek.ok) return;
     setGalat("");
     const parameter: ParameterUji = {
-      slot: Number.isInteger(nomorSlot) && nomorSlot > 0 ? nomorSlot : null,
+      slot: null,
       step: step.trim(),
       Hlebar: hlebar.trim(),
       Vlebar: vlebar.trim(),
@@ -260,7 +243,6 @@ export function UjiSapuanModal({
     const baris = keadaan.riwayat.map((e) =>
       [
         new Date(e.waktuMs).toLocaleString("id-ID"),
-        e.parameter.slot ?? "",
         e.parameter.jarakM ?? "",
         e.parameter.step,
         e.parameter.Hlebar,
@@ -273,7 +255,7 @@ export function UjiSapuanModal({
         e.durasiDetik,
       ].join("\t")
     );
-    const kepala = ["waktu", "slot", "jarak_m", "step", "Hlebar", "Vlebar", "rehat_ms", "titik", "hasil", "SDis", "titik_ke", "durasi_dtk"].join("\t");
+    const kepala = ["waktu", "jarak_m", "step", "Hlebar", "Vlebar", "rehat_ms", "titik", "hasil", "SDis", "titik_ke", "durasi_dtk"].join("\t");
     try {
       await navigator.clipboard.writeText([kepala, ...baris].join("\n"));
       setTersalin(true);
@@ -287,7 +269,7 @@ export function UjiSapuanModal({
     keadaan.dari && keadaan.dari > 0 ? Math.min(100, Math.round((keadaan.tembakan / keadaan.dari) * 100)) : 0;
   const lamaDetik = keadaan.mulaiMs === null ? 0 : Math.max(0, Math.round((now - keadaan.mulaiMs) / 1000));
 
-  const tombolMulaiMati = !!terkunci || aktif || !cek.ok || keadaan.arah === "menunggu";
+  const tombolMulaiMati = !!terkunci || aktif || !cek.ok;
 
   return (
     <ModalShell
@@ -310,7 +292,8 @@ export function UjiSapuanModal({
           <AlertTriangle className="mt-0.5 size-4 shrink-0 text-amber-600" />
           <p>
             Instrumen <strong>akan berputar</strong>. Titik tengah sapuan adalah arah bidik{" "}
-            <strong>saat sapuan dimulai</strong>, jadi arahkan ke perkiraan posisi prisma dulu.
+            <strong>saat sapuan dimulai</strong>, jadi arahkan instrumen ke perkiraan posisi prisma dulu
+            (secara manual, mis. lewat kontrol arah) sebelum menekan Mulai.
             Setelan tersimpan di instrumen tidak diubah.
           </p>
         </div>
@@ -321,82 +304,11 @@ export function UjiSapuanModal({
           </p>
         )}
 
-        {/* ── 1. Arahkan ── */}
-        <section aria-labelledby="us-arah" className="rounded-[12px] border border-(--line) p-3.5">
-          <h4 id="us-arah" className="mb-2.5 text-[13px] font-bold text-(--ink)">
-            1 · Arahkan ke target
-          </h4>
-          <div className="grid grid-cols-1 items-end gap-3 sm:grid-cols-[1fr_1fr_auto]">
-            <div>
-              <label htmlFor="us-slot" className={LABEL}>
-                Slot target
-              </label>
-              <select
-                id="us-slot"
-                value={slot}
-                onChange={(e) => setSlot(e.target.value)}
-                disabled={aktif}
-                className={cn(INPUT, "font-mono")}
-              >
-                {slotList.length === 0 && <option value="">Belum ada prisma</option>}
-                {slotList.map((s) => (
-                  <option key={s} value={s}>
-                    P{s}
-                  </option>
-                ))}
-              </select>
-            </div>
-            <div>
-              <label htmlFor="us-jarak" className={LABEL}>
-                Jarak perkiraan (m){" "}
-                <span className="font-normal text-(--ink-3)">catatan, tidak dikirim</span>
-              </label>
-              <input
-                id="us-jarak"
-                type="number"
-                min={0}
-                inputMode="numeric"
-                value={jarak}
-                onChange={(e) => setJarak(e.target.value)}
-                placeholder="1200"
-                className={cn(INPUT, "font-mono tabular-nums")}
-              />
-            </div>
-            <button
-              type="button"
-              onClick={arahkan}
-              disabled={!!terkunci || aktif || !slot || keadaan.arah === "menunggu"}
-              className={TOMBOL_SEKUNDER}
-            >
-              {keadaan.arah === "menunggu" ? <Loader2 className="size-4 animate-spin" /> : <Crosshair className="size-4" />}
-              Arahkan
-            </button>
-          </div>
-          {keadaan.arah !== "diam" && (
-            <p
-              role="status"
-              className={cn(
-                "mt-2.5 inline-flex items-center gap-1.5 text-[12px] font-medium",
-                keadaan.arah === "selesai" && "text-(--st-normal)",
-                keadaan.arah === "gagal" && "text-(--st-awas)",
-                keadaan.arah === "menunggu" && "text-(--ink-2)"
-              )}
-            >
-              {keadaan.arah === "menunggu" && <Loader2 className="size-3.5 animate-spin" />}
-              {keadaan.arah === "selesai" && <CheckCircle2 className="size-3.5" />}
-              {keadaan.arah === "gagal" && <XCircle className="size-3.5" />}
-              {keadaan.arah === "menunggu" && `Memutar ke P${keadaan.arahSlot}…`}
-              {keadaan.arah === "selesai" && `Instrumen sudah mengarah ke P${keadaan.arahSlot}`}
-              {keadaan.arah === "gagal" && `Gagal mengarah ke P${keadaan.arahSlot}`}
-            </p>
-          )}
-        </section>
-
         {/* ── 2. Parameter ── */}
         <section aria-labelledby="us-param" className="rounded-[12px] border border-(--line) p-3.5">
           <div className="mb-2.5 flex flex-wrap items-center justify-between gap-2">
             <h4 id="us-param" className="text-[13px] font-bold text-(--ink)">
-              2 · Parameter sapuan
+              1 · Parameter sapuan
             </h4>
             <div className="flex flex-wrap items-center gap-1.5">
               <span className="text-[11.5px] text-(--ink-3)">Contoh isian:</span>
@@ -430,7 +342,7 @@ export function UjiSapuanModal({
               <label htmlFor="us-step" className={LABEL}>
                 Step <span className="font-normal text-(--ink-3)">jarak antar titik</span>
               </label>
-              <input id="us-step" value={step} onChange={(e) => setStep(e.target.value)} disabled={aktif} placeholder="20" className={cn(INPUT, "font-mono tabular-nums")} />
+              <input id="us-step" value={step} onChange={(e) => setStep(e.target.value)} disabled={aktif} placeholder="0,00,20" className={cn(INPUT, "font-mono tabular-nums")} />
             </div>
             <div>
               <label htmlFor="us-hlebar" className={LABEL}>
@@ -456,6 +368,24 @@ export function UjiSapuanModal({
             <span className="font-mono">0,30,00</span> = 0,5°) atau derajat desimal; lebih dari 0 dan paling
             besar 45°. Rehat 0–10000 ms; kosong memakai setelan tersimpan di instrumen.
           </p>
+
+          <div className="mt-3 max-w-[260px]">
+            <label htmlFor="us-jarak" className={LABEL}>
+              Jarak perkiraan ke prisma (m){" "}
+              <span className="font-normal text-(--ink-3)">catatan, tidak dikirim</span>
+            </label>
+            <input
+              id="us-jarak"
+              type="number"
+              min={0}
+              inputMode="numeric"
+              value={jarak}
+              onChange={(e) => setJarak(e.target.value)}
+              disabled={aktif}
+              placeholder="1200"
+              className={cn(INPUT, "font-mono tabular-nums")}
+            />
+          </div>
 
           <div aria-live="polite" className="mt-3 rounded-[10px] bg-(--paper) px-3.5 py-2.5 text-[12.5px] leading-relaxed">
             {cek.ok ? (
@@ -514,9 +444,6 @@ export function UjiSapuanModal({
               <Square className="size-3.5 fill-current" />
               {keadaan.stopDiminta ? "Stop diminta…" : "Stop"}
             </button>
-            {keadaan.arah === "menunggu" && (
-              <span className="text-[12px] text-(--ink-3)">Menunggu instrumen selesai berputar ke target.</span>
-            )}
           </div>
 
           {galat && (
@@ -532,7 +459,7 @@ export function UjiSapuanModal({
           <section aria-labelledby="us-progres" className="rounded-[12px] border border-(--line) p-3.5">
             <div className="mb-2.5 flex flex-wrap items-center justify-between gap-2">
               <h4 id="us-progres" className="text-[13px] font-bold text-(--ink)">
-                3 · Progres
+                2 · Progres
               </h4>
               <div className="flex items-center gap-1.5">
                 <Chip
@@ -643,7 +570,7 @@ export function UjiSapuanModal({
           </section>
         )}
 
-        {/* ── 4. Riwayat ── */}
+        {/* ── 3. Riwayat ── */}
         <section aria-labelledby="us-riwayat" className="rounded-[12px] border border-(--line) p-3.5">
           <div className="mb-2.5 flex flex-wrap items-center justify-between gap-2">
             <h4 id="us-riwayat" className="text-[13px] font-bold text-(--ink)">
@@ -662,7 +589,6 @@ export function UjiSapuanModal({
                 <thead>
                   <tr className="text-(--ink-3)">
                     <th className="py-1 pr-3 font-medium">Jam</th>
-                    <th className="py-1 pr-3 font-medium">Slot</th>
                     <th className="py-1 pr-3 font-medium">Jarak</th>
                     <th className="py-1 pr-3 font-medium">Parameter</th>
                     <th className="py-1 pr-3 font-medium">Titik</th>
@@ -674,7 +600,6 @@ export function UjiSapuanModal({
                   {keadaan.riwayat.map((e) => (
                     <tr key={e.waktuMs} className="border-t border-(--line)">
                       <td className="py-1 pr-3">{new Date(e.waktuMs).toLocaleTimeString("id-ID")}</td>
-                      <td className="py-1 pr-3">{e.parameter.slot ? `P${e.parameter.slot}` : "–"}</td>
                       <td className="py-1 pr-3">{e.parameter.jarakM ? `${e.parameter.jarakM} m` : "–"}</td>
                       <td className="py-1 pr-3">{ringkasParameter(e.parameter)}</td>
                       <td className="py-1 pr-3">

@@ -3634,10 +3634,6 @@ export default function KontrolAdrPage() {
       {showUjiSapuan && (
         <UjiSapuanModal
           site={selectedSite}
-          slotList={prismaCards
-            .map((c) => Number(c.name.replace(/^P/, "")))
-            .filter((n) => Number.isInteger(n) && n > 0)
-            .sort((a, b) => a - b)}
           terkunci={alasanTerkunci ?? (isControlRunning ? "AutoTracking sedang berjalan, instrumen sibuk" : null)}
           keadaan={sapuan}
           setKeadaan={setSapuan}
