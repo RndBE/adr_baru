@@ -11,11 +11,13 @@
  */
 import { bacaManualHaVa } from "./protokol-rts";
 import {
+  FORMAT_STRING_HAVA,
   keadaanBacaAwal,
   kosongkanBacaan,
   mulaiBaca,
   terapkanBacaan,
   tutupBacaTanpaJawaban,
+  ubahSudutHaVa,
 } from "./baca-hava";
 
 let gagal = 0;
@@ -46,6 +48,17 @@ cek("tanpa jawaban → gagal dengan pesan", tutupBacaTanpaJawaban(menunggu, "x")
 cek("tutupBacaTanpaJawaban tidak menyentuh bacaan yang sudah ada", tutupBacaTanpaJawaban(ada, "x").fase, "ada");
 cek("kosongkanBacaan", kosongkanBacaan(ada).fase, "diam");
 cek("kosongkanBacaan saat diam tidak membuat objek baru", kosongkanBacaan(awal) === awal, true);
+
+// ── Desimal dan d,m,s ───────────────────────────────────────────────────────
+cek("format yang diasumsikan firmware sekarang", FORMAT_STRING_HAVA, "desimal-terpotong");
+cek("HA 208,21,20 → 208,2120°", ubahSudutHaVa("208,21,20"), { derajat: 208.212, desimalTeks: "208.2120", dmsTeks: "208° 12′ 43.2″" });
+cek("VA 098,93,37 (menit 93 = bukti desimal)", ubahSudutHaVa("098,93,37"), { derajat: 98.9337, desimalTeks: "98.9337", dmsTeks: "98° 56′ 01.3″" });
+cek("contoh dokumen 151,38,71", ubahSudutHaVa("151,38,71")?.desimalTeks, "151.3871");
+cek("nol di depan dan kosong", ubahSudutHaVa("000,00,00"), { derajat: 0, desimalTeks: "0.0000", dmsTeks: "0° 00′ 00.0″" });
+cek("tepi atas 10,9999° dibulatkan ke 0,1″ tanpa 60", ubahSudutHaVa("010,99,99")?.dmsTeks, "10° 59′ 59.6″");
+cek("bukan tiga kelompok → null", ubahSudutHaVa("208.2120"), null);
+cek("bukan angka → null", ubahSudutHaVa("a,b,c"), null);
+cek("kosong → null", ubahSudutHaVa(""), null);
 
 console.log(gagal === 0 ? "\nSEMUA LULUS" : `\n${gagal} GAGAL`);
 process.exit(gagal === 0 ? 0 : 1);

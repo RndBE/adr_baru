@@ -29,6 +29,7 @@ import {
   kosongkanBacaan,
   mulaiBaca,
   tutupBacaTanpaJawaban,
+  ubahSudutHaVa,
   type KeadaanBaca,
 } from "@/lib/baca-hava";
 
@@ -375,14 +376,38 @@ export function UjiSapuanModal({
           <div aria-live="polite" className="rounded-[10px] bg-(--paper) px-3.5 py-2.5 text-[12.5px] leading-relaxed">
             {baca.fase === "ada" ? (
               <>
-                <p className="font-mono font-semibold tabular-nums text-(--ink)">
-                  HA {baca.HA} · VA {baca.VA}
-                </p>
-                <p className="text-(--ink-3)">
-                  Apa adanya dari instrumen
-                  {baca.waktuMs !== null ? `, dibaca ${new Date(baca.waktuMs).toLocaleTimeString("id-ID")}` : ""}.
-                  Bentuknya mirip d,m,s tapi bukan (menit bisa lebih dari 59); cocokkan dengan layar instrumen
-                  kalau ragu.
+                <table className="w-full text-left text-[12px]">
+                  <thead>
+                    <tr className="text-(--ink-3)">
+                      <th className="py-1 pr-3 font-medium" />
+                      <th className="py-1 pr-3 font-medium">Desimal</th>
+                      <th className="py-1 pr-3 font-medium">d° m′ s″</th>
+                      <th className="py-1 font-medium">Dari instrumen</th>
+                    </tr>
+                  </thead>
+                  <tbody className="font-mono tabular-nums text-(--ink)">
+                    {([
+                      ["HA", baca.HA],
+                      ["VA", baca.VA],
+                    ] as const).map(([nama, mentah]) => {
+                      const u = ubahSudutHaVa(mentah);
+                      return (
+                        <tr key={nama} className="border-t border-(--line)">
+                          <td className="py-1 pr-3 font-sans font-semibold">{nama}</td>
+                          <td className="py-1 pr-3 font-semibold">{u ? `${u.desimalTeks}°` : "–"}</td>
+                          <td className="py-1 pr-3 font-semibold">{u ? u.dmsTeks : "–"}</td>
+                          <td className="py-1 text-(--ink-3)">{mentah}</td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+                <p className="mt-1.5 text-(--ink-3)">
+                  Dibaca
+                  {baca.waktuMs !== null ? ` ${new Date(baca.waktuMs).toLocaleTimeString("id-ID")}` : ""}. Kolom
+                  terakhir apa adanya dari instrumen: bentuknya tiga kelompok angka tapi sebenarnya derajat
+                  desimal yang dipotong (menit bisa lebih dari 59). Dua kolom pertama sudah diubah dari situ;
+                  cocokkan dengan layar instrumen kalau ragu.
                 </p>
               </>
             ) : membaca ? (
