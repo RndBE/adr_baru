@@ -32,6 +32,11 @@ export type ParameterUji = {
   /** Jarak ke target menurut operator, meter. Hanya catatan; tidak dikirim. */
   jarakM: number | null;
   titik: number;
+  /**
+   * Geseran titik tengah yang dipakai sebelum sapuan, derajat desimal (satuan
+   * jog; va positif = menunduk). Kosong = disapu dari arah bidik apa adanya.
+   */
+  geser?: { ha: number; va: number };
 };
 
 export type TitikTembak = {

@@ -1,7 +1,7 @@
 "use client";
 
-import { useEffect, useMemo, useState, type Dispatch, type SetStateAction } from "react";
-import { AlertTriangle, ClipboardCopy, Crosshair, Loader2, Send, Square, XCircle } from "lucide-react";
+import { useEffect, useMemo, useRef, useState, type Dispatch, type SetStateAction } from "react";
+import { AlertTriangle, ClipboardCopy, Compass, Crosshair, Loader2, Move, Send, Square, XCircle } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Chip } from "@/components/monitoring/panel";
 import {
@@ -24,6 +24,55 @@ import {
   type KeadaanSapuan,
   type ParameterUji,
 } from "@/lib/uji-sapuan";
+import {
+  BATAS_BACA_HAVA_MS,
+  BATAS_GESER_MS,
+  MAKS_JOG_DERAJAT,
+  cekGeseran,
+  kosongkanBacaan,
+  mulaiBaca,
+  mulaiGeser,
+  tutupBacaTanpaJawaban,
+  tutupGeserTanpaJawaban,
+  type KeadaanGeser,
+} from "@/lib/geser-sapuan";
+
+/**
+ * Batas tunggu balasan manual_hava dan jog. Dipasang di HALAMAN, bukan di
+ * modal, dengan alasan yang sama dengan useBatasJawabSapuan: tanpa batas ini
+ * satu balasan yang hilang membuat tombolnya menunggu selamanya.
+ */
+export function useBatasGeser(keadaan: KeadaanGeser, setKeadaan: Dispatch<SetStateAction<KeadaanGeser>>) {
+  const membaca = keadaan.baca.fase === "menunggu";
+  useEffect(() => {
+    if (!membaca) return;
+    const t = setTimeout(
+      () =>
+        setKeadaan((k) =>
+          tutupBacaTanpaJawaban(k, "Instrumen tidak menjawab pembacaan sudut. Periksa koneksi logger dan instrumen.")
+        ),
+      BATAS_BACA_HAVA_MS
+    );
+    return () => clearTimeout(t);
+  }, [membaca, setKeadaan]);
+
+  const menggeser = keadaan.geser.fase === "menunggu";
+  const mulaiMs = keadaan.geser.mulaiMs;
+  useEffect(() => {
+    if (!menggeser) return;
+    const t = setTimeout(
+      () =>
+        setKeadaan((k) =>
+          tutupGeserTanpaJawaban(
+            k,
+            `Instrumen tidak menyelesaikan geseran dalam ${BATAS_GESER_MS / 1000} detik. Baca sudutnya lagi sebelum melanjutkan.`
+          )
+        ),
+      BATAS_GESER_MS
+    );
+    return () => clearTimeout(t);
+  }, [menggeser, mulaiMs, setKeadaan]);
+}
 
 /**
  * Batas tunggu balasan pertama firmware. Dipasang di HALAMAN, bukan di modal:
@@ -146,8 +195,18 @@ function PratinjauKisi({ kolom, baris }: { kolom: number; baris: number }) {
   );
 }
 
+/** Derajat desimal dengan tanda dan koma desimal: 0,5 → "+0,5°". */
+function formatGeser(n: number): string {
+  const teks = String(Math.abs(Number(n.toFixed(6)))).replace(".", ",");
+  return `${n > 0 ? "+" : n < 0 ? "−" : ""}${teks}°`;
+}
+
+function ringkasGeser(g: NonNullable<ParameterUji["geser"]>): string {
+  return `HA ${formatGeser(g.ha)} VA ${formatGeser(g.va)}`;
+}
+
 function ringkasParameter(p: ParameterUji): string {
-  return `${p.step} ±${p.Hlebar}/${p.Vlebar}${p.rehat ? ` · ${p.rehat} ms` : ""}`;
+  return `${p.step} ±${p.Hlebar}/${p.Vlebar}${p.rehat ? ` · ${p.rehat} ms` : ""}${p.geser ? ` · geser ${ringkasGeser(p.geser)}` : ""}`;
 }
 
 export function UjiSapuanModal({
@@ -155,6 +214,8 @@ export function UjiSapuanModal({
   terkunci,
   keadaan,
   setKeadaan,
+  geser,
+  setGeser,
   onClose,
 }: {
   site: string;
@@ -162,6 +223,9 @@ export function UjiSapuanModal({
   terkunci: string | null;
   keadaan: KeadaanSapuan;
   setKeadaan: Dispatch<SetStateAction<KeadaanSapuan>>;
+  /** Bacaan HA/VA dan geseran titik tengah; dipegang halaman, seperti `keadaan`. */
+  geser: KeadaanGeser;
+  setGeser: Dispatch<SetStateAction<KeadaanGeser>>;
   onClose: () => void;
 }) {
   const [jarak, setJarak] = useState(keadaan.parameter?.jarakM?.toString() ?? "");
@@ -202,9 +266,31 @@ export function UjiSapuanModal({
   const belumDiisi = step.trim() === "" && hlebar.trim() === "" && vlebar.trim() === "";
   const jarakM = Number(jarak) > 0 ? Number(jarak) : null;
 
-  const mulai = async () => {
+  // ── Titik tengah: baca sudut sekarang, geser, baru sapu ────────────────────
+  //
+  // Kosong sejak awal dan tidak dipulihkan dari uji sebelumnya: geseran dari
+  // uji lalu mudah terkirim lagi tanpa disadari, dan artinya relatif terhadap
+  // arah bidik SAAT ITU, bukan sekarang.
+  const [dHA, setDHA] = useState("");
+  const [dVA, setDVA] = useState("");
+  const geseran = useMemo(() => cekGeseran(dHA, dVA), [dHA, dVA]);
+  const menggeser = geser.geser.fase === "menunggu";
+  const membaca = geser.baca.fase === "menunggu";
+  // Isian dikunci selama sapuan ATAU geseran berjalan: parameter yang terkirim
+  // sesudah geseran harus yang tampil saat tombol ditekan.
+  const sibuk = aktif || menggeser;
+
+  // Sapuan yang menunggu geseran selesai. Disimpan di modal, bukan di keadaan
+  // halaman: kalau modal ditutup selagi instrumen menggeser, sapuannya TIDAK
+  // boleh menyala sendiri belakangan tanpa ada yang melihat. Parameter ikut
+  // disimpan supaya yang terkirim persis yang tampil saat tombol ditekan.
+  const lanjutSapu = useRef<{ ha: number; va: number } | null>(null);
+
+  const mulai = async (geserDipakai?: { ha: number; va: number }) => {
     if (!cek.ok) return;
     setGalat("");
+    // Instrumen akan berputar menyapu: bacaan sudut yang terpampang tidak lagi berlaku.
+    setGeser(kosongkanBacaan);
     const parameter: ParameterUji = {
       slot: null,
       step: step.trim(),
@@ -213,6 +299,7 @@ export function UjiSapuanModal({
       rehat: rehat.trim(),
       jarakM,
       titik: cek.rencana.titik,
+      ...(geserDipakai ? { geser: geserDipakai } : {}),
     };
     setKeadaan((k) => mulaiKirim(k, parameter, Date.now()));
     const { ok, data } = await kirimJson("/api/kontrol/auto-search-custom", {
@@ -239,6 +326,70 @@ export function UjiSapuanModal({
     if (!ok) setGalat(String(data.error ?? "Gagal mengirim perintah stop"));
   };
 
+  const bacaHaVa = async () => {
+    setGalat("");
+    setGeser(mulaiBaca);
+    const { ok, data } = await kirimJson("/api/kontrol/manual-hava", { site });
+    const terkirim = (data.data as { mqtt_sent?: boolean } | undefined)?.mqtt_sent;
+    if (!ok || terkirim === false) {
+      setGeser((k) =>
+        tutupBacaTanpaJawaban(
+          k,
+          !ok ? String(data.error ?? "Gagal mengirim perintah baca sudut") : "Perintah tidak sampai ke broker MQTT."
+        )
+      );
+    }
+  };
+
+  const kirimGeser = async (ha: number, va: number) => {
+    setGalat("");
+    setGeser((k) => mulaiGeser(k, ha, va, Date.now()));
+    const { ok, data } = await kirimJson("/api/kontrol/jog", { site, ha, va });
+    const terkirim = (data.data as { mqtt_sent?: boolean } | undefined)?.mqtt_sent;
+    if (!ok || terkirim === false) {
+      lanjutSapu.current = null;
+      setGeser((k) =>
+        tutupGeserTanpaJawaban(
+          k,
+          !ok
+            ? String(data.error ?? "Gagal mengirim perintah geser")
+            : "Perintah tidak sampai ke broker MQTT. Instrumen tidak bergerak."
+        )
+      );
+    }
+  };
+
+  /** Tombol utama: kalau ada geseran, geser dulu dan sapu begitu instrumen berhenti. */
+  const klikMulai = async () => {
+    if (!cek.ok || !geseran.ok) return;
+    if (!geseran.ada) {
+      await mulai();
+      return;
+    }
+    lanjutSapu.current = { ha: geseran.ha, va: geseran.va };
+    await kirimGeser(geseran.ha, geseran.va);
+  };
+
+  // Sapuan menyusul HANYA pada peralihan menunggu → selesai yang teramati di
+  // sini. Modal yang baru dibuka sementara fase-nya sudah "selesai" dari uji
+  // lalu tidak memicu apa pun.
+  const mulaiTerbaru = useRef(mulai);
+  useEffect(() => {
+    mulaiTerbaru.current = mulai;
+  });
+  const faseGeser = geser.geser.fase;
+  const faseGeserLalu = useRef(faseGeser);
+  useEffect(() => {
+    const lalu = faseGeserLalu.current;
+    faseGeserLalu.current = faseGeser;
+    if (faseGeser === "gagal") lanjutSapu.current = null;
+    if (lalu === "menunggu" && faseGeser === "selesai" && lanjutSapu.current) {
+      const dipakai = lanjutSapu.current;
+      lanjutSapu.current = null;
+      void mulaiTerbaru.current(dipakai);
+    }
+  }, [faseGeser]);
+
   const salin = async () => {
     const baris = keadaan.riwayat.map((e) =>
       [
@@ -248,6 +399,7 @@ export function UjiSapuanModal({
         e.parameter.Hlebar,
         e.parameter.Vlebar,
         e.parameter.rehat,
+        e.parameter.geser ? ringkasGeser(e.parameter.geser) : "",
         e.parameter.titik,
         LABEL_HASIL[e.hasil],
         e.SDis ?? "",
@@ -255,7 +407,7 @@ export function UjiSapuanModal({
         e.durasiDetik,
       ].join("\t")
     );
-    const kepala = ["waktu", "jarak_m", "step", "Hlebar", "Vlebar", "rehat_ms", "titik", "hasil", "SDis", "titik_ke", "durasi_dtk"].join("\t");
+    const kepala = ["waktu", "jarak_m", "step", "Hlebar", "Vlebar", "rehat_ms", "geser", "titik", "hasil", "SDis", "titik_ke", "durasi_dtk"].join("\t");
     try {
       await navigator.clipboard.writeText([kepala, ...baris].join("\n"));
       setTersalin(true);
@@ -269,7 +421,7 @@ export function UjiSapuanModal({
     keadaan.dari && keadaan.dari > 0 ? Math.min(100, Math.round((keadaan.tembakan / keadaan.dari) * 100)) : 0;
   const lamaDetik = keadaan.mulaiMs === null ? 0 : Math.max(0, Math.round((now - keadaan.mulaiMs) / 1000));
 
-  const tombolMulaiMati = !!terkunci || aktif || !cek.ok;
+  const tombolMulaiMati = !!terkunci || sibuk || !cek.ok || !geseran.ok;
 
   return (
     <ModalShell
@@ -292,9 +444,9 @@ export function UjiSapuanModal({
           <AlertTriangle className="mt-0.5 size-4 shrink-0 text-amber-600" />
           <p>
             Instrumen <strong>akan berputar</strong>. Titik tengah sapuan adalah arah bidik{" "}
-            <strong>saat sapuan dimulai</strong>, jadi arahkan instrumen ke perkiraan posisi prisma dulu
-            (secara manual, mis. lewat kontrol arah) sebelum menekan Mulai.
-            Setelan tersimpan di instrumen tidak diubah.
+            <strong>saat sapuan dimulai</strong>. Arahkan instrumen ke perkiraan posisi prisma dulu, atau
+            baca sudutnya di bawah lalu isi geseran: instrumen digeser dari sudut sekarang, dan sapuan baru
+            jalan setelah instrumen berhenti. Setelan tersimpan di instrumen tidak diubah.
           </p>
         </div>
 
@@ -304,11 +456,124 @@ export function UjiSapuanModal({
           </p>
         )}
 
+        {/* ── 1. Titik tengah ── */}
+        <section aria-labelledby="us-tengah" className="rounded-[12px] border border-(--line) p-3.5">
+          <div className="mb-2.5 flex flex-wrap items-center justify-between gap-2">
+            <h4 id="us-tengah" className="text-[13px] font-bold text-(--ink)">
+              1 · Titik tengah sapuan <span className="font-normal text-(--ink-3)">opsional</span>
+            </h4>
+            <button
+              type="button"
+              onClick={bacaHaVa}
+              disabled={!!terkunci || sibuk || membaca}
+              className={cn(TOMBOL_SEKUNDER, "h-8 px-3 text-[12px]")}
+            >
+              {membaca ? <Loader2 className="size-3.5 animate-spin" /> : <Compass className="size-3.5" />}
+              Baca HA/VA sekarang
+            </button>
+          </div>
+
+          <div aria-live="polite" className="mb-3 rounded-[10px] bg-(--paper) px-3.5 py-2.5 text-[12.5px] leading-relaxed">
+            {geser.baca.fase === "ada" ? (
+              <>
+                <p className="font-mono font-semibold tabular-nums text-(--ink)">
+                  HA {geser.baca.HA} · VA {geser.baca.VA}
+                </p>
+                <p className="text-(--ink-3)">
+                  Apa adanya dari instrumen
+                  {geser.baca.waktuMs !== null ? `, dibaca ${new Date(geser.baca.waktuMs).toLocaleTimeString("id-ID")}` : ""}.
+                  Bentuknya mirip d,m,s tapi bukan; cocokkan dengan layar instrumen kalau ragu. Angka ini tidak
+                  dipakai menghitung geseran: instrumen menambahkan selisih ke sudut mentahnya sendiri.
+                </p>
+              </>
+            ) : membaca ? (
+              <p className="text-(--ink-2)">Membaca sudut instrumen…</p>
+            ) : geser.baca.fase === "gagal" ? (
+              <p className="font-medium text-(--st-awas)">{geser.baca.pesan}</p>
+            ) : (
+              <p className="text-(--ink-3)">
+                Belum dibaca. Pembacaan tidak menggerakkan instrumen, dan dikosongkan begitu instrumen bergerak.
+              </p>
+            )}
+          </div>
+
+          <div className="grid grid-cols-2 gap-3 sm:max-w-[420px]">
+            <div>
+              <label htmlFor="us-dha" className={LABEL}>
+                Geser HA <span className="font-normal text-(--ink-3)">+ kanan, − kiri</span>
+              </label>
+              <input id="us-dha" value={dHA} onChange={(e) => setDHA(e.target.value)} disabled={sibuk} placeholder="0,5 atau 0,30,00" className={cn(INPUT, "font-mono tabular-nums")} />
+            </div>
+            <div>
+              <label htmlFor="us-dva" className={LABEL}>
+                Geser VA <span className="font-normal text-(--ink-3)">+ menunduk, − mendongak</span>
+              </label>
+              <input id="us-dva" value={dVA} onChange={(e) => setDVA(e.target.value)} disabled={sibuk} placeholder="-0,01" className={cn(INPUT, "font-mono tabular-nums")} />
+            </div>
+          </div>
+          <p className="mt-2 text-[11.5px] leading-relaxed text-(--ink-3)">
+            Derajat desimal (<span className="font-mono">0,5</span>) atau d,m,s (
+            <span className="font-mono">0,30,00</span>); minus untuk arah sebaliknya. Paling besar ±
+            {MAKS_JOG_DERAJAT}° sekali geser. VA adalah sudut zenit (90° = mendatar) dan teropong hanya bisa dipakai
+            sekitar VA 30°–150°; di luar itu instrumen menolak diam-diam. Kosongkan keduanya untuk menyapu dari arah
+            bidik sekarang.
+          </p>
+
+          {!geseran.ok && (dHA.trim() !== "" || dVA.trim() !== "") && (
+            <p role="alert" className="mt-2 text-[12px] font-medium text-(--st-awas)">
+              {geseran.galat}
+            </p>
+          )}
+
+          <div aria-live="polite" className="mt-3 empty:hidden">
+            {menggeser && (
+              <p className="inline-flex items-center gap-1.5 text-[12.5px] text-(--ink-2)">
+                <Loader2 className="size-3.5 animate-spin" />
+                Menggeser instrumen ({geser.geser.ha !== null ? ringkasGeser({ ha: geser.geser.ha, va: geser.geser.va ?? 0 }) : ""})…
+              </p>
+            )}
+            {geser.geser.fase === "selesai" && (
+              <div className="rounded-[10px] border border-emerald-200 bg-emerald-50 px-3.5 py-2.5 text-[12.5px] leading-relaxed text-emerald-900">
+                <p className="font-semibold">Instrumen selesai digeser.</p>
+                {geser.geser.keHA !== undefined && (
+                  <p className="mt-0.5 font-mono tabular-nums">
+                    dari HA {geser.geser.dariHA ?? "–"} · VA {geser.geser.dariVA ?? "–"}
+                    <br />
+                    ke HA {geser.geser.keHA} · VA {geser.geser.keVA ?? "–"}
+                  </p>
+                )}
+                <p className="mt-0.5 text-emerald-800/80">
+                  Dari dalam derajat desimal, ke dalam d,m,s — dua satuan dalam satu balasan, jangan dibandingkan langsung.
+                  Klik Baca HA/VA untuk sudut yang sekarang.
+                </p>
+              </div>
+            )}
+            {geser.geser.fase === "gagal" && (
+              <p role="alert" className="inline-flex items-center gap-1.5 text-[12.5px] font-medium text-(--st-awas)">
+                <XCircle className="size-3.5 shrink-0" />
+                {geser.geser.pesan} Sapuan tidak dikirim.
+              </p>
+            )}
+          </div>
+
+          <div className="mt-3">
+            <button
+              type="button"
+              onClick={() => geseran.ok && geseran.ada && void kirimGeser(geseran.ha, geseran.va)}
+              disabled={!!terkunci || sibuk || !geseran.ok || !geseran.ada}
+              className={cn(TOMBOL_SEKUNDER, "h-8 px-3 text-[12px]")}
+            >
+              {menggeser ? <Loader2 className="size-3.5 animate-spin" /> : <Move className="size-3.5" />}
+              Geser saja, tanpa sapuan
+            </button>
+          </div>
+        </section>
+
         {/* ── 2. Parameter ── */}
         <section aria-labelledby="us-param" className="rounded-[12px] border border-(--line) p-3.5">
           <div className="mb-2.5 flex flex-wrap items-center justify-between gap-2">
             <h4 id="us-param" className="text-[13px] font-bold text-(--ink)">
-              1 · Parameter sapuan
+              2 · Parameter sapuan
             </h4>
             <div className="flex flex-wrap items-center gap-1.5">
               <span className="text-[11.5px] text-(--ink-3)">Contoh isian:</span>
@@ -316,7 +581,7 @@ export function UjiSapuanModal({
                 <button
                   key={p.nama}
                   type="button"
-                  disabled={aktif}
+                  disabled={sibuk}
                   onClick={() => {
                     setStep(p.step);
                     setHlebar(p.Hlebar);
@@ -342,25 +607,25 @@ export function UjiSapuanModal({
               <label htmlFor="us-step" className={LABEL}>
                 Step <span className="font-normal text-(--ink-3)">jarak antar titik</span>
               </label>
-              <input id="us-step" value={step} onChange={(e) => setStep(e.target.value)} disabled={aktif} placeholder="0,00,20" className={cn(INPUT, "font-mono tabular-nums")} />
+              <input id="us-step" value={step} onChange={(e) => setStep(e.target.value)} disabled={sibuk} placeholder="0,00,20" className={cn(INPUT, "font-mono tabular-nums")} />
             </div>
             <div>
               <label htmlFor="us-hlebar" className={LABEL}>
                 Hlebar <span className="font-normal text-(--ink-3)">kiri-kanan, ± tiap sisi</span>
               </label>
-              <input id="us-hlebar" value={hlebar} onChange={(e) => setHlebar(e.target.value)} disabled={aktif} placeholder="0,00,01" className={cn(INPUT, "font-mono tabular-nums")} />
+              <input id="us-hlebar" value={hlebar} onChange={(e) => setHlebar(e.target.value)} disabled={sibuk} placeholder="0,00,01" className={cn(INPUT, "font-mono tabular-nums")} />
             </div>
             <div>
               <label htmlFor="us-vlebar" className={LABEL}>
                 Vlebar <span className="font-normal text-(--ink-3)">atas-bawah, ± tiap sisi</span>
               </label>
-              <input id="us-vlebar" value={vlebar} onChange={(e) => setVlebar(e.target.value)} disabled={aktif} placeholder="0,00,01" className={cn(INPUT, "font-mono tabular-nums")} />
+              <input id="us-vlebar" value={vlebar} onChange={(e) => setVlebar(e.target.value)} disabled={sibuk} placeholder="0,00,01" className={cn(INPUT, "font-mono tabular-nums")} />
             </div>
             <div>
               <label htmlFor="us-rehat" className={LABEL}>
                 Rehat <span className="font-normal text-(--ink-3)">jeda tiap titik, ms</span>
               </label>
-              <input id="us-rehat" type="number" min={0} max={10000} value={rehat} onChange={(e) => setRehat(e.target.value)} disabled={aktif} placeholder="5000" className={cn(INPUT, "font-mono tabular-nums")} />
+              <input id="us-rehat" type="number" min={0} max={10000} value={rehat} onChange={(e) => setRehat(e.target.value)} disabled={sibuk} placeholder="5000" className={cn(INPUT, "font-mono tabular-nums")} />
             </div>
           </div>
           <p className="mt-2 text-[11.5px] leading-relaxed text-(--ink-3)">
@@ -381,7 +646,7 @@ export function UjiSapuanModal({
               inputMode="numeric"
               value={jarak}
               onChange={(e) => setJarak(e.target.value)}
-              disabled={aktif}
+              disabled={sibuk}
               placeholder="1200"
               className={cn(INPUT, "font-mono tabular-nums")}
             />
@@ -436,9 +701,10 @@ export function UjiSapuanModal({
           </div>
 
           <div className="mt-3 flex flex-wrap items-center gap-2">
-            <button type="button" onClick={mulai} disabled={tombolMulaiMati} className={TOMBOL_UTAMA}>
-              {keadaan.fase === "mengirim" ? <Loader2 className="size-4 animate-spin" /> : <Send className="size-4" />}
-              Mulai sapuan{cek.ok ? ` (${cek.rencana.titik} titik)` : ""}
+            <button type="button" onClick={klikMulai} disabled={tombolMulaiMati} className={TOMBOL_UTAMA}>
+              {keadaan.fase === "mengirim" || menggeser ? <Loader2 className="size-4 animate-spin" /> : <Send className="size-4" />}
+              {geseran.ok && geseran.ada ? "Geser lalu mulai sapuan" : "Mulai sapuan"}
+              {cek.ok ? ` (${cek.rencana.titik} titik)` : ""}
             </button>
             <button type="button" onClick={stop} disabled={!aktif || keadaan.stopDiminta} className={TOMBOL_BAHAYA}>
               <Square className="size-3.5 fill-current" />
@@ -459,7 +725,7 @@ export function UjiSapuanModal({
           <section aria-labelledby="us-progres" className="rounded-[12px] border border-(--line) p-3.5">
             <div className="mb-2.5 flex flex-wrap items-center justify-between gap-2">
               <h4 id="us-progres" className="text-[13px] font-bold text-(--ink)">
-                2 · Progres
+                3 · Progres
               </h4>
               <div className="flex items-center gap-1.5">
                 <Chip
