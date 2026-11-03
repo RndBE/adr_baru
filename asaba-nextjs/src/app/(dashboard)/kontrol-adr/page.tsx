@@ -44,13 +44,12 @@ import { AttitudeDial } from "@/components/kontrol-adr/attitude-dial";
 import { PrismaGrid } from "@/components/kontrol-adr/prisma-grid";
 import { ProcessSteps, type LangkahProses } from "@/components/kontrol-adr/process-steps";
 import { mapStatus, type PrismaCard, type TempPrisma } from "@/components/kontrol-adr/prisma";
-import { UjiSapuanModal, useBatasGeser, useBatasJawabSapuan } from "@/components/kontrol-adr/uji-sapuan-modal";
+import { UjiSapuanModal, useBatasBaca, useBatasJawabSapuan } from "@/components/kontrol-adr/uji-sapuan-modal";
 import {
-  keadaanGeserAwal,
+  keadaanBacaAwal,
   terapkanBacaan as terapkanBacaanHaVa,
-  terapkanJog as terapkanJogSapuan,
-  type KeadaanGeser,
-} from "@/lib/geser-sapuan";
+  type KeadaanBaca,
+} from "@/lib/baca-hava";
 import {
   formatDurasi,
   keadaanAwal as keadaanSapuanAwal,
@@ -60,7 +59,6 @@ import {
 } from "@/lib/uji-sapuan";
 import { topikBalasan } from "@/lib/mqtt";
 import {
-  bacaBalasanJog,
   bacaBalasanSapuan,
   bacaManualHaVa,
   bacaGalatSapuanGlobal,
@@ -563,10 +561,10 @@ export default function KontrolAdrPage() {
   const [showUjiSapuan, setShowUjiSapuan] = useState(false);
   const [sapuan, setSapuan] = useState<KeadaanSapuan>(keadaanSapuanAwal);
   useBatasJawabSapuan(sapuan, setSapuan);
-  // Bacaan HA/VA dan geseran titik tengah untuk panel yang sama; alasan dipegang
-  // di sini sama dengan `sapuan`.
-  const [geserSapuan, setGeserSapuan] = useState<KeadaanGeser>(keadaanGeserAwal);
-  useBatasGeser(geserSapuan, setGeserSapuan);
+  // Bacaan HA/VA untuk panel yang sama; dipegang di sini dengan alasan yang
+  // sama dengan `sapuan`.
+  const [bacaSapuan, setBacaSapuan] = useState<KeadaanBaca>(keadaanBacaAwal);
+  useBatasBaca(bacaSapuan, setBacaSapuan);
 
   // ── Rekaman SD (replay) ───────────────────────────────────────────────────
   const [showReplay, setShowReplay] = useState(false);
@@ -1164,16 +1162,12 @@ export default function KontrolAdrPage() {
             console.log("[KontrolADR] autosearch:", bSapuan.jenis, bSapuan.nilai, data.autosearch);
             setSapuan((prev) => terapkanBalasanSapuan(prev, bSapuan, Date.now()));
           }
-          // `ManualHAVA` dan `Jog` hanya berarti bagi panel uji sapuan saat ia
-          // sendiri yang menunggunya (terapkan* mengabaikan yang lain): halaman
+          // `ManualHAVA` hanya berarti bagi panel uji sapuan saat ia sendiri
+          // yang menunggunya (terapkanBacaan mengabaikan yang lain): halaman
           // lain memicu perintah yang sama dan menjawab di topik ini juga.
           const bHaVa = bacaManualHaVa(data.ManualHAVA);
           if (bHaVa.ada) {
-            setGeserSapuan((prev) => terapkanBacaanHaVa(prev, bHaVa, Date.now()));
-          }
-          const bJog = bacaBalasanJog(data.Jog);
-          if (bJog.jenis !== "bukan") {
-            setGeserSapuan((prev) => terapkanJogSapuan(prev, bJog));
+            setBacaSapuan((prev) => terapkanBacaanHaVa(prev, bHaVa, Date.now()));
           }
           // `TurningTarget` hanya berarti bagi panel uji sapuan saat ia sendiri
           // yang menunggu arah (terapkanArah mengabaikan yang lain).
@@ -2222,7 +2216,7 @@ export default function KontrolAdrPage() {
                       setSapuan(keadaanSapuanAwal());
                       // Sudut yang dibaca dari instrumen site lama tidak boleh
                       // tampil di bawah site baru.
-                      setGeserSapuan(keadaanGeserAwal());
+                      setBacaSapuan(keadaanBacaAwal());
                     }
                   }}
                   className={cn(
@@ -3665,8 +3659,8 @@ export default function KontrolAdrPage() {
           terkunci={alasanTerkunci ?? (isControlRunning ? "AutoTracking sedang berjalan, instrumen sibuk" : null)}
           keadaan={sapuan}
           setKeadaan={setSapuan}
-          geser={geserSapuan}
-          setGeser={setGeserSapuan}
+          baca={bacaSapuan}
+          setBaca={setBacaSapuan}
           onClose={() => setShowUjiSapuan(false)}
         />
       )}

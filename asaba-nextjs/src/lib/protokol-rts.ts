@@ -1223,9 +1223,31 @@ export function validasiSapuan(p: PermintaanSapuan): HasilValidasiSapuan {
 }
 
 /**
+ * Sudut sapuan sebagai teks derajat desimal bertitik, mis. "0,30,00" → "0.5".
+ *
+ * Operator boleh mengisi d,m,s, tetapi yang DIKIRIM selalu desimal: firmware
+ * sudah terbukti salah menafsirkan sudut desimal-vs-d.mmss di perintah jog
+ * (docs/bug-firmware-jog-sudut-desimal-dibaca-dmmss.md), jadi jalur d,m,s
+ * sapuan tidak dipercaya sampai dicek. Desimal bertitik tidak ambigu.
+ *
+ * Sepuluh angka di belakang titik, nol di ujung dibuang. Menit dan detik
+ * hampir selalu desimal berulang (0,10,00 = 0,1666…°), dan pembulatan kasar
+ * akan menggeser hasil bagi lebar/step di bawah bilangan bulat: 0,5 / 0,1667
+ * = 2,9994 → 2 langkah, bukan 3. Dengan sepuluh angka selisihnya 1e-10, di
+ * bawah toleransi yang dipakai aplikasi ini (TOLERANSI_BAGI).
+ *
+ * Teks yang tidak bisa diurai dikembalikan apa adanya; validasiSapuan sudah
+ * menolaknya sebelum sampai sini.
+ */
+export function sudutSapuanKeDesimalTeks(v: unknown): string {
+  const derajat = uraiSudutSapuan(v);
+  if (derajat === null) return String(v).trim();
+  return derajat.toFixed(10).replace(/\.?0+$/, "");
+}
+
+/**
  * Susun payload MQTT untuk uji sapuan. `step`/`Hlebar`/`Vlebar` dikirim sebagai
- * teks apa adanya (dipangkas) — firmware yang mengurai d,m,s maupun desimal,
- * dan mengonversinya di sini hanya menambah satu tempat salah bulat.
+ * derajat desimal (lihat sudutSapuanKeDesimalTeks), apa pun bentuk isiannya.
  */
 export function buatPayloadSapuan(
   idLogger: string | number,
@@ -1238,9 +1260,9 @@ export function buatPayloadSapuan(
       : {
           command: "autosearch",
           jenis: "custom",
-          step: String(p.step).trim(),
-          Hlebar: String(p.Hlebar).trim(),
-          Vlebar: String(p.Vlebar).trim(),
+          step: sudutSapuanKeDesimalTeks(p.step),
+          Hlebar: sudutSapuanKeDesimalTeks(p.Hlebar),
+          Vlebar: sudutSapuanKeDesimalTeks(p.Vlebar),
         };
   if (aksi === "mulai" && p.rehat !== undefined && p.rehat !== null && p.rehat !== "") {
     isi.rehat = Number(p.rehat);
