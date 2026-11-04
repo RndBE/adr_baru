@@ -1298,6 +1298,18 @@ export default function KontrolAdrPage() {
   // (state configId dihapus: PUT /api/config-adr sekarang dikunci berdasarkan
   //  `site`, bukan id baris, jadi id-nya tidak perlu disimpan di klien.)
   const [configLoading, setConfigLoading] = useState(false);
+  /**
+   * Isi RTS Config hanya dibaca saat operator menekan Sinkronkan, bukan sendiri
+   * saat modal dibuka. Sebelumnya modal terbuka dengan isian lama lalu berganti
+   * begitu fetch-nya selesai, dan isian yang sudah mulai diketik bisa tertimpa
+   * hasil fetch yang datang belakangan. `status` bukan "ok" berarti form belum
+   * boleh dibaca maupun disimpan.
+   */
+  const [configSinkron, setConfigSinkron] = useState<{
+    status: "belum" | "ok" | "gagal";
+    waktuMs: number | null;
+    pesan: string;
+  }>({ status: "belum", waktuMs: null, pesan: "" });
   const [konfirmasiConfig, setKonfirmasiConfig] = useState<KonfirmasiConfig | null>(null);
   /**
    * Nilai yang BARU SAJA dikirim, disimpan di ref supaya bisa dibaca handler
@@ -1579,8 +1591,8 @@ export default function KontrolAdrPage() {
     }
   };
 
-  // Fetch config saat modal dibuka
-  const openRtsConfig = async () => {
+  // Membuka modal TIDAK membaca apa pun; pembacaannya lewat sinkronConfig().
+  const openRtsConfig = () => {
     setShowRtsConfig(true);
     // Konfirmasi dan progres dari sesi simpan sebelumnya dibersihkan. Kalau
     // dibiarkan, modal terbuka dengan centang hijau untuk setelan yang belum
@@ -1589,11 +1601,29 @@ export default function KontrolAdrPage() {
     setSearchArea(null);
     setLangkahSimpan(null);
     setSimpanGalat("");
+    setConfigSinkron({ status: "belum", waktuMs: null, pesan: "" });
 
     // Rentang sapuan dan jadwal kembali dianggap BELUM DIKETAHUI tiap kali
     // modal dibuka. Instrumen bisa saja dimatikan di antara dua kali buka, dan
     // PowerOn mengembalikan rentang sapuannya ke sudut bawaan tanpa memberi
     // tahu siapa pun — jadi bukti dari sesi sebelumnya tidak berlaku lagi.
+    dasarSapuanRef.current = null;
+    dasarCustomRef.current = null;
+    dasarJadwalRef.current = null;
+    dasarConfigRef.current = null;
+  };
+
+  /**
+   * Baca setelan terakhir dari database dan isikan SEMUA kolom sekaligus.
+   * Satu-satunya jalan isian modal berubah selain diketik operator.
+   */
+  const sinkronConfig = async () => {
+    setKonfirmasiConfig(null);
+    setSearchArea(null);
+    setLangkahSimpan(null);
+    setSimpanGalat("");
+    // Sama dengan saat membuka: membaca ulang tidak membuktikan apa pun
+    // tentang keadaan instrumen.
     dasarSapuanRef.current = null;
     dasarCustomRef.current = null;
     dasarJadwalRef.current = null;
@@ -1649,9 +1679,30 @@ export default function KontrolAdrPage() {
         // instrumen tiap kali alat menyala. Beda dari dua kelompok lain, yang
         // tidak punya jaminan seperti itu.
         dasarConfigRef.current = JSON.stringify(dimuat);
+        setConfigSinkron({ status: "ok", waktuMs: Date.now(), pesan: "" });
+      } else if (json.success) {
+        // Site belum punya setelan tersimpan: form dikosongkan, bukan dibiarkan
+        // memuat sisa site sebelumnya, lalu operator mengisi dan menyimpan.
+        setRtsConfig({
+          jobName: "", prismaConst: "", tsHigh: "", coordX: "", coordY: "", coordZ: "",
+          stepRecord: "", retries: "", cycleTime: "", autoSearch: true,
+        });
+        setSapuCustom(SAPU_KOSONG);
+        setConfigSinkron({
+          status: "ok",
+          waktuMs: Date.now(),
+          pesan: "Site ini belum punya setelan tersimpan. Isi kolomnya, lalu Simpan.",
+        });
+      } else {
+        setConfigSinkron({
+          status: "gagal",
+          waktuMs: null,
+          pesan: String(json.error ?? "Gagal membaca setelan"),
+        });
       }
     } catch (err) {
       console.error("Failed to fetch config:", err);
+      setConfigSinkron({ status: "gagal", waktuMs: null, pesan: "Tidak bisa menghubungi server" });
     } finally {
       setConfigLoading(false);
     }
@@ -1851,6 +1902,9 @@ export default function KontrolAdrPage() {
    * hanya mengulang yang belum berhasil.
    */
   const simpanSemua = async () => {
+    // Form yang belum disinkronkan bukan keadaan sebenarnya; menyimpannya bisa
+    // menimpa setelan tersimpan dengan isian kosong atau milik site lain.
+    if (configSinkron.status !== "ok") return;
     if (!selectedSite) {
       setSimpanGalat("Pilih site pengukuran lebih dulu.");
       return;
@@ -2862,7 +2916,7 @@ export default function KontrolAdrPage() {
               <button
                 type="button"
                 onClick={simpanSemua}
-                disabled={simpanJalan}
+                disabled={simpanJalan || configLoading || configSinkron.status !== "ok"}
                 className={TOMBOL_UTAMA}
               >
                 {simpanJalan ? (
@@ -2879,10 +2933,45 @@ export default function KontrolAdrPage() {
           {configLoading ? (
             <div className="flex items-center justify-center gap-2 py-10 text-[13px] text-(--ink-3)">
               <Loader2 className="size-5 animate-spin text-(--navy)" />
-              Memuat konfigurasi…
+              Membaca setelan terakhir…
+            </div>
+          ) : configSinkron.status !== "ok" ? (
+            <div className="flex flex-col items-center gap-3 py-8 text-center">
+              <RefreshCcw className="size-6 text-(--ink-3)" aria-hidden="true" />
+              <p className="text-[14px] font-semibold text-(--ink)">Belum disinkronkan</p>
+              <p className="max-w-[420px] text-[12.5px] leading-relaxed text-(--ink-2)">
+                Tekan Sinkronkan untuk membaca setelan terakhir dari database. Isiannya baru terbaca
+                setelah itu, dan tidak berubah sendiri sesudahnya.
+              </p>
+              {configSinkron.status === "gagal" && (
+                <p role="alert" className="text-[12.5px] font-medium text-(--st-awas)">
+                  {configSinkron.pesan}
+                </p>
+              )}
+              <button type="button" onClick={sinkronConfig} className={TOMBOL_UTAMA}>
+                <RefreshCcw className="size-4" /> Sinkronkan
+              </button>
             </div>
           ) : (
             <div className="flex flex-col gap-4">
+              <div className="flex flex-wrap items-center justify-between gap-2 rounded-[10px] bg-(--paper) px-3.5 py-2 text-[12px] text-(--ink-2)">
+                <span>
+                  Disinkronkan{" "}
+                  {configSinkron.waktuMs !== null
+                    ? new Date(configSinkron.waktuMs).toLocaleTimeString("id-ID")
+                    : ""}{" "}
+                  dari database (setelan terakhir yang dikirim, bukan bacaan langsung instrumen).
+                  {configSinkron.pesan ? ` ${configSinkron.pesan}` : ""}
+                </span>
+                <button
+                  type="button"
+                  onClick={sinkronConfig}
+                  disabled={simpanJalan}
+                  className={cn(TOMBOL_SEKUNDER, "h-7 px-2.5 text-[11.5px]")}
+                >
+                  <RefreshCcw className="size-3" /> Sinkronkan ulang
+                </button>
+              </div>
               <fieldset>
                 <legend className="mb-2 inline-flex items-center gap-2 font-display text-[12px] font-semibold uppercase tracking-[0.1em] text-(--ink-2)">
                   <FileText className="size-3.5" /> Informasi job
