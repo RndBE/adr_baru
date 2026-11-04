@@ -2224,6 +2224,27 @@ export default function KontrolAdrPage() {
   // Dihitung tiap render: murah, dan pratinjau di form harus mengikuti ketikan.
   const cekSapuCustom = validasiSapuanGlobal(sapuCustom);
 
+  // ── Tampilan RTS Config: abu-abu dan kosong sampai disinkronkan ───────────
+  //
+  // Modal selalu menampilkan seluruh form, tapi sebelum Sinkronkan ditekan
+  // semua kolomnya kosong dan tidak bisa disentuh. Isiannya TIDAK dikosongkan
+  // di state-nya: rtsConfig juga dipakai kartu retries/cycle time di halaman,
+  // jadi yang dikosongkan hanya apa yang dibacakan ke modal.
+  const configSiap = configSinkron.status === "ok" && !configLoading;
+  const cfg: RtsConfig = configSiap
+    ? rtsConfig
+    : {
+        jobName: "", prismaConst: "", tsHigh: "", coordX: "", coordY: "", coordZ: "",
+        stepRecord: "", retries: "", cycleTime: "", autoSearch: true,
+      };
+  const saHorTampil = configSiap ? saHor : "";
+  const saVerTampil = configSiap ? saVer : "";
+  const sapuTampil = configSiap ? sapuCustom : SAPU_KOSONG;
+  const trackTampil = configSiap ? trackEvery : "";
+  const retriesSalahTampil = configSiap && retriesSalah;
+  const cycleTimeSalahTampil = configSiap && cycleTimeSalah;
+  const cekSapuTampil = configSiap ? cekSapuCustom : validasiSapuanGlobal(SAPU_KOSONG);
+
   const alasanTerkunci = !selectedSite
     ? "Pilih site dulu"
     : !isConnected
@@ -2895,6 +2916,35 @@ export default function KontrolAdrPage() {
       {showRtsConfig && (
         <ModalShell
           judul="RTS Config"
+          keterangan={
+            <span className="flex flex-wrap items-center gap-x-3 gap-y-1.5">
+              <span className={configSinkron.status === "gagal" ? "font-medium text-(--st-awas)" : undefined}>
+                {configSinkron.status === "ok"
+                  ? `Disinkronkan ${
+                      configSinkron.waktuMs !== null
+                        ? new Date(configSinkron.waktuMs).toLocaleTimeString("id-ID")
+                        : ""
+                    } dari database (setelan terakhir yang dikirim, bukan bacaan langsung instrumen).${
+                      configSinkron.pesan ? ` ${configSinkron.pesan}` : ""
+                    }`
+                  : configSinkron.status === "gagal"
+                    ? configSinkron.pesan
+                    : "Belum disinkronkan. Tekan Sinkronkan untuk membaca setelan terakhir dari database."}
+              </span>
+              <button
+                type="button"
+                onClick={sinkronConfig}
+                disabled={simpanJalan || configLoading}
+                className={cn(
+                  configSinkron.status === "ok" ? TOMBOL_SEKUNDER : TOMBOL_UTAMA,
+                  "h-8 px-3 text-[12px]"
+                )}
+              >
+                <RefreshCcw className="size-3.5" />
+                {configSinkron.status === "ok" ? "Sinkronkan ulang" : "Sinkronkan"}
+              </button>
+            </span>
+          }
           ikon={<Settings2 className="size-4.5" />}
           lebar="max-w-[600px]"
           onClose={() => setShowRtsConfig(false)}
@@ -2935,43 +2985,12 @@ export default function KontrolAdrPage() {
               <Loader2 className="size-5 animate-spin text-(--navy)" />
               Membaca setelan terakhir…
             </div>
-          ) : configSinkron.status !== "ok" ? (
-            <div className="flex flex-col items-center gap-3 py-8 text-center">
-              <RefreshCcw className="size-6 text-(--ink-3)" aria-hidden="true" />
-              <p className="text-[14px] font-semibold text-(--ink)">Belum disinkronkan</p>
-              <p className="max-w-[420px] text-[12.5px] leading-relaxed text-(--ink-2)">
-                Tekan Sinkronkan untuk membaca setelan terakhir dari database. Isiannya baru terbaca
-                setelah itu, dan tidak berubah sendiri sesudahnya.
-              </p>
-              {configSinkron.status === "gagal" && (
-                <p role="alert" className="text-[12.5px] font-medium text-(--st-awas)">
-                  {configSinkron.pesan}
-                </p>
-              )}
-              <button type="button" onClick={sinkronConfig} className={TOMBOL_UTAMA}>
-                <RefreshCcw className="size-4" /> Sinkronkan
-              </button>
-            </div>
           ) : (
-            <div className="flex flex-col gap-4">
-              <div className="flex flex-wrap items-center justify-between gap-2 rounded-[10px] bg-(--paper) px-3.5 py-2 text-[12px] text-(--ink-2)">
-                <span>
-                  Disinkronkan{" "}
-                  {configSinkron.waktuMs !== null
-                    ? new Date(configSinkron.waktuMs).toLocaleTimeString("id-ID")
-                    : ""}{" "}
-                  dari database (setelan terakhir yang dikirim, bukan bacaan langsung instrumen).
-                  {configSinkron.pesan ? ` ${configSinkron.pesan}` : ""}
-                </span>
-                <button
-                  type="button"
-                  onClick={sinkronConfig}
-                  disabled={simpanJalan}
-                  className={cn(TOMBOL_SEKUNDER, "h-7 px-2.5 text-[11.5px]")}
-                >
-                  <RefreshCcw className="size-3" /> Sinkronkan ulang
-                </button>
-              </div>
+            <div
+              inert={!configSiap}
+              aria-disabled={!configSiap}
+              className={cn("flex flex-col gap-4", !configSiap && "select-none opacity-50")}
+            >
               <fieldset>
                 <legend className="mb-2 inline-flex items-center gap-2 font-display text-[12px] font-semibold uppercase tracking-[0.1em] text-(--ink-2)">
                   <FileText className="size-3.5" /> Informasi job
@@ -2983,7 +3002,7 @@ export default function KontrolAdrPage() {
                     </label>
                     <input
                       id="cfg-job"
-                      value={rtsConfig.jobName}
+                      value={cfg.jobName}
                       onChange={(e) => setRtsConfig({ ...rtsConfig, jobName: e.target.value })}
                       className={INPUT}
                     />
@@ -2994,7 +3013,7 @@ export default function KontrolAdrPage() {
                     </label>
                     <input
                       id="cfg-prisma"
-                      value={rtsConfig.prismaConst}
+                      value={cfg.prismaConst}
                       onChange={(e) => setRtsConfig({ ...rtsConfig, prismaConst: e.target.value })}
                       className={cn(INPUT, "font-mono tabular-nums")}
                     />
@@ -3005,7 +3024,7 @@ export default function KontrolAdrPage() {
                     </label>
                     <input
                       id="cfg-tshigh"
-                      value={rtsConfig.tsHigh}
+                      value={cfg.tsHigh}
                       onChange={(e) => setRtsConfig({ ...rtsConfig, tsHigh: e.target.value })}
                       className={cn(INPUT, "font-mono tabular-nums")}
                     />
@@ -3031,7 +3050,7 @@ export default function KontrolAdrPage() {
                       </label>
                       <input
                         id={`cfg-${kunci}`}
-                        value={rtsConfig[kunci]}
+                        value={cfg[kunci]}
                         onChange={(e) => setRtsConfig({ ...rtsConfig, [kunci]: e.target.value })}
                         className={cn(INPUT, "font-mono tabular-nums")}
                       />
@@ -3051,7 +3070,7 @@ export default function KontrolAdrPage() {
                     </label>
                     <input
                       id="cfg-step"
-                      value={rtsConfig.stepRecord}
+                      value={cfg.stepRecord}
                       onChange={(e) => setRtsConfig({ ...rtsConfig, stepRecord: e.target.value })}
                       className={cn(INPUT, "font-mono tabular-nums")}
                     />
@@ -3064,16 +3083,16 @@ export default function KontrolAdrPage() {
                       id="cfg-retries"
                       inputMode="numeric"
                       placeholder={`${RENTANG_RETRIES.min}–${RENTANG_RETRIES.maks}`}
-                      value={rtsConfig.retries}
+                      value={cfg.retries}
                       onChange={(e) => setRtsConfig({ ...rtsConfig, retries: e.target.value })}
-                      aria-invalid={retriesSalah || undefined}
+                      aria-invalid={retriesSalahTampil || undefined}
                       className={cn(
                         INPUT,
                         "font-mono tabular-nums",
-                        retriesSalah && "border-amber-500 focus:border-amber-500"
+                        retriesSalahTampil && "border-amber-500 focus:border-amber-500"
                       )}
                     />
-                    {retriesSalah && (
+                    {retriesSalahTampil && (
                       <p className="mt-1 font-mono text-[11px] text-amber-700">
                         {RENTANG_RETRIES.min}–{RENTANG_RETRIES.maks}
                       </p>
@@ -3093,13 +3112,13 @@ export default function KontrolAdrPage() {
                         id="cfg-cycle"
                         inputMode="numeric"
                         placeholder={`${RENTANG_CYCLE_TIME_MS.min}–${RENTANG_CYCLE_TIME_MS.maks}`}
-                        value={rtsConfig.cycleTime}
+                        value={cfg.cycleTime}
                         onChange={(e) => setRtsConfig({ ...rtsConfig, cycleTime: e.target.value })}
-                        aria-invalid={cycleTimeSalah || undefined}
+                        aria-invalid={cycleTimeSalahTampil || undefined}
                         className={cn(
                           INPUT,
                           "pr-9 font-mono tabular-nums",
-                          cycleTimeSalah && "border-amber-500 focus:border-amber-500"
+                          cycleTimeSalahTampil && "border-amber-500 focus:border-amber-500"
                         )}
                       />
                       <span
@@ -3109,7 +3128,7 @@ export default function KontrolAdrPage() {
                         ms
                       </span>
                     </div>
-                    {cycleTimeSalah && (
+                    {cycleTimeSalahTampil && (
                       <p className="mt-1 font-mono text-[11px] text-amber-700">
                         {RENTANG_CYCLE_TIME_MS.min}–{RENTANG_CYCLE_TIME_MS.maks}
                       </p>
@@ -3139,10 +3158,10 @@ export default function KontrolAdrPage() {
                         key={String(nilai)}
                         type="button"
                         onClick={() => setRtsConfig({ ...rtsConfig, autoSearch: nilai })}
-                        aria-pressed={rtsConfig.autoSearch === nilai}
+                        aria-pressed={cfg.autoSearch === nilai}
                         className={cn(
                           "flex cursor-pointer flex-col items-start rounded-[9px] px-3 py-2 text-left outline-none ring-1 transition-colors focus-visible:ring-2",
-                          rtsConfig.autoSearch === nilai
+                          cfg.autoSearch === nilai
                             ? "bg-(--navy) text-white ring-(--navy)"
                             : "bg-white text-(--ink-2) ring-(--line) hover:text-(--ink)"
                         )}
@@ -3151,7 +3170,7 @@ export default function KontrolAdrPage() {
                         <span
                           className={cn(
                             "text-[11px]",
-                            rtsConfig.autoSearch === nilai ? "text-white/70" : "text-(--ink-3)"
+                            cfg.autoSearch === nilai ? "text-white/70" : "text-(--ink-3)"
                           )}
                         >
                           {arti}
@@ -3189,7 +3208,7 @@ export default function KontrolAdrPage() {
                           min={RENTANG_SEARCH_AREA.hor.min}
                           max={RENTANG_SEARCH_AREA.hor.maks}
                           placeholder={`${RENTANG_SEARCH_AREA.hor.min}–${RENTANG_SEARCH_AREA.hor.maks}`}
-                          value={saHor}
+                          value={saHorTampil}
                           onChange={(e) => setSaHor(e.target.value)}
                           className={cn(INPUT, "pr-7 font-mono tabular-nums")}
                         />
@@ -3213,7 +3232,7 @@ export default function KontrolAdrPage() {
                           min={RENTANG_SEARCH_AREA.ver.min}
                           max={RENTANG_SEARCH_AREA.ver.maks}
                           placeholder={`${RENTANG_SEARCH_AREA.ver.min}–${RENTANG_SEARCH_AREA.ver.maks}`}
-                          value={saVer}
+                          value={saVerTampil}
                           onChange={(e) => setSaVer(e.target.value)}
                           className={cn(INPUT, "pr-7 font-mono tabular-nums")}
                         />
@@ -3279,7 +3298,7 @@ export default function KontrolAdrPage() {
                           type={k === "rehat" ? "number" : "text"}
                           min={k === "rehat" ? 0 : undefined}
                           max={k === "rehat" ? 10000 : undefined}
-                          value={sapuCustom[k]}
+                          value={sapuTampil[k]}
                           onChange={(e) => setSapuCustom((prev) => ({ ...prev, [k]: e.target.value }))}
                           placeholder={k === "rehat" ? "0–10000" : "d,m,s"}
                           className={cn(INPUT, "font-mono tabular-nums")}
@@ -3289,20 +3308,20 @@ export default function KontrolAdrPage() {
                   </div>
 
                   <div aria-live="polite" className="mt-3 text-[12.5px] leading-relaxed">
-                    {!cekSapuCustom.ok ? (
-                      <p className="font-medium text-(--st-awas)">{cekSapuCustom.galat}</p>
-                    ) : cekSapuCustom.rencana.titik !== null ? (
+                    {!cekSapuTampil.ok ? (
+                      <p className="font-medium text-(--st-awas)">{cekSapuTampil.galat}</p>
+                    ) : cekSapuTampil.rencana.titik !== null ? (
                       <p className="text-(--ink-2)">
                         <span className="font-mono font-semibold tabular-nums text-(--ink)">
-                          {cekSapuCustom.rencana.titik}
+                          {cekSapuTampil.rencana.titik}
                         </span>{" "}
                         titik per target · minimal{" "}
                         <span className="font-mono font-semibold tabular-nums text-(--ink)">
-                          {formatDurasi(cekSapuCustom.rencana.minimalDetik ?? 0)}
+                          {formatDurasi(cekSapuTampil.rencana.minimalDetik ?? 0)}
                         </span>{" "}
                         <span className="text-(--ink-3)">belum termasuk waktu ukur tiap titik</span>
                       </p>
-                    ) : cekSapuCustom.rencana.kosong ? (
+                    ) : cekSapuTampil.rencana.kosong ? (
                       <p className="text-(--ink-3)">
                         Kosong: tidak dikirim, instrumen memakai nilai yang sudah tersimpan di dalamnya.
                       </p>
@@ -3333,7 +3352,7 @@ export default function KontrolAdrPage() {
                       </label>
                       <select
                         id="cfg-track-every"
-                        value={trackEvery}
+                        value={trackTampil}
                         onChange={(e) => setTrackEvery(e.target.value)}
                         className={cn(INPUT, "font-mono tabular-nums")}
                       >
@@ -3350,10 +3369,10 @@ export default function KontrolAdrPage() {
                       berikutnya, bukan menumpuknya — tidak ada utang jadwal
                       yang dibayar belakangan. Diperingatkan memakai jumlah
                       target yang benar-benar terdaftar, bukan angka karangan. */}
-                  {jadwalTerlewat(Number(trackEvery), totalPrisma) && (
+                  {jadwalTerlewat(Number(trackTampil), totalPrisma) && (
                     <p className="mt-2.5 flex items-center gap-2 text-[12px] text-amber-900">
                       <AlertTriangle className="size-4 shrink-0 text-amber-600" />
-                      {totalPrisma} target &gt; {trackEvery} menit, jadwal bertabrakan dilewati
+                      {totalPrisma} target &gt; {trackTampil} menit, jadwal bertabrakan dilewati
                     </p>
                   )}
 
