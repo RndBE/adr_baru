@@ -356,11 +356,11 @@ export function UjiSapuanModal({
           </p>
         )}
 
-        {/* ── 1. Sudut sekarang ── */}
+        {/* ── Sudut sekarang (opsional, tanpa nomor) ── */}
         <section aria-labelledby="us-tengah" className="rounded-[12px] border border-(--line) p-3.5">
           <div className="mb-2.5 flex flex-wrap items-center justify-between gap-2">
             <h4 id="us-tengah" className="text-[13px] font-bold text-(--ink)">
-              1 · Sudut instrumen sekarang <span className="font-normal text-(--ink-3)">titik tengah sapuan</span>
+              Sudut instrumen sekarang <span className="font-normal text-(--ink-3)">opsional</span>
             </h4>
             <button
               type="button"
@@ -426,7 +426,7 @@ export function UjiSapuanModal({
         <section aria-labelledby="us-param" className="rounded-[12px] border border-(--line) p-3.5">
           <div className="mb-2.5 flex flex-wrap items-center justify-between gap-2">
             <h4 id="us-param" className="text-[13px] font-bold text-(--ink)">
-              2 · Parameter sapuan
+              1 · Parameter sapuan
             </h4>
             <div className="flex flex-wrap items-center gap-1.5">
               <span className="text-[11.5px] text-(--ink-3)">Contoh isian:</span>
@@ -579,7 +579,7 @@ export function UjiSapuanModal({
           <section aria-labelledby="us-progres" className="rounded-[12px] border border-(--line) p-3.5">
             <div className="mb-2.5 flex flex-wrap items-center justify-between gap-2">
               <h4 id="us-progres" className="text-[13px] font-bold text-(--ink)">
-                3 · Progres
+                2 · Progres
               </h4>
               <div className="flex items-center gap-1.5">
                 <Chip
