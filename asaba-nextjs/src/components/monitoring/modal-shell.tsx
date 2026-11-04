@@ -13,6 +13,13 @@ import { cn } from "@/lib/utils";
  * ke portal — kasus yang sudah pernah menggigit pada popover pemilih kolom.
  *
  * Tombol Esc ikut menutup dialog; sebelumnya hanya klik di luar yang bisa.
+ *
+ * Tinggi dialog dibatasi `max-h-full` terhadap lapisan tembusnya, BUKAN
+ * `100vh`. Di tablet dan peramban seluler `100vh` adalah tinggi layar TANPA
+ * bilah alamat, lebih tinggi dari area yang benar-benar terlihat, sedangkan
+ * lapisan `fixed inset-0` mengikuti area yang terlihat. Dialog yang lebih
+ * tinggi dari lapisannya dan dipusatkan meluap ke atas dan ke bawah sama
+ * banyak, sehingga judul dan tombol tutup di kepalanya terpotong.
  */
 export function ModalShell({
   judul,
@@ -54,11 +61,11 @@ export function ModalShell({
         aria-label={judul}
         onClick={(e) => e.stopPropagation()}
         className={cn(
-          "flex max-h-[calc(100vh-2rem)] w-full flex-col overflow-hidden rounded-[16px] bg-white shadow-2xl ring-1 ring-(--line)",
+          "flex max-h-full w-full flex-col overflow-hidden rounded-[16px] bg-white shadow-2xl ring-1 ring-(--line)",
           lebar
         )}
       >
-        <div className="flex items-start justify-between gap-3 px-5 pt-5 pb-3">
+        <div className="flex shrink-0 items-start justify-between gap-3 px-5 pt-5 pb-3">
           <div className="flex min-w-0 items-start gap-3">
             {ikon && (
               <span className="flex size-9 shrink-0 items-center justify-center rounded-[10px] bg-(--navy) text-white">
