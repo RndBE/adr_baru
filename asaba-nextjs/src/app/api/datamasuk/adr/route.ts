@@ -7,6 +7,7 @@ import { sudutKosong, perbaikiTembakan, tulisKoordinat } from "@/lib/koreksi-azi
 import { sesiTerakhirLogger, sesiUntukSiklus } from "@/lib/log-kontrol";
 import { awalSiklus } from "@/lib/sesi-kontrol";
 import { evaluasiSiklus } from "@/lib/evaluasi-siklus";
+import { sensorBerisiTeksObjek } from "@/lib/payload-sensor";
 
 type PayloadMap = Record<string, string>;
 
@@ -125,6 +126,21 @@ export async function POST(request: NextRequest) {
       return NextResponse.json(
         { success: false, error: "id_alat is required" },
         { status: 400 }
+      );
+    }
+
+    // Pengirim yang mengubah objek sensor menjadi teks ("map[nama:… nilai:…]")
+    // menimpa baris `temp_rts` data asli dengan sampah. Lihat lib/payload-sensor.ts.
+    // Dicek sebelum getWaktu, yang bisa menyentuh database.
+    const sensorRusak = sensorBerisiTeksObjek(payload);
+    if (sensorRusak) {
+      console.warn(`[datamasuk/adr] payload ditolak: ${sensorRusak} berisi teks objek (id_alat ${idAlat})`);
+      return NextResponse.json(
+        {
+          success: false,
+          error: `${sensorRusak} berisi teks objek, bukan nilai sensor. Kirim nilainya saja.`,
+        },
+        { status: 422 }
       );
     }
 
