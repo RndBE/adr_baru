@@ -1361,12 +1361,6 @@ export default function KontrolAdrPage() {
   const balasConfigRef = useRef<((c: BalasanRtsConfig) => void) | null>(null);
   const [konfirmasiConfig, setKonfirmasiConfig] = useState<KonfirmasiConfig | null>(null);
   /**
-   * Operator menekan Simpan saat logger terputus dan sedang ditanya apakah tetap
-   * mau mengirim. Hanya berlaku selama loggernya MEMANG masih terputus —
-   * `perluKonfirmasiOffline` di bawah menggugurkannya kalau koneksi pulih.
-   */
-  const [konfirmasiOffline, setKonfirmasiOffline] = useState(false);
-  /**
    * Nilai yang BARU SAJA dikirim, disimpan di ref supaya bisa dibaca handler
    * MQTT. Handler itu dipasang sekali dengan dependency [] sehingga ia menutup
    * (closure) nilai render pertama — membaca `rtsConfig` dari sana akan selalu
@@ -1657,7 +1651,6 @@ export default function KontrolAdrPage() {
     setLangkahSimpan(null);
     setSimpanGalat("");
     setConfigSinkron({ status: "belum", waktuMs: null, pesan: "" });
-    setKonfirmasiOffline(false);
 
     // Rentang sapuan dan jadwal kembali dianggap BELUM DIKETAHUI tiap kali
     // modal dibuka. Instrumen bisa saja dimatikan di antara dua kali buka, dan
@@ -2127,6 +2120,12 @@ export default function KontrolAdrPage() {
     // Form yang belum disinkronkan bukan keadaan sebenarnya; menyimpannya bisa
     // menimpa setelan tersimpan dengan isian kosong atau milik site lain.
     if (configSinkron.status !== "ok") return;
+    // Tombolnya sudah dikunci saat logger terputus; ini pagar kedua kalau
+    // simpanSemua dipanggil dari jalur lain.
+    if (!isConnected) {
+      setSimpanGalat("Logger terputus. Setelan tidak dikirim.");
+      return;
+    }
     if (!selectedSite) {
       setSimpanGalat("Pilih site pengukuran lebih dulu.");
       return;
@@ -2235,30 +2234,6 @@ export default function KontrolAdrPage() {
       langkahAktifRef.current = null;
     }
   };
-
-  /**
-   * Pintu masuk tombol Simpan. Logger yang terputus tidak menghentikan Simpan,
-   * tapi operator harus tahu apa artinya:
-   *
-   *   - Setelan job tersimpan di database dan dikirim ulang ke instrumen tiap
-   *     alat menyala, jadi menyimpan saat offline tidak sia-sia.
-   *   - Rentang sapuan, jadwal, dan sapuan custom HANYA lewat MQTT (qos 0, tanpa
-   *     antrean). Perintah yang terbit ke logger yang tidak mendengar hilang
-   *     begitu saja, dan tampilan baru ketahuan setelah menunggu ack sampai habis.
-   *
-   * `isConnected` memakai jendela satu jam (lihat BATAS_DATA_SEGAR_MS), jadi
-   * logger yang baru putus beberapa menit masih tampak terhubung. Ini peringatan
-   * dini, bukan bukti pengiriman — buktinya tetap ack instrumen.
-   */
-  const tekanSimpan = () => {
-    if (!isConnected && !konfirmasiOffline) {
-      setKonfirmasiOffline(true);
-      return;
-    }
-    setKonfirmasiOffline(false);
-    void simpanSemua();
-  };
-  const perluKonfirmasiOffline = konfirmasiOffline && !isConnected;
 
   // Daftar prisma DIBATASI per site. Nomor slot (P1, P2, …) dipakai ulang di
   // tiap site dan menunjuk target fisik yang berbeda, jadi tanpa scope ini
@@ -2500,6 +2475,16 @@ export default function KontrolAdrPage() {
    */
   const jadwalAktif =
     configSiap && (modeIstirahat ? Number(trackRest) > 0 : Number(trackEvery) > 0);
+  /**
+   * Ganti cara hitung jadwal saat sakelar menyala. Angka milik mode tujuan
+   * dipulihkan kalau sedang 0: tanpa itu jadwalAktif langsung jadi false dan
+   * sakelarnya mati sendiri begitu salah satu pilihan ditekan.
+   */
+  const pilihModeJadwal = (m: ModeJadwal) => {
+    setTrackMode(m);
+    if (m === "istirahat" && Number(trackRest) <= 0) setTrackRest(trackRestTerakhir);
+    if (m === "jam" && Number(trackEvery) <= 0) setTrackEvery(trackTerakhir);
+  };
   const retriesSalahTampil = configSiap && retriesSalah;
   const cycleTimeSalahTampil = configSiap && cycleTimeSalah;
   const cekSapuTampil = configSiap ? cekSapuCustom : validasiSapuanGlobal(SAPU_KOSONG);
@@ -3208,19 +3193,13 @@ export default function KontrolAdrPage() {
           }
           ikon={<Settings2 className="size-4.5" />}
           lebar="max-w-[600px]"
-          onClose={() => {
-            setKonfirmasiOffline(false);
-            setShowRtsConfig(false);
-          }}
+          onClose={() => setShowRtsConfig(false)}
           bisaDitutup={!simpanJalan}
           footer={
             <>
               <button
                 type="button"
-                onClick={() => {
-                  setKonfirmasiOffline(false);
-                  setShowRtsConfig(false);
-                }}
+                onClick={() => setShowRtsConfig(false)}
                 disabled={simpanJalan}
                 className={TOMBOL_SEKUNDER}
               >
@@ -3230,18 +3209,27 @@ export default function KontrolAdrPage() {
                   dan jadwal punya tombol Kirim sendiri, sehingga operator harus
                   tahu urutan menekannya — dan menekan ketiganya beruntun
                   membuat balasan instrumen saling menyusul. */}
+              {/* Dikunci saat logger terputus. Sinkronkan tetap bisa ditekan
+                  (ia hanya membaca, dan jatuh ke database bila logger diam),
+                  jadi operator masih bisa melihat setelannya — hanya mengirim
+                  yang ditahan sampai loggernya terhubung lagi.
+
+                  `isConnected` memakai jendela satu jam (BATAS_DATA_SEGAR_MS):
+                  logger yang baru putus beberapa menit masih tampak terhubung,
+                  dan bridge data yang mati membuat logger sehat tampak terputus.
+                  Penguncian ini pagar kasar, bukan bukti pengiriman — buktinya
+                  tetap ack instrumen. */}
               <button
                 type="button"
-                onClick={tekanSimpan}
-                disabled={simpanJalan || configLoading || configSinkron.status !== "ok"}
+                onClick={simpanSemua}
+                disabled={simpanJalan || configLoading || configSinkron.status !== "ok" || !isConnected}
+                title={!isConnected ? "Logger terputus — tidak bisa mengirim setelan" : undefined}
                 className={TOMBOL_UTAMA}
               >
                 {simpanJalan ? (
                   <>
                     <Loader2 className="size-4 animate-spin" /> Menyimpan…
                   </>
-                ) : perluKonfirmasiOffline ? (
-                  "Tetap simpan"
                 ) : (
                   "Simpan"
                 )}
@@ -3249,33 +3237,21 @@ export default function KontrolAdrPage() {
             </>
           }
         >
-          {/* Logger terputus: peringatan tetap tampil selama modal terbuka, bukan
-              hanya saat Simpan ditekan — operator perlu tahu SEBELUM mengisi.
-              Berubah nada (merah) begitu Simpan ditekan dan menunggu konfirmasi. */}
+          {/* Logger terputus: tombol Simpan terkunci, dan alasannya dijelaskan di
+              sini supaya tombol yang abu-abu tidak terlihat rusak. */}
           {!isConnected && selectedSite && (
             <div
               role="alert"
-              className={cn(
-                "mb-4 flex gap-2.5 rounded-[10px] border px-3.5 py-2.5 text-[12.5px] leading-relaxed",
-                perluKonfirmasiOffline
-                  ? "border-(--st-awas) bg-(--st-awas)/10 text-(--ink)"
-                  : "border-amber-200 bg-amber-50 text-amber-900"
-              )}
+              className="mb-4 flex gap-2.5 rounded-[10px] border border-amber-200 bg-amber-50 px-3.5 py-2.5 text-[12.5px] leading-relaxed text-amber-900"
             >
-              <AlertTriangle
-                className={cn(
-                  "mt-px size-4 shrink-0",
-                  perluKonfirmasiOffline ? "text-(--st-awas)" : "text-amber-600"
-                )}
-              />
+              <AlertTriangle className="mt-px size-4 shrink-0 text-amber-600" />
               <span>
                 <span className="font-semibold">Logger terputus.</span>{" "}
                 {lastUpdate
                   ? `Data terakhir masuk ${fmtWaktu(lastUpdate, { detik: true })}.`
                   : "Belum ada data yang masuk."}{" "}
-                {perluKonfirmasiOffline
-                  ? "Setelan job tetap tersimpan di server dan dikirim ulang saat alat menyala. Rentang sapuan, jadwal, dan sapuan custom hanya lewat MQTT dan bisa hilang kalau logger tidak mendengar. Tekan “Tetap simpan” untuk melanjutkan."
-                  : "Perintah yang dikirim sekarang kemungkinan tidak sampai ke instrumen."}
+                Tombol Simpan dikunci sampai logger terhubung lagi. Sinkronkan tetap bisa
+                dipakai untuk melihat setelan terakhir dari database.
               </span>
             </div>
           )}
@@ -3644,47 +3620,6 @@ export default function KontrolAdrPage() {
                   <Timer className="size-3.5" /> Jadwal AutoTracking
                 </legend>
                 <div className="rounded-[10px] border border-dashed border-(--line) px-3.5 py-3">
-                  {/* Pilihan mode hanya untuk logger yang terbukti BL1100
-                      (get_config-nya melaporkan trackMode). Firmware lain tidak
-                      mengenal `trackMode`/`trackRest` dan mengabaikannya TANPA
-                      balasan, jadi menampilkannya di sana menjanjikan sesuatu
-                      yang tidak akan pernah terjadi.
-
-                      Beda keduanya: "jam" mengacu jam dinding (menit sejak
-                      00:00 habis dibagi interval), "istirahat" mengacu SELESAINYA
-                      siklus — lama siklus berubah-ubah, jam mulainya ikut
-                      bergeser, istirahatnya yang tetap. */}
-                  {fwIstirahat === true && (
-                    <div className="mb-3">
-                      <span className={LABEL}>Mode jadwal</span>
-                      <div role="radiogroup" aria-label="Mode jadwal" className="mt-1 grid grid-cols-2 gap-2">
-                        {(
-                          [
-                            ["jam", "Jam dinding", "Tiap N menit sesuai jam"],
-                            ["istirahat", "Istirahat antar siklus", "N menit setelah siklus selesai"],
-                          ] as const
-                        ).map(([nilai, judul, ket]) => (
-                          <button
-                            key={nilai}
-                            type="button"
-                            role="radio"
-                            aria-checked={trackMode === nilai}
-                            onClick={() => setTrackMode(nilai)}
-                            className={cn(
-                              "rounded-[10px] border px-3 py-2 text-left outline-none transition-colors focus-visible:ring-2 focus-visible:ring-(--navy)/40",
-                              trackMode === nilai
-                                ? "border-(--navy) bg-(--navy)/5"
-                                : "border-(--line) hover:bg-(--paper)"
-                            )}
-                          >
-                            <span className="block text-[12.5px] font-semibold text-(--ink)">{judul}</span>
-                            <span className="block text-[11px] text-(--ink-2)">{ket}</span>
-                          </button>
-                        ))}
-                      </div>
-                    </div>
-                  )}
-
                   {/* Sakelar hanya cara lain memilih "Mati" (0) atau sebuah
                       nilai. Pada mode jam menitnya dibatasi nilai yang diterima
                       firmware (error_trackEvery); pada mode istirahat bebas
@@ -3736,6 +3671,53 @@ export default function KontrolAdrPage() {
                       />
                     </button>
                   </div>
+
+                  {/* Cara menghitung jadwal, dipilih SETELAH sakelar menyala:
+                      "per menit" = jam dinding (menit sejak 00:00 habis dibagi
+                      interval, trackEvery), "per rehat" = N menit sesudah
+                      SELESAINYA siklus (trackRest) — lama siklus berubah-ubah,
+                      jam mulainya ikut bergeser, istirahatnya yang tetap.
+
+                      "Per rehat" hanya untuk logger yang terbukti BL1100
+                      (get_config-nya melaporkan trackMode). Firmware lain tidak
+                      mengenal trackMode/trackRest dan mengabaikannya TANPA
+                      balasan, jadi pilihannya tidak ditawarkan di sana. */}
+                  {jadwalAktif && fwIstirahat === true && (
+                    <div className="mt-3">
+                      <span className={LABEL}>Hitung jadwal</span>
+                      <div role="radiogroup" aria-label="Hitung jadwal" className="mt-1 grid grid-cols-2 gap-2">
+                        {(
+                          [
+                            ["jam", "Per menit", "Tiap N menit sesuai jam"],
+                            ["istirahat", "Per rehat", "N menit setelah siklus selesai"],
+                          ] as const
+                        ).map(([nilai, judul, ket]) => (
+                          <button
+                            key={nilai}
+                            type="button"
+                            role="radio"
+                            aria-checked={trackMode === nilai}
+                            onClick={() => pilihModeJadwal(nilai)}
+                            className={cn(
+                              "rounded-[10px] border px-3 py-2 text-left outline-none transition-colors focus-visible:ring-2 focus-visible:ring-(--navy)/40",
+                              trackMode === nilai
+                                ? "border-(--navy) bg-(--navy)/5"
+                                : "border-(--line) hover:bg-(--paper)"
+                            )}
+                          >
+                            <span className="block text-[12.5px] font-semibold text-(--ink)">{judul}</span>
+                            <span className="block text-[11px] text-(--ink-2)">{ket}</span>
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                  {jadwalAktif && fwIstirahat !== true && (
+                    <p className="mt-2.5 text-[11.5px] leading-relaxed text-(--ink-3)">
+                      Mode &ldquo;per rehat&rdquo; hanya untuk logger BL1100. Ia dikenali saat
+                      Sinkronkan berhasil membaca setelan langsung dari logger.
+                    </p>
+                  )}
 
                   {jadwalAktif && !modeIstirahat && (
                     <div className="mt-3 grid grid-cols-2 items-end gap-3">
