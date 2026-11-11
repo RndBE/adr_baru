@@ -97,6 +97,11 @@ import {
   validasiRetries,
   validasiSearchArea,
   type BalasanSearchArea,
+  bacaBalasanRtsConfig,
+  validasiTrackRest,
+  RENTANG_TRACK_REST_MENIT,
+  type BalasanRtsConfig,
+  type ModeJadwal,
 } from "@/lib/protokol-rts";
 
 // ── Pemberitahuan perintah ────────────────────────────────────────────────────
@@ -554,6 +559,31 @@ export default function KontrolAdrPage() {
   // berhenti di "terkirim", bukan "berlaku". Itu sebabnya ia langkah TERAKHIR
   // di antrean Simpan: tidak ada yang bisa ditunggu sesudahnya.
   const [trackEvery, setTrackEvery] = useState("0");
+  /**
+   * Menit terakhir yang dipilih sebelum jadwal dimatikan lewat sakelar, supaya
+   * mematikan lalu menyalakan lagi mengembalikan pilihan operator, bukan angka
+   * lain. Hanya urusan tampilan: yang dikirim ke instrumen tetap `trackEvery`
+   * (0 = mati), jadi tidak ada perintah atau kolom baru.
+   */
+  const [trackTerakhir, setTrackTerakhir] = useState("10");
+  /**
+   * Mode jadwal BL1100: "jam" (trackEvery, menit sejak 00:00) atau "istirahat"
+   * (trackRest, menit dihitung dari SELESAINYA siklus). Firmware lain tidak
+   * mengenal keduanya, jadi pilihannya baru tampil kalau `fwIstirahat` true.
+   */
+  const [trackMode, setTrackMode] = useState<ModeJadwal>("jam");
+  const [trackRest, setTrackRest] = useState("0");
+  const [trackRestTerakhir, setTrackRestTerakhir] = useState("5");
+  /**
+   * Logger ini BL1100 (mengenal trackMode/trackRest)? `true` hanya kalau
+   * get_config-nya dijawab dengan medan trackMode — itulah satu-satunya bukti.
+   * `null` = belum diketahui, dan diperlakukan sama dengan `false`: kunci yang
+   * tak dikenal firmware lain diabaikan TANPA balasan, jadi mengirimnya tanpa
+   * bukti tidak akan ketahuan gagal.
+   */
+  const [fwIstirahat, setFwIstirahat] = useState<boolean | null>(null);
+  /** Detik tersisa sampai siklus istirahat berikutnya, dari get_config. */
+  const [trackSisaDetik, setTrackSisaDetik] = useState<number | null>(null);
 
   // ── Uji sapuan custom ─────────────────────────────────────────────────────
   // Keadaannya dipegang di sini, bukan di modal: sapuan bisa berjalan lama dan
@@ -1208,6 +1238,17 @@ export default function KontrolAdrPage() {
             setTiltLoading(false);
           }
 
+          // {"RTSConfig":{"jobName":"Demo","retries":1,"cycleTime":3000,...}}
+          //
+          // Balasan get_config (BL1100). Hanya diserahkan ke Sinkronkan yang
+          // sedang menunggunya; kalau tidak ada yang menunggu, pesannya
+          // diabaikan — nilainya tidak boleh menimpa isian yang sedang diketik.
+          const bRtsConfig = bacaBalasanRtsConfig(data.RTSConfig);
+          if (bRtsConfig.ada) {
+            console.log("[KontrolADR] RTSConfig:", bRtsConfig.jobName, bRtsConfig.versi);
+            balasConfigRef.current?.(bRtsConfig);
+          }
+
           // {"Replay":{"value":"data","rows":[…],"sisa":N}} → {"Replay":{"value":"done"}}
           const bReplay = bacaBalasanReplay(data.Replay);
           if (bReplay.jenis !== "bukan") {
@@ -1309,7 +1350,15 @@ export default function KontrolAdrPage() {
     status: "belum" | "ok" | "gagal";
     waktuMs: number | null;
     pesan: string;
+    /** Dari mana isian terakhir dibaca; hanya bermakna saat status "ok". */
+    sumber?: "logger" | "database";
   }>({ status: "belum", waktuMs: null, pesan: "" });
+  /**
+   * Penunggu balasan `RTSConfig` (get_config). Handler MQTT dipasang sekali
+   * dengan dependency [], jadi ia menyerahkan balasannya lewat ref ini — pola
+   * yang sama dengan ackConfigRef.
+   */
+  const balasConfigRef = useRef<((c: BalasanRtsConfig) => void) | null>(null);
   const [konfirmasiConfig, setKonfirmasiConfig] = useState<KonfirmasiConfig | null>(null);
   /**
    * Operator menekan Simpan saat logger terputus dan sedang ditanya apakah tetap
@@ -1620,9 +1669,212 @@ export default function KontrolAdrPage() {
     dasarConfigRef.current = null;
   };
 
+  /** Batas menunggu `RTSConfig` dari logger sebelum jatuh ke database. */
+  const BATAS_GET_CONFIG_MS = 8_000;
+
   /**
-   * Baca setelan terakhir dari database dan isikan SEMUA kolom sekaligus.
+   * Kunci pembanding jadwal untuk `dasarJadwalRef`. Logger BL1100 punya dua
+   * mode, jadi yang dibandingkan harus ikut mode dan istirahatnya — kalau hanya
+   * `trackEvery`, mengganti jam→istirahat dianggap "tidak berubah" dan dilewati.
+   */
+  const kunciJadwal = (istirahat: boolean, mode: ModeJadwal, every: string, rest: string) =>
+    istirahat ? `${mode}|${Number(every)}|${Number(rest)}` : String(Number(every));
+
+  /**
+   * Minta setelan langsung ke logger (`get_config`) dan tunggu `RTSConfig`.
+   * `null` = tidak ada jawaban: logger offline, atau firmware belum mengenal
+   * perintahnya (Arduino diam saja). Keduanya diperlakukan sama — jatuh ke
+   * database — karena dari sini keduanya tak bisa dibedakan.
+   *
+   * Penunggunya dipasang SEBELUM perintah terbit: balasan bisa tiba sebelum
+   * respons HTTP kembali, dan yang datang lebih dulu tidak boleh terlewat.
+   */
+  const bacaDariLogger = async (): Promise<BalasanRtsConfig | null> => {
+    const menunggu = new Promise<BalasanRtsConfig | null>((resolve) => {
+      const timer = setTimeout(() => {
+        balasConfigRef.current = null;
+        resolve(null);
+      }, BATAS_GET_CONFIG_MS);
+      balasConfigRef.current = (c) => {
+        clearTimeout(timer);
+        balasConfigRef.current = null;
+        resolve(c);
+      };
+    });
+    try {
+      const res = await fetch("/api/kontrol/get-config", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ site: selectedSite }),
+      });
+      const json = await res.json();
+      if (!json.success || !json.data?.mqtt_sent) {
+        // Perintah tidak terbit sama sekali — tidak ada yang perlu ditunggu.
+        balasConfigRef.current = null;
+        return null;
+      }
+    } catch {
+      balasConfigRef.current = null;
+      return null;
+    }
+    return menunggu;
+  };
+
+  /** Isi seluruh form dari balasan logger. Kolom yang tak dilaporkan tidak disentuh. */
+  const isiDariLogger = (c: BalasanRtsConfig) => {
+    const dimuat = {
+      jobName:     c.jobName,
+      prismaConst: c.prismConst,
+      tsHigh:      c.tsHigh,
+      coordX:      c.coordX,
+      coordY:      c.coordY,
+      coordZ:      c.coordZ,
+      stepRecord:  c.stepRecord,
+      retries:     c.retries,
+      cycleTime:   c.cycleTime,
+      autoSearch:  c.autoSearch ?? true,
+    };
+    setRtsConfig(dimuat);
+
+    if (c.searchAreaHor !== null) setSaHor(String(c.searchAreaHor));
+    if (c.searchAreaVer !== null) setSaVer(String(c.searchAreaVer));
+
+    const sapu = {
+      langkahHA: c.sapuLangkahHA,
+      langkahVA: c.sapuLangkahVA,
+      rentangHA: c.sapuRentangHA,
+      rentangVA: c.sapuRentangVA,
+      rehat:     c.sapuRehat,
+    };
+    setSapuCustom(sapu);
+
+    // Mode jadwal hanya dilaporkan BL1100. Adanya medan itu = buktinya.
+    const bl1100 = c.trackMode !== null;
+    setFwIstirahat(bl1100);
+    setTrackSisaDetik(c.trackSisaDetik);
+    if (c.trackMode !== null) setTrackMode(c.trackMode);
+    if (c.trackRest !== null) setTrackRest(String(c.trackRest));
+    if (c.trackEvery !== null) setTrackEvery(String(c.trackEvery));
+
+    // Config, sapuan custom, dan jadwal kini DIBACA dari alatnya sendiri, jadi
+    // inilah bukti nilainya sudah terpasang — beda dari catatan database. Yang
+    // tidak ikut dilaporkan (null) tetap tanpa dasar, jadi tetap dikirim.
+    dasarConfigRef.current = JSON.stringify(dimuat);
+    dasarCustomRef.current = JSON.stringify(sapu);
+    const jamLengkap = c.trackEvery !== null;
+    const istirahatLengkap = c.trackMode === null || c.trackRest !== null;
+    if (jamLengkap && istirahatLengkap) {
+      dasarJadwalRef.current = kunciJadwal(
+        bl1100,
+        c.trackMode ?? "jam",
+        String(c.trackEvery),
+        String(c.trackRest ?? 0)
+      );
+    }
+    // Rentang sapuan (SearchArea) SENGAJA dibiarkan tanpa dasar: PowerOn menimpa
+    // jendela AKTIF dengan 7° ter-hardcode (migrasi 009), jadi nilai tersimpan
+    // yang dilaporkan di sini belum tentu yang dipakai siklus berikutnya.
+    dasarSapuanRef.current = null;
+
+    setConfigSinkron({
+      status: "ok",
+      waktuMs: Date.now(),
+      pesan: c.versi ? `Firmware ${c.versi}.` : "",
+      sumber: "logger",
+    });
+  };
+
+  /** Isi form dari catatan "terakhir dikirim" di database. */
+  const isiDariDatabase = (
+    json: { success?: boolean; data?: Record<string, unknown>; error?: unknown },
+    alasan: string
+  ) => {
+    if (json.success && json.data) {
+      const d = json.data;
+      const dimuat = {
+        jobName:     String(d.job_name   ?? ""),
+        prismaConst: String(d.prisma_cons ?? ""),
+        tsHigh:      String(d.ts_high     ?? ""),
+        coordX:      String(d.coor_x      ?? ""),
+        coordY:      String(d.coor_y      ?? ""),
+        coordZ:      String(d.coor_z      ?? ""),
+        stepRecord:  String(d.step_record ?? ""),
+        retries:     String(d.retries     ?? ""),
+        cycleTime:   String(d.cycle_time  ?? ""),
+        autoSearch:  d.auto_search === undefined ? true : Boolean(d.auto_search),
+      };
+      setRtsConfig(dimuat);
+
+      // Rentang sapuan dan jadwal diisi dari catatan "terakhir dikirim" di
+      // database. Sebelumnya keduanya tidak disimpan sama sekali, sehingga
+      // modal ini SELALU terbuka dengan 15° × 15° dan "Mati" apa pun yang
+      // barusan disimpan operator.
+      //
+      // Yang diisi HANYA kolomnya. dasarSapuanRef/dasarJadwalRef sengaja
+      // dibiarkan null: catatan ini bukan bukti keadaan instrumen — PowerOn
+      // menimpa jendela sapuan AKTIF dengan 7° ter-hardcode, dan jadwal tidak
+      // pernah dilaporkan balik — jadi keduanya tetap WAJIB dikirim ulang.
+      if (d.search_area_hor != null) setSaHor(String(d.search_area_hor));
+      if (d.search_area_ver != null) setSaVer(String(d.search_area_ver));
+      if (d.track_every != null) setTrackEvery(String(d.track_every));
+
+      // Mode istirahat: kolomnya NULL kalau belum pernah dikirim ke logger
+      // BL1100. Selama NULL pilihannya tetap tersembunyi.
+      setFwIstirahat(d.track_mode != null ? true : null);
+      setTrackSisaDetik(null);
+      if (d.track_mode === "jam" || d.track_mode === "istirahat") setTrackMode(d.track_mode);
+      if (d.track_rest != null) setTrackRest(String(d.track_rest));
+
+      // Sapuan custom global: sama kedudukannya — catatan "terakhir dikirim",
+      // bukan bukti keadaan instrumen. NULL (belum pernah dikirim) jadi kotak
+      // kosong, bukan angka karangan. Dasarnya dibiarkan null seperti rentang
+      // sapuan di atas.
+      setSapuCustom({
+        langkahHA: String(d.sapu_langkah_ha ?? ""),
+        langkahVA: String(d.sapu_langkah_va ?? ""),
+        rentangHA: String(d.sapu_rentang_ha ?? ""),
+        rentangVA: String(d.sapu_rentang_va ?? ""),
+        rehat: String(d.sapu_rehat ?? ""),
+      });
+
+      // Kelompok ini BOLEH dilewati kalau tidak diubah: sumber kebenarannya
+      // database milik aplikasi ini sendiri, dan isinya dikirim ulang ke
+      // instrumen tiap kali alat menyala. Beda dari dua kelompok lain, yang
+      // tidak punya jaminan seperti itu.
+      dasarConfigRef.current = JSON.stringify(dimuat);
+      setConfigSinkron({ status: "ok", waktuMs: Date.now(), pesan: alasan, sumber: "database" });
+    } else if (json.success) {
+      // Site belum punya setelan tersimpan: form dikosongkan, bukan dibiarkan
+      // memuat sisa site sebelumnya, lalu operator mengisi dan menyimpan.
+      setRtsConfig({
+        jobName: "", prismaConst: "", tsHigh: "", coordX: "", coordY: "", coordZ: "",
+        stepRecord: "", retries: "", cycleTime: "", autoSearch: true,
+      });
+      setSapuCustom(SAPU_KOSONG);
+      setConfigSinkron({
+        status: "ok",
+        waktuMs: Date.now(),
+        pesan: "Site ini belum punya setelan tersimpan. Isi kolomnya, lalu Simpan.",
+        sumber: "database",
+      });
+    } else {
+      setConfigSinkron({
+        status: "gagal",
+        waktuMs: null,
+        pesan: String(json.error ?? "Gagal membaca setelan"),
+      });
+    }
+  };
+
+  /**
+   * Isi RTS Config: tanya logger dulu, database sebagai cadangan.
    * Satu-satunya jalan isian modal berubah selain diketik operator.
+   *
+   * Loggernya yang menang bila menjawab — itu keadaan alat sekarang, sedangkan
+   * database hanya catatan "terakhir dikirim". Logger yang offline (atau belum
+   * BL1100) diam saja, dan di situlah database dipakai. Sengaja TIDAK digerbang
+   * `isConnected`: statusnya hanya "ada data berkala dalam satu jam" lewat
+   * bridge, jadi bridge yang mati akan melompati logger yang sebenarnya sehat.
    */
   const sinkronConfig = async () => {
     setKonfirmasiConfig(null);
@@ -1630,7 +1882,8 @@ export default function KontrolAdrPage() {
     setLangkahSimpan(null);
     setSimpanGalat("");
     // Sama dengan saat membuka: membaca ulang tidak membuktikan apa pun
-    // tentang keadaan instrumen.
+    // tentang keadaan instrumen — kecuali kalau loggernya menjawab, dan itu
+    // dipasang ulang di isiDariLogger().
     dasarSapuanRef.current = null;
     dasarCustomRef.current = null;
     dasarJadwalRef.current = null;
@@ -1638,79 +1891,30 @@ export default function KontrolAdrPage() {
 
     setConfigLoading(true);
     try {
-      const res = await fetch(`/api/config-adr?site=${encodeURIComponent(selectedSite)}`);
-      const json = await res.json();
-      if (json.success && json.data) {
-        const d = json.data;
-        const dimuat = {
-          jobName:     String(d.job_name   ?? ""),
-          prismaConst: String(d.prisma_cons ?? ""),
-          tsHigh:      String(d.ts_high     ?? ""),
-          coordX:      String(d.coor_x      ?? ""),
-          coordY:      String(d.coor_y      ?? ""),
-          coordZ:      String(d.coor_z      ?? ""),
-          stepRecord:  String(d.step_record ?? ""),
-          retries:     String(d.retries     ?? ""),
-          cycleTime:   String(d.cycle_time  ?? ""),
-          autoSearch:  d.auto_search === undefined ? true : Boolean(d.auto_search),
-        };
-        setRtsConfig(dimuat);
+      // Berbarengan, bukan berurutan: database murah, dan menunggu logger tidak
+      // perlu menunda cadangannya.
+      const [balasan, json] = await Promise.all([
+        bacaDariLogger(),
+        fetch(`/api/config-adr?site=${encodeURIComponent(selectedSite)}`)
+          .then((r) => r.json())
+          .catch(() => null),
+      ]);
 
-        // Rentang sapuan dan jadwal diisi dari catatan "terakhir dikirim" di
-        // database. Sebelumnya keduanya tidak disimpan sama sekali, sehingga
-        // modal ini SELALU terbuka dengan 15° × 15° dan "Mati" apa pun yang
-        // barusan disimpan operator.
-        //
-        // Yang diisi HANYA kolomnya. dasarSapuanRef/dasarJadwalRef sengaja
-        // dibiarkan null: catatan ini bukan bukti keadaan instrumen — PowerOn
-        // menimpa jendela sapuan AKTIF dengan 7° ter-hardcode, dan jadwal tidak
-        // pernah dilaporkan balik — jadi keduanya tetap WAJIB dikirim ulang.
-        if (d.search_area_hor != null) setSaHor(String(d.search_area_hor));
-        if (d.search_area_ver != null) setSaVer(String(d.search_area_ver));
-        if (d.track_every != null) setTrackEvery(String(d.track_every));
-
-        // Sapuan custom global: sama kedudukannya — catatan "terakhir dikirim",
-        // bukan bukti keadaan instrumen. NULL (belum pernah dikirim) jadi kotak
-        // kosong, bukan angka karangan. Dasarnya dibiarkan null seperti rentang
-        // sapuan di atas.
-        setSapuCustom({
-          langkahHA: String(d.sapu_langkah_ha ?? ""),
-          langkahVA: String(d.sapu_langkah_va ?? ""),
-          rentangHA: String(d.sapu_rentang_ha ?? ""),
-          rentangVA: String(d.sapu_rentang_va ?? ""),
-          rehat: String(d.sapu_rehat ?? ""),
-        });
-
-        // Kelompok ini BOLEH dilewati kalau tidak diubah: sumber kebenarannya
-        // database milik aplikasi ini sendiri, dan isinya dikirim ulang ke
-        // instrumen tiap kali alat menyala. Beda dari dua kelompok lain, yang
-        // tidak punya jaminan seperti itu.
-        dasarConfigRef.current = JSON.stringify(dimuat);
-        setConfigSinkron({ status: "ok", waktuMs: Date.now(), pesan: "" });
-      } else if (json.success) {
-        // Site belum punya setelan tersimpan: form dikosongkan, bukan dibiarkan
-        // memuat sisa site sebelumnya, lalu operator mengisi dan menyimpan.
-        setRtsConfig({
-          jobName: "", prismaConst: "", tsHigh: "", coordX: "", coordY: "", coordZ: "",
-          stepRecord: "", retries: "", cycleTime: "", autoSearch: true,
-        });
-        setSapuCustom(SAPU_KOSONG);
-        setConfigSinkron({
-          status: "ok",
-          waktuMs: Date.now(),
-          pesan: "Site ini belum punya setelan tersimpan. Isi kolomnya, lalu Simpan.",
-        });
+      if (balasan) {
+        isiDariLogger(balasan);
+      } else if (json) {
+        isiDariDatabase(
+          json,
+          `Logger tidak menjawab get_config dalam ${BATAS_GET_CONFIG_MS / 1000} detik (offline, atau firmware belum mendukung).`
+        );
       } else {
-        setConfigSinkron({
-          status: "gagal",
-          waktuMs: null,
-          pesan: String(json.error ?? "Gagal membaca setelan"),
-        });
+        setConfigSinkron({ status: "gagal", waktuMs: null, pesan: "Tidak bisa menghubungi server" });
       }
     } catch (err) {
       console.error("Failed to fetch config:", err);
       setConfigSinkron({ status: "gagal", waktuMs: null, pesan: "Tidak bisa menghubungi server" });
     } finally {
+      balasConfigRef.current = null;
       setConfigLoading(false);
     }
   };
@@ -1878,15 +2082,26 @@ export default function KontrolAdrPage() {
       const res = await fetch("/api/kontrol/track-every", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ site: selectedSite, menit: Number(trackEvery) }),
+        // `mode`/`istirahat` hanya dikirim untuk logger yang terbukti BL1100.
+        // Tanpa itu rute memakai perintah lama (trackEvery saja).
+        body: JSON.stringify(
+          fwIstirahat === true
+            ? { site: selectedSite, mode: trackMode, menit: Number(trackEvery), istirahat: Number(trackRest) }
+            : { site: selectedSite, menit: Number(trackEvery) }
+        ),
       });
       const json = await res.json();
       if (!json.success) return { ok: false, pesan: json.error || "Gagal mengirim jadwal" };
+      const mati =
+        fwIstirahat === true && trackMode === "istirahat"
+          ? Number(trackRest) === 0
+          : Number(trackEvery) === 0;
       return {
         ok: true,
-        pesan:
-          Number(trackEvery) === 0
-            ? "Perintah mematikan jadwal terkirim (tanpa konfirmasi)"
+        pesan: mati
+          ? "Perintah mematikan jadwal terkirim (tanpa konfirmasi)"
+          : fwIstirahat === true && trackMode === "istirahat"
+            ? `Perintah istirahat ${trackRest} menit antar siklus terkirim (tanpa konfirmasi)`
             : `Perintah jadwal tiap ${trackEvery} menit terkirim (tanpa konfirmasi)`,
       };
     } catch (err) {
@@ -1924,7 +2139,12 @@ export default function KontrolAdrPage() {
       validasiRetries(rtsConfig.retries) ||
       validasiCycleTime(rtsConfig.cycleTime) ||
       validasiSearchArea(saHor, saVer) ||
-      validasiTrackEvery(Number(trackEvery));
+      // Hanya aturan milik mode yang sedang dipakai: pada mode istirahat
+      // `trackEvery` diabaikan firmware dan sebaliknya, jadi nilai di mode yang
+      // tidak aktif tidak boleh menggagalkan Simpan.
+      (fwIstirahat === true && trackMode === "istirahat"
+        ? validasiTrackRest(trackRest)
+        : validasiTrackEvery(Number(trackEvery)));
     const cekCustom = validasiSapuanGlobal(sapuCustom);
     if (salah || !cekCustom.ok) {
       setSimpanGalat(salah || (!cekCustom.ok ? cekCustom.galat : ""));
@@ -1934,7 +2154,7 @@ export default function KontrolAdrPage() {
     const kiniConfig = JSON.stringify(rtsConfig);
     const kiniSapuan = `${Number(saHor)}x${Number(saVer)}`;
     const kiniCustom = JSON.stringify(sapuCustom);
-    const kiniJadwal = String(Number(trackEvery));
+    const kiniJadwal = kunciJadwal(fwIstirahat === true, trackMode, trackEvery, trackRest);
 
     const antre: LangkahSimpan[] = [
       {
@@ -2272,6 +2492,14 @@ export default function KontrolAdrPage() {
   const saVerTampil = configSiap ? saVer : "";
   const sapuTampil = configSiap ? sapuCustom : SAPU_KOSONG;
   const trackTampil = configSiap ? trackEvery : "";
+  /** Mode istirahat dipakai hanya kalau loggernya terbukti BL1100. */
+  const modeIstirahat = fwIstirahat === true && trackMode === "istirahat";
+  /**
+   * Jadwal menyala = angka milik mode yang AKTIF bukan 0 (trackEvery untuk jam,
+   * trackRest untuk istirahat). Sebelum disinkronkan tampil mati.
+   */
+  const jadwalAktif =
+    configSiap && (modeIstirahat ? Number(trackRest) > 0 : Number(trackEvery) > 0);
   const retriesSalahTampil = configSiap && retriesSalah;
   const cycleTimeSalahTampil = configSiap && cycleTimeSalah;
   const cekSapuTampil = configSiap ? cekSapuCustom : validasiSapuanGlobal(SAPU_KOSONG);
@@ -2955,12 +3183,14 @@ export default function KontrolAdrPage() {
                       configSinkron.waktuMs !== null
                         ? new Date(configSinkron.waktuMs).toLocaleTimeString("id-ID")
                         : ""
-                    } dari database (setelan terakhir yang dikirim, bukan bacaan langsung instrumen).${
-                      configSinkron.pesan ? ` ${configSinkron.pesan}` : ""
-                    }`
+                    } ${
+                      configSinkron.sumber === "logger"
+                        ? "langsung dari logger (setelan yang berlaku sekarang)."
+                        : "dari database (setelan terakhir yang dikirim, bukan bacaan langsung instrumen)."
+                    }${configSinkron.pesan ? ` ${configSinkron.pesan}` : ""}`
                   : configSinkron.status === "gagal"
                     ? configSinkron.pesan
-                    : "Belum disinkronkan. Tekan Sinkronkan untuk membaca setelan terakhir dari database."}
+                    : "Belum disinkronkan. Tekan Sinkronkan untuk membaca setelan dari logger, atau dari database bila logger tidak menjawab."}
               </span>
               <button
                 type="button"
@@ -3414,31 +3644,161 @@ export default function KontrolAdrPage() {
                   <Timer className="size-3.5" /> Jadwal AutoTracking
                 </legend>
                 <div className="rounded-[10px] border border-dashed border-(--line) px-3.5 py-3">
-                  <div className="grid grid-cols-2 items-end gap-3">
-                    <div>
-                      <label htmlFor="cfg-track-every" className={LABEL}>
-                        Setiap
-                      </label>
-                      <select
-                        id="cfg-track-every"
-                        value={trackTampil}
-                        onChange={(e) => setTrackEvery(e.target.value)}
-                        className={cn(INPUT, "font-mono tabular-nums")}
-                      >
-                        {NILAI_TRACK_EVERY.map((n) => (
-                          <option key={n} value={String(n)}>
-                            {n === 0 ? "Mati" : `${n} menit`}
-                          </option>
+                  {/* Pilihan mode hanya untuk logger yang terbukti BL1100
+                      (get_config-nya melaporkan trackMode). Firmware lain tidak
+                      mengenal `trackMode`/`trackRest` dan mengabaikannya TANPA
+                      balasan, jadi menampilkannya di sana menjanjikan sesuatu
+                      yang tidak akan pernah terjadi.
+
+                      Beda keduanya: "jam" mengacu jam dinding (menit sejak
+                      00:00 habis dibagi interval), "istirahat" mengacu SELESAINYA
+                      siklus — lama siklus berubah-ubah, jam mulainya ikut
+                      bergeser, istirahatnya yang tetap. */}
+                  {fwIstirahat === true && (
+                    <div className="mb-3">
+                      <span className={LABEL}>Mode jadwal</span>
+                      <div role="radiogroup" aria-label="Mode jadwal" className="mt-1 grid grid-cols-2 gap-2">
+                        {(
+                          [
+                            ["jam", "Jam dinding", "Tiap N menit sesuai jam"],
+                            ["istirahat", "Istirahat antar siklus", "N menit setelah siklus selesai"],
+                          ] as const
+                        ).map(([nilai, judul, ket]) => (
+                          <button
+                            key={nilai}
+                            type="button"
+                            role="radio"
+                            aria-checked={trackMode === nilai}
+                            onClick={() => setTrackMode(nilai)}
+                            className={cn(
+                              "rounded-[10px] border px-3 py-2 text-left outline-none transition-colors focus-visible:ring-2 focus-visible:ring-(--navy)/40",
+                              trackMode === nilai
+                                ? "border-(--navy) bg-(--navy)/5"
+                                : "border-(--line) hover:bg-(--paper)"
+                            )}
+                          >
+                            <span className="block text-[12.5px] font-semibold text-(--ink)">{judul}</span>
+                            <span className="block text-[11px] text-(--ink-2)">{ket}</span>
+                          </button>
                         ))}
-                      </select>
+                      </div>
                     </div>
+                  )}
+
+                  {/* Sakelar hanya cara lain memilih "Mati" (0) atau sebuah
+                      nilai. Pada mode jam menitnya dibatasi nilai yang diterima
+                      firmware (error_trackEvery); pada mode istirahat bebas
+                      bilangan bulat 1–1440 (error_trackRest). */}
+                  <div className="flex items-center justify-between gap-3">
+                    <div>
+                      <p id="cfg-track-aktif-label" className="text-[13px] font-semibold text-(--ink)">
+                        Jadwal otomatis
+                      </p>
+                      <p className="mt-0.5 text-[11.5px] text-(--ink-2)">
+                        {jadwalAktif
+                          ? modeIstirahat
+                            ? "Siklus berikutnya jalan setelah istirahat, dihitung dari selesainya siklus"
+                            : "Siklus AutoTracking berjalan sendiri sesuai interval"
+                          : "Mati: siklus hanya berjalan saat dimulai operator"}
+                      </p>
+                    </div>
+                    <button
+                      type="button"
+                      role="switch"
+                      aria-checked={jadwalAktif}
+                      aria-labelledby="cfg-track-aktif-label"
+                      onClick={() => {
+                        if (modeIstirahat) {
+                          if (jadwalAktif) {
+                            setTrackRestTerakhir(trackRest);
+                            setTrackRest("0");
+                          } else {
+                            setTrackRest(trackRestTerakhir);
+                          }
+                        } else if (jadwalAktif) {
+                          setTrackTerakhir(trackEvery);
+                          setTrackEvery("0");
+                        } else {
+                          setTrackEvery(trackTerakhir);
+                        }
+                      }}
+                      className={cn(
+                        "relative inline-flex h-6 w-11 shrink-0 cursor-pointer items-center rounded-full outline-none transition-colors focus-visible:ring-2 focus-visible:ring-(--navy)/40",
+                        jadwalAktif ? "bg-(--navy)" : "bg-(--ink-3)/40"
+                      )}
+                    >
+                      <span
+                        aria-hidden="true"
+                        className={cn(
+                          "pointer-events-none inline-block size-5 transform rounded-full bg-white shadow transition",
+                          jadwalAktif ? "translate-x-[22px]" : "translate-x-0.5"
+                        )}
+                      />
+                    </button>
                   </div>
+
+                  {jadwalAktif && !modeIstirahat && (
+                    <div className="mt-3 grid grid-cols-2 items-end gap-3">
+                      <div>
+                        <label htmlFor="cfg-track-every" className={LABEL}>
+                          Setiap
+                        </label>
+                        <select
+                          id="cfg-track-every"
+                          value={trackTampil}
+                          onChange={(e) => setTrackEvery(e.target.value)}
+                          className={cn(INPUT, "font-mono tabular-nums")}
+                        >
+                          {NILAI_TRACK_EVERY.filter((n) => n > 0).map((n) => (
+                            <option key={n} value={String(n)}>
+                              {n} menit
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                    </div>
+                  )}
+
+                  {jadwalAktif && modeIstirahat && (
+                    <div className="mt-3 grid grid-cols-2 items-end gap-3">
+                      <div>
+                        <label htmlFor="cfg-track-rest" className={LABEL}>
+                          Istirahat <span className="font-normal text-(--ink-3)">menit</span>
+                        </label>
+                        <input
+                          id="cfg-track-rest"
+                          type="number"
+                          min={RENTANG_TRACK_REST_MENIT.min + 1}
+                          max={RENTANG_TRACK_REST_MENIT.maks}
+                          step={1}
+                          value={configSiap ? trackRest : ""}
+                          onChange={(e) => setTrackRest(e.target.value)}
+                          className={cn(INPUT, "font-mono tabular-nums")}
+                        />
+                      </div>
+                    </div>
+                  )}
+                  {jadwalAktif && modeIstirahat && validasiTrackRest(trackRest) && (
+                    <p className="mt-2 text-[12px] font-medium text-(--st-awas)">
+                      {validasiTrackRest(trackRest)}
+                    </p>
+                  )}
+                  {modeIstirahat && trackSisaDetik !== null && (
+                    <p className="mt-2 text-[12px] text-(--ink-2)">
+                      Siklus berikutnya sekitar{" "}
+                      <span className="font-mono font-semibold tabular-nums text-(--ink)">
+                        {Math.ceil(trackSisaDetik / 60)}
+                      </span>{" "}
+                      menit lagi{" "}
+                      <span className="text-(--ink-3)">(dibaca dari logger saat Sinkronkan)</span>
+                    </p>
+                  )}
 
                   {/* Siklus yang lebih lama dari intervalnya MELEWATKAN jadwal
                       berikutnya, bukan menumpuknya — tidak ada utang jadwal
                       yang dibayar belakangan. Diperingatkan memakai jumlah
                       target yang benar-benar terdaftar, bukan angka karangan. */}
-                  {jadwalTerlewat(Number(trackTampil), totalPrisma) && (
+                  {!modeIstirahat && jadwalTerlewat(Number(trackTampil), totalPrisma) && (
                     <p className="mt-2.5 flex items-center gap-2 text-[12px] text-amber-900">
                       <AlertTriangle className="size-4 shrink-0 text-amber-600" />
                       {totalPrisma} target &gt; {trackTampil} menit, jadwal bertabrakan dilewati

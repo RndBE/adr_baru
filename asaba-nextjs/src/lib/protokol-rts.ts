@@ -1728,3 +1728,198 @@ export function bacaGalatSapuanGlobal(data: unknown): string | null {
   }
   return galat.length ? galat.join("; ") : null;
 }
+
+// ── get_config — baca setelan TANPA mengubah apa pun (BL1100) ────────────────
+//
+//   {"set_30002":{"command":"set_rts","get_config":true}}
+//   → {"RTSConfig":{"jobName":"Demo","prismConst":"30","tsHigh":"10",
+//        "locCoor":["464232.796","9749253.947","38.813"],"autoSearch":false,
+//        "SearchArea":{"horizontal":1.5,"vertical":1.5},
+//        "stepRecord":2,"retries":1,"cycleTime":3000,
+//        "trackEvery":0,"trackMode":"jam","trackRest":0,"trackSisa":-1,
+//        "hibernate":"Deactive","formatSudut":"desimal",
+//        "SapuCustom":{"langkahHA":1,"langkahVA":2,"rentangHA":1,"rentangVA":2,"rehat":5000},
+//        "versi":"2026.09.26"}}
+//
+// Hanya firmware BL1100 (ADR_RTS_CONFIG_DAN_JADWAL_ISTIRAHAT.md §2.2). Logger
+// Arduino TIDAK membalas sama sekali, jadi diam bukan bukti kegagalan jaringan —
+// pemanggil wajib punya batas waktu dan jatuh ke nilai tersimpan di server.
+//
+// Dibalas juga saat RTS sedang dipakai atau mati: nilainya dipegang logger,
+// bukan instrumen. Karena itu satu-satunya hal yang menentukan apakah form bisa
+// diisi dari alat adalah loggernya menjawab atau tidak.
+//
+// SATUAN beda dengan masukan `set_rts`:
+//   SearchArea.horizontal/vertical   derajat
+//   SapuCustom.langkah*/rentang*     DETIK BUSUR (masukannya derajat atau "d,m,s")
+//   cycleTime, SapuCustom.rehat      milidetik
+//   trackEvery, trackRest            menit
+//   trackSisa                        detik; -1 = tidak sedang dihitung
+
+/** Ubah detik busur ke teks "d,mm,ss" yang diterima `set_rts` dan form. */
+export function detikBusurKeDms(detik: number): string {
+  const total = Math.round(detik * 100) / 100;
+  const d = Math.floor(total / 3600);
+  const m = Math.floor((total % 3600) / 60);
+  const s = Math.round((total - d * 3600 - m * 60) * 100) / 100;
+  const dua = (n: number) => (n < 10 ? `0${n}` : String(n));
+  return `${d},${dua(m)},${dua(s)}`;
+}
+
+export type BalasanRtsConfig = {
+  /** false = bukan balasan get_config; semua medan lain kosong. */
+  ada: boolean;
+  jobName: string;
+  prismConst: string;
+  tsHigh: string;
+  /** locCoor[0] — dikirim sebagai coor_x, kolom yang berisi Northing. */
+  coordX: string;
+  coordY: string;
+  coordZ: string;
+  stepRecord: string;
+  retries: string;
+  /** Milidetik. */
+  cycleTime: string;
+  /** null = medan tidak ada di balasan. */
+  autoSearch: boolean | null;
+  /** Derajat; null = tidak ada. */
+  searchAreaHor: number | null;
+  searchAreaVer: number | null;
+  trackEvery: number | null;
+  /** Hanya BL1100 yang punya; null = firmware tidak melaporkannya. */
+  trackMode: "jam" | "istirahat" | null;
+  trackRest: number | null;
+  /** Detik tersisa; null kalau tidak dihitung (-1) atau tidak ada. */
+  trackSisaDetik: number | null;
+  /** Sudah dalam bentuk "d,mm,ss", siap masuk form. Kosong = tidak ada. */
+  sapuLangkahHA: string;
+  sapuLangkahVA: string;
+  sapuRentangHA: string;
+  sapuRentangVA: string;
+  sapuRehat: string;
+  versi: string;
+};
+
+const KOSONG_RTS_CONFIG: BalasanRtsConfig = {
+  ada: false,
+  jobName: "",
+  prismConst: "",
+  tsHigh: "",
+  coordX: "",
+  coordY: "",
+  coordZ: "",
+  stepRecord: "",
+  retries: "",
+  cycleTime: "",
+  autoSearch: null,
+  searchAreaHor: null,
+  searchAreaVer: null,
+  trackEvery: null,
+  trackMode: null,
+  trackRest: null,
+  trackSisaDetik: null,
+  sapuLangkahHA: "",
+  sapuLangkahVA: "",
+  sapuRentangHA: "",
+  sapuRentangVA: "",
+  sapuRehat: "",
+  versi: "",
+};
+
+/**
+ * Baca isi `{"RTSConfig":{...}}`. Terima `data.RTSConfig` (bagian dalam).
+ *
+ * Medan yang tidak ada dibiarkan kosong/null, BUKAN diisi angka bawaan: form
+ * yang terisi nilai karangan tampak seperti bacaan alat padahal bukan.
+ */
+export function bacaBalasanRtsConfig(paket: unknown): BalasanRtsConfig {
+  if (paket === null || typeof paket !== "object" || Array.isArray(paket)) return KOSONG_RTS_CONFIG;
+  const o = paket as Record<string, unknown>;
+
+  const teks = (v: unknown) => (v === undefined || v === null ? "" : String(v));
+  const angka = (v: unknown): number | null => {
+    if (v === undefined || v === null || v === "") return null;
+    const n = Number(v);
+    return Number.isFinite(n) ? n : null;
+  };
+
+  const loc = Array.isArray(o.locCoor) ? o.locCoor : [];
+
+  const area =
+    o.SearchArea !== null && typeof o.SearchArea === "object"
+      ? bacaBalasanSearchArea(o.SearchArea)
+      : null;
+
+  const sapu =
+    o.SapuCustom !== null && typeof o.SapuCustom === "object"
+      ? (o.SapuCustom as Record<string, unknown>)
+      : {};
+  const sudut = (v: unknown) => {
+    const n = angka(v);
+    return n === null ? "" : detikBusurKeDms(n);
+  };
+
+  const mode = teks(o.trackMode);
+  const sisa = angka(o.trackSisa);
+
+  return {
+    ada: true,
+    jobName: teks(o.jobName),
+    prismConst: teks(o.prismConst),
+    tsHigh: teks(o.tsHigh),
+    coordX: teks(loc[0]),
+    coordY: teks(loc[1]),
+    coordZ: teks(loc[2]),
+    stepRecord: teks(o.stepRecord),
+    retries: teks(o.retries),
+    cycleTime: teks(o.cycleTime),
+    autoSearch: o.autoSearch === undefined ? null : bacaAutoSearch(o.autoSearch),
+    searchAreaHor: area?.ada ? area.horizontal : null,
+    searchAreaVer: area?.ada ? area.vertical : null,
+    trackEvery: angka(o.trackEvery),
+    trackMode: mode === "jam" || mode === "istirahat" ? mode : null,
+    trackRest: angka(o.trackRest),
+    trackSisaDetik: sisa !== null && sisa >= 0 ? sisa : null,
+    sapuLangkahHA: sudut(sapu.langkahHA),
+    sapuLangkahVA: sudut(sapu.langkahVA),
+    sapuRentangHA: sudut(sapu.rentangHA),
+    sapuRentangVA: sudut(sapu.rentangVA),
+    sapuRehat: teks(sapu.rehat),
+    versi: teks(o.versi),
+  };
+}
+
+// ── trackMode / trackRest — jadwal "istirahat" (hanya BL1100) ────────────────
+//
+//   {"set_30002":{"command":"set_rts","trackMode":"istirahat","trackRest":3}}
+//
+// `trackRest` = lama istirahat ANTAR siklus AutoTracking, dalam menit, dihitung
+// dari SELESAINYA siklus — bukan dari jam dinding seperti `trackEvery`. Jangan
+// tertukar dengan `rehat` (milidetik): itu jeda antar TITIK ukur di sapuan
+// custom. `trackMode` diproses sebelum `trackRest`; pada mode `istirahat`,
+// `trackEvery` diabaikan dan sebaliknya.
+//
+// Logger yang belum BL1100 mengabaikan kedua kunci tanpa balasan.
+
+export const MODE_JADWAL = ["jam", "istirahat"] as const;
+export type ModeJadwal = (typeof MODE_JADWAL)[number];
+export const RENTANG_TRACK_REST_MENIT = { min: 0, maks: 1440 };
+
+export function validasiTrackRest(v: unknown): string | null {
+  const n = Number(v);
+  if (
+    v === "" ||
+    v === null ||
+    v === undefined ||
+    !Number.isInteger(n) ||
+    n < RENTANG_TRACK_REST_MENIT.min ||
+    n > RENTANG_TRACK_REST_MENIT.maks
+  ) {
+    return `Istirahat: bilangan bulat ${RENTANG_TRACK_REST_MENIT.min} sampai ${RENTANG_TRACK_REST_MENIT.maks} menit (0 = mati)`;
+  }
+  return null;
+}
+
+export function validasiModeJadwal(v: unknown): string | null {
+  return (MODE_JADWAL as readonly unknown[]).includes(v) ? null : "Mode jadwal harus jam atau istirahat";
+}

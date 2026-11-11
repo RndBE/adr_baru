@@ -67,6 +67,10 @@ import {
   buatPayloadSapuanGlobal,
   bacaGalatSapuanGlobal,
   KUNCI_SAPUAN_GLOBAL,
+  bacaBalasanRtsConfig,
+  detikBusurKeDms,
+  validasiTrackRest,
+  validasiModeJadwal,
 } from "../src/lib/protokol-rts";
 
 let lulus = 0;
@@ -1094,6 +1098,92 @@ periksa("tanpa galat → null", bacaGalatSapuanGlobal({ updated: ["rehat"], set_
 periksa("kunci error lain diabaikan", bacaGalatSapuanGlobal({ error_trackEvery: "x" }), null);
 periksa("bukan objek → null", bacaGalatSapuanGlobal("error_rehat"), null);
 periksa("null → null", bacaGalatSapuanGlobal(null), null);
+
+// ── get_config → {"RTSConfig":{...}} (BL1100) ────────────────────────────────
+// Contoh persis dari ADR_RTS_CONFIG_DAN_JADWAL_ISTIRAHAT.md §2.2.
+const CONTOH_RTS_CONFIG = {
+  jobName: "Demo",
+  prismConst: "30",
+  tsHigh: "10",
+  locCoor: ["464232.796", "9749253.947", "38.813"],
+  autoSearch: false,
+  SearchArea: { horizontal: 1.5, vertical: 1.5 },
+  stepRecord: 2,
+  retries: 1,
+  cycleTime: 3000,
+  trackEvery: 0,
+  trackMode: "jam",
+  trackRest: 0,
+  trackSisa: -1,
+  hibernate: "Deactive",
+  formatSudut: "desimal",
+  SapuCustom: { langkahHA: 30, langkahVA: 30, rentangHA: 300, rentangVA: 300, rehat: 5000 },
+  versi: "2026.09.26",
+};
+{
+  const c = bacaBalasanRtsConfig(CONTOH_RTS_CONFIG);
+  periksa("RTSConfig dikenali", c.ada, true);
+  periksa("job + konstanta + tinggi", [c.jobName, c.prismConst, c.tsHigh], ["Demo", "30", "10"]);
+  periksa(
+    "locCoor[0..2] → coordX/Y/Z",
+    [c.coordX, c.coordY, c.coordZ],
+    ["464232.796", "9749253.947", "38.813"]
+  );
+  periksa("stepRecord/retries/cycleTime jadi teks", [c.stepRecord, c.retries, c.cycleTime], ["2", "1", "3000"]);
+  periksa("autoSearch false TIDAK jatuh ke bawaan true", c.autoSearch, false);
+  periksa("SearchArea dalam derajat", [c.searchAreaHor, c.searchAreaVer], [1.5, 1.5]);
+  periksa(
+    "jadwal: trackEvery/mode/istirahat",
+    [c.trackEvery, c.trackMode, c.trackRest],
+    [0, "jam", 0]
+  );
+  periksa("trackSisa -1 = tidak dihitung", c.trackSisaDetik, null);
+  // Satuan: balasan dalam DETIK BUSUR, form dalam d,mm,ss.
+  periksa("30″ → 0,00,30", c.sapuLangkahHA, "0,00,30");
+  periksa("300″ → 0,05,00", c.sapuRentangHA, "0,05,00");
+  periksa("rehat tetap milidetik", c.sapuRehat, "5000");
+  periksa("versi", c.versi, "2026.09.26");
+}
+periksa("3600″ → 1,00,00", detikBusurKeDms(3600), "1,00,00");
+periksa("3725″ → 1,02,05", detikBusurKeDms(3725), "1,02,05");
+periksa("1″ → 0,00,01", detikBusurKeDms(1), "0,00,01");
+periksa("0,5″ tidak dibulatkan ke 1", detikBusurKeDms(0.5), "0,00,00.5");
+periksa(
+  "hasil konversi lolos validasi sapuan",
+  validasiSapuanGlobal({ langkahHA: detikBusurKeDms(30), rentangHA: detikBusurKeDms(300) }).ok,
+  true
+);
+
+periksa("RTSConfig bukan objek → tidak ada", bacaBalasanRtsConfig("x").ada, false);
+periksa("RTSConfig null → tidak ada", bacaBalasanRtsConfig(null).ada, false);
+periksa("RTSConfig array → tidak ada", bacaBalasanRtsConfig([]).ada, false);
+{
+  // Medan yang tak dilaporkan dibiarkan kosong, bukan diisi nilai karangan.
+  const c = bacaBalasanRtsConfig({ jobName: "X" });
+  periksa("medan hilang: autoSearch null", c.autoSearch, null);
+  periksa("medan hilang: mode null (bukan BL1100)", c.trackMode, null);
+  periksa("medan hilang: sapuan kosong", c.sapuLangkahHA, "");
+  periksa("medan hilang: SearchArea null", c.searchAreaHor, null);
+}
+periksa("mode asing diabaikan", bacaBalasanRtsConfig({ trackMode: "acak" }).trackMode, null);
+periksa(
+  "mode istirahat + sisa terbaca",
+  (({ trackMode, trackRest, trackSisaDetik }) => [trackMode, trackRest, trackSisaDetik])(
+    bacaBalasanRtsConfig({ trackMode: "istirahat", trackRest: 3, trackSisa: 142 })
+  ),
+  ["istirahat", 3, 142]
+);
+
+// ── trackRest / trackMode ─────────────────────────────────────────────────────
+periksa("istirahat 0 sah (mati)", validasiTrackRest(0), null);
+periksa("istirahat 1440 sah", validasiTrackRest(1440), null);
+periksa("istirahat 1441 ditolak", validasiTrackRest(1441) !== null, true);
+periksa("istirahat -1 ditolak", validasiTrackRest(-1) !== null, true);
+periksa("istirahat pecahan ditolak", validasiTrackRest(2.5) !== null, true);
+periksa("istirahat kosong ditolak (bukan 0)", validasiTrackRest("") !== null, true);
+periksa("mode jam sah", validasiModeJadwal("jam"), null);
+periksa("mode istirahat sah", validasiModeJadwal("istirahat"), null);
+periksa("mode asing ditolak", validasiModeJadwal("acak") !== null, true);
 
 console.log(`\n${gagal === 0 ? "✅" : "❌"} ${lulus} lulus, ${gagal} gagal`);
 process.exit(gagal === 0 ? 0 : 1);

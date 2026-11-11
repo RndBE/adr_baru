@@ -464,6 +464,12 @@ model ConfigAdr {
   sapu_rentang_ha String? @db.VarChar(16)
   sapu_rentang_va String? @db.VarChar(16)
   sapu_rehat      Int?
+  /// Mode jadwal AutoTracking BL1100: 'jam' (trackEvery) atau 'istirahat'
+  /// (trackRest). NULL = belum pernah dikirim ke logger BL1100. Catatan
+  /// "terakhir dikirim", bukan bukti keadaan instrumen; lihat migrasi 020.
+  /// track_rest dalam MENIT — beda dari sapu_rehat (milidetik).
+  track_mode      String? @db.VarChar(10)
+  track_rest      Int?
   /// Konfigurasi RTS bersifat per-site, bukan per-logger: satu unit RTS bisa
   /// dipakai di beberapa site dengan job name dan titik origin yang berbeda.
   ///
