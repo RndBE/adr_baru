@@ -43,6 +43,9 @@ npx tsx src/lib/grafik-ke-png.test.ts        # var(--...) diselesaikan sebelum S
 npx tsx src/components/visualisasi-3d/basemap.test.ts  # georeferensi ortofoto di scene 3D
 npx tsx src/components/peta-arah.test.ts     # arah panah pergeseran di peta
 npx tsx src/lib/koreksi-azimut.test.ts      # perbaikan azimut koordinat tembakan RTS
+npx tsx src/lib/payload-sensor.test.ts      # tolak sensor berisi teks objek (map[...])
+npx tsx src/lib/payload-beacon.test.ts      # format Beacon -> payload datar /api/datamasuk/adr-json
+npx tsx src/lib/kunci-api.test.ts           # X-API-Key adr-json
 npx tsx scripts/regresi-protokol-rts.ts     # same style, protocol regression suite
 npx tsx scripts/regresi-balasan-logger.ts
 npx tsx scripts/regresi-site.ts
@@ -79,7 +82,12 @@ Full procedure and the pitfalls that have already bitten: `be-server/docs/server
 
 - `sub_<idAlat>` — commands, published by the Next.js server (`topikPerintah()`).
 - `pub_<idAlat>` — command replies, subscribed to **directly by the browser over WSS** (`topikBalasan()`). See `src/app/(dashboard)/kontrol-adr/page.tsx`.
-- `Logger_<idAlat>` — periodic measurement data. A **separate bridge service** subscribes and POSTs to `/api/datamasuk/adr`. This app never subscribes to it.
+- `Logger_<idAlat>` — periodic measurement data. A **separate bridge service** (`gomqtt-server` on the MQTT host, routed per logger by `t_logger` in `db_mqttserver`) subscribes and POSTs to `/api/datamasuk/adr`. This app never subscribes to it.
+
+There are two ingest doors, sharing one processing function (`src/lib/datamasuk-adr.ts`):
+
+- `/api/datamasuk/adr` — the legacy flat shape (`id_alat`, `tanggal`, `jam`, `sensor1`..`sensor25` as plain values), form or JSON, straight from the bridge. No auth.
+- `/api/datamasuk/adr-json` — the Beacon shape (`hari`, `jam`, `sensorN: {nama, nilai, satuan}`), for a logger registered on be-stesy.cloud whose Integration forwards the device payload unchanged. `src/lib/payload-beacon.ts` takes `nilai` per slot 1–25 (same slot order as the legacy shape) and ignores 26+. Requires header `X-API-Key` = env `DATAMASUK_ADR_JSON_KEY`; an unset key rejects everything with 503 rather than leaving the door open.
 
 So control commands are fire-and-forget on the server side; the UI learns the outcome from its own MQTT subscription, not from the HTTP response. Command payloads are always shaped `{ "set_<idLogger>": { command: "set_rts", ... } }`.
 
