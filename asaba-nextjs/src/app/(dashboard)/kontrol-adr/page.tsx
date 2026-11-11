@@ -1312,6 +1312,12 @@ export default function KontrolAdrPage() {
   }>({ status: "belum", waktuMs: null, pesan: "" });
   const [konfirmasiConfig, setKonfirmasiConfig] = useState<KonfirmasiConfig | null>(null);
   /**
+   * Operator menekan Simpan saat logger terputus dan sedang ditanya apakah tetap
+   * mau mengirim. Hanya berlaku selama loggernya MEMANG masih terputus —
+   * `perluKonfirmasiOffline` di bawah menggugurkannya kalau koneksi pulih.
+   */
+  const [konfirmasiOffline, setKonfirmasiOffline] = useState(false);
+  /**
    * Nilai yang BARU SAJA dikirim, disimpan di ref supaya bisa dibaca handler
    * MQTT. Handler itu dipasang sekali dengan dependency [] sehingga ia menutup
    * (closure) nilai render pertama — membaca `rtsConfig` dari sana akan selalu
@@ -1602,6 +1608,7 @@ export default function KontrolAdrPage() {
     setLangkahSimpan(null);
     setSimpanGalat("");
     setConfigSinkron({ status: "belum", waktuMs: null, pesan: "" });
+    setKonfirmasiOffline(false);
 
     // Rentang sapuan dan jadwal kembali dianggap BELUM DIKETAHUI tiap kali
     // modal dibuka. Instrumen bisa saja dimatikan di antara dua kali buka, dan
@@ -2008,6 +2015,30 @@ export default function KontrolAdrPage() {
       langkahAktifRef.current = null;
     }
   };
+
+  /**
+   * Pintu masuk tombol Simpan. Logger yang terputus tidak menghentikan Simpan,
+   * tapi operator harus tahu apa artinya:
+   *
+   *   - Setelan job tersimpan di database dan dikirim ulang ke instrumen tiap
+   *     alat menyala, jadi menyimpan saat offline tidak sia-sia.
+   *   - Rentang sapuan, jadwal, dan sapuan custom HANYA lewat MQTT (qos 0, tanpa
+   *     antrean). Perintah yang terbit ke logger yang tidak mendengar hilang
+   *     begitu saja, dan tampilan baru ketahuan setelah menunggu ack sampai habis.
+   *
+   * `isConnected` memakai jendela satu jam (lihat BATAS_DATA_SEGAR_MS), jadi
+   * logger yang baru putus beberapa menit masih tampak terhubung. Ini peringatan
+   * dini, bukan bukti pengiriman — buktinya tetap ack instrumen.
+   */
+  const tekanSimpan = () => {
+    if (!isConnected && !konfirmasiOffline) {
+      setKonfirmasiOffline(true);
+      return;
+    }
+    setKonfirmasiOffline(false);
+    void simpanSemua();
+  };
+  const perluKonfirmasiOffline = konfirmasiOffline && !isConnected;
 
   // Daftar prisma DIBATASI per site. Nomor slot (P1, P2, …) dipakai ulang di
   // tiap site dan menunjuk target fisik yang berbeda, jadi tanpa scope ini
@@ -2947,13 +2978,19 @@ export default function KontrolAdrPage() {
           }
           ikon={<Settings2 className="size-4.5" />}
           lebar="max-w-[600px]"
-          onClose={() => setShowRtsConfig(false)}
+          onClose={() => {
+            setKonfirmasiOffline(false);
+            setShowRtsConfig(false);
+          }}
           bisaDitutup={!simpanJalan}
           footer={
             <>
               <button
                 type="button"
-                onClick={() => setShowRtsConfig(false)}
+                onClick={() => {
+                  setKonfirmasiOffline(false);
+                  setShowRtsConfig(false);
+                }}
                 disabled={simpanJalan}
                 className={TOMBOL_SEKUNDER}
               >
@@ -2965,7 +3002,7 @@ export default function KontrolAdrPage() {
                   membuat balasan instrumen saling menyusul. */}
               <button
                 type="button"
-                onClick={simpanSemua}
+                onClick={tekanSimpan}
                 disabled={simpanJalan || configLoading || configSinkron.status !== "ok"}
                 className={TOMBOL_UTAMA}
               >
@@ -2973,6 +3010,8 @@ export default function KontrolAdrPage() {
                   <>
                     <Loader2 className="size-4 animate-spin" /> Menyimpan…
                   </>
+                ) : perluKonfirmasiOffline ? (
+                  "Tetap simpan"
                 ) : (
                   "Simpan"
                 )}
@@ -2980,6 +3019,36 @@ export default function KontrolAdrPage() {
             </>
           }
         >
+          {/* Logger terputus: peringatan tetap tampil selama modal terbuka, bukan
+              hanya saat Simpan ditekan — operator perlu tahu SEBELUM mengisi.
+              Berubah nada (merah) begitu Simpan ditekan dan menunggu konfirmasi. */}
+          {!isConnected && selectedSite && (
+            <div
+              role="alert"
+              className={cn(
+                "mb-4 flex gap-2.5 rounded-[10px] border px-3.5 py-2.5 text-[12.5px] leading-relaxed",
+                perluKonfirmasiOffline
+                  ? "border-(--st-awas) bg-(--st-awas)/10 text-(--ink)"
+                  : "border-amber-200 bg-amber-50 text-amber-900"
+              )}
+            >
+              <AlertTriangle
+                className={cn(
+                  "mt-px size-4 shrink-0",
+                  perluKonfirmasiOffline ? "text-(--st-awas)" : "text-amber-600"
+                )}
+              />
+              <span>
+                <span className="font-semibold">Logger terputus.</span>{" "}
+                {lastUpdate
+                  ? `Data terakhir masuk ${fmtWaktu(lastUpdate, { detik: true })}.`
+                  : "Belum ada data yang masuk."}{" "}
+                {perluKonfirmasiOffline
+                  ? "Setelan job tetap tersimpan di server dan dikirim ulang saat alat menyala. Rentang sapuan, jadwal, dan sapuan custom hanya lewat MQTT dan bisa hilang kalau logger tidak mendengar. Tekan “Tetap simpan” untuk melanjutkan."
+                  : "Perintah yang dikirim sekarang kemungkinan tidak sampai ke instrumen."}
+              </span>
+            </div>
+          )}
           {configLoading ? (
             <div className="flex items-center justify-center gap-2 py-10 text-[13px] text-(--ink-3)">
               <Loader2 className="size-5 animate-spin text-(--navy)" />
