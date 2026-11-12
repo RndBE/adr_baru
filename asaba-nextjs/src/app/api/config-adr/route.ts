@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { sendRtsConfig } from "@/lib/mqtt";
 import { validasiRetries, validasiCycleTime, bacaAutoSearch } from "@/lib/protokol-rts";
+import { hitungStepRecord } from "@/lib/step-record-db";
 
 /**
  * GET /api/config-adr?site=xxx
@@ -35,7 +36,12 @@ export async function GET(request: NextRequest) {
       );
     }
 
-    return NextResponse.json({ success: true, data: rows[0] });
+    // Step record yang SEHARUSNYA, dari slot Prism Config. RTS Config
+    // menampilkannya menggantikan angka tersimpan, supaya selisih dengan
+    // logger terlihat dan ikut terkirim saat Simpan.
+    const slot = await hitungStepRecord(prisma, site);
+
+    return NextResponse.json({ success: true, data: rows[0], step_record_slot: slot });
   } catch (error) {
     console.error("[GET /api/config-adr]", error);
     return NextResponse.json(
@@ -56,7 +62,6 @@ export async function PUT(request: Request) {
       coor_x,
       coor_y,
       coor_z,
-      step_record,
       retries,
       cycle_time,
     } = body;
@@ -90,6 +95,12 @@ export async function PUT(request: Request) {
     if (salah.length) {
       return NextResponse.json({ success: false, error: salah.join(". ") }, { status: 400 });
     }
+
+    // stepRecord mengikuti slot Prism Config, bukan isian form. Hanya saat
+    // site belum punya slot sama sekali angka dari form yang dipakai (0 tidak
+    // dikirim — lihat catatStepRecord).
+    const slot = await hitungStepRecord(prisma, site);
+    const step_record = slot.jumlah > 0 ? String(slot.jumlah) : body.step_record;
 
     const existing = await prisma.$queryRaw<Array<{ id: number; id_logger: number }>>`
       SELECT id, id_logger FROM config_adr WHERE site = ${site} LIMIT 1
@@ -201,6 +212,7 @@ export async function PUT(request: Request) {
       mqtt_sent: mqttSent,
       site,
       id_logger: loggerId,
+      step_record: parseInt(step_record) || 5,
       peringatan: originBeda
         ? [
             `Titik origin yang dikirim ke RTS berbeda dari koordinat referensi site ` +

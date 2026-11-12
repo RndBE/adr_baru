@@ -103,6 +103,7 @@ import {
   type BalasanRtsConfig,
   type ModeJadwal,
 } from "@/lib/protokol-rts";
+import type { RencanaStepRecord } from "@/lib/step-record";
 
 // ── Pemberitahuan perintah ────────────────────────────────────────────────────
 type PowerAlert = {
@@ -420,6 +421,18 @@ type RtsConfig = {
    */
   autoSearch: boolean;
 };
+
+/**
+ * Step record dari slot Prism Config (`step_record_slot` di GET
+ * /api/config-adr), sebagai isian form. null = site belum punya slot, jadi
+ * kolomnya tetap diisi tangan.
+ */
+function stepDariSlot(slot: RencanaStepRecord | null | undefined): string | null {
+  return slot && slot.jumlah > 0 ? String(slot.jumlah) : null;
+}
+
+/** Slot Prism Config beserta angka yang dibaca dari logger/database. */
+type StepSlot = RencanaStepRecord & { tersimpan: string; sumber: "logger" | "database" };
 
 // --- Jadwal Schedules Type ---
 /** Satu baris `scheduling_task` seperti dikembalikan GET /api/scheduling. */
@@ -1359,6 +1372,8 @@ export default function KontrolAdrPage() {
    * yang sama dengan ackConfigRef.
    */
   const balasConfigRef = useRef<((c: BalasanRtsConfig) => void) | null>(null);
+  /** Diisi Sinkronkan. null = site tanpa slot: step record diketik tangan. */
+  const [stepSlot, setStepSlot] = useState<StepSlot | null>(null);
   const [konfirmasiConfig, setKonfirmasiConfig] = useState<KonfirmasiConfig | null>(null);
   /**
    * Nilai yang BARU SAJA dikirim, disimpan di ref supaya bisa dibaca handler
@@ -1651,6 +1666,7 @@ export default function KontrolAdrPage() {
     setLangkahSimpan(null);
     setSimpanGalat("");
     setConfigSinkron({ status: "belum", waktuMs: null, pesan: "" });
+    setStepSlot(null);
 
     // Rentang sapuan dan jadwal kembali dianggap BELUM DIKETAHUI tiap kali
     // modal dibuka. Instrumen bisa saja dimatikan di antara dua kali buka, dan
@@ -1713,8 +1729,14 @@ export default function KontrolAdrPage() {
     return menunggu;
   };
 
-  /** Isi seluruh form dari balasan logger. Kolom yang tak dilaporkan tidak disentuh. */
-  const isiDariLogger = (c: BalasanRtsConfig) => {
+  /**
+   * Isi seluruh form dari balasan logger. Kolom yang tak dilaporkan tidak disentuh.
+   *
+   * Step record di form diganti jumlah slot Prism Config, tapi dasarnya tetap
+   * angka logger: kalau keduanya beda, Simpan melihat perubahan dan
+   * mengirimnya, bukan melewatinya sebagai "tidak diubah".
+   */
+  const isiDariLogger = (c: BalasanRtsConfig, slot: RencanaStepRecord | null) => {
     const dimuat = {
       jobName:     c.jobName,
       prismaConst: c.prismConst,
@@ -1727,7 +1749,8 @@ export default function KontrolAdrPage() {
       cycleTime:   c.cycleTime,
       autoSearch:  c.autoSearch ?? true,
     };
-    setRtsConfig(dimuat);
+    setRtsConfig({ ...dimuat, stepRecord: stepDariSlot(slot) ?? dimuat.stepRecord });
+    setStepSlot(slot ? { ...slot, tersimpan: dimuat.stepRecord, sumber: "logger" } : null);
 
     if (c.searchAreaHor !== null) setSaHor(String(c.searchAreaHor));
     if (c.searchAreaVer !== null) setSaVer(String(c.searchAreaVer));
@@ -1779,7 +1802,12 @@ export default function KontrolAdrPage() {
 
   /** Isi form dari catatan "terakhir dikirim" di database. */
   const isiDariDatabase = (
-    json: { success?: boolean; data?: Record<string, unknown>; error?: unknown },
+    json: {
+      success?: boolean;
+      data?: Record<string, unknown>;
+      step_record_slot?: RencanaStepRecord;
+      error?: unknown;
+    },
     alasan: string
   ) => {
     if (json.success && json.data) {
@@ -1796,7 +1824,9 @@ export default function KontrolAdrPage() {
         cycleTime:   String(d.cycle_time  ?? ""),
         autoSearch:  d.auto_search === undefined ? true : Boolean(d.auto_search),
       };
-      setRtsConfig(dimuat);
+      const slot = json.step_record_slot ?? null;
+      setRtsConfig({ ...dimuat, stepRecord: stepDariSlot(slot) ?? dimuat.stepRecord });
+      setStepSlot(slot ? { ...slot, tersimpan: dimuat.stepRecord, sumber: "database" } : null);
 
       // Rentang sapuan dan jadwal diisi dari catatan "terakhir dikirim" di
       // database. Sebelumnya keduanya tidak disimpan sama sekali, sehingga
@@ -1843,6 +1873,7 @@ export default function KontrolAdrPage() {
         jobName: "", prismaConst: "", tsHigh: "", coordX: "", coordY: "", coordZ: "",
         stepRecord: "", retries: "", cycleTime: "", autoSearch: true,
       });
+      setStepSlot(null);
       setSapuCustom(SAPU_KOSONG);
       setConfigSinkron({
         status: "ok",
@@ -1894,7 +1925,7 @@ export default function KontrolAdrPage() {
       ]);
 
       if (balasan) {
-        isiDariLogger(balasan);
+        isiDariLogger(balasan, json?.step_record_slot ?? null);
       } else if (json) {
         isiDariDatabase(
           json,
@@ -2336,7 +2367,7 @@ export default function KontrolAdrPage() {
             coordX:      String(json.data.coor_x      ?? ""),
             coordY:      String(json.data.coor_y      ?? ""),
             coordZ:      String(json.data.coor_z      ?? ""),
-            stepRecord:  String(json.data.step_record ?? ""),
+            stepRecord:  stepDariSlot(json.step_record_slot) ?? String(json.data.step_record ?? ""),
             retries:     String(json.data.retries     ?? ""),
             cycleTime:   String(json.data.cycle_time  ?? ""),
             autoSearch:  json.data.auto_search === undefined ? true : Boolean(json.data.auto_search),
@@ -3343,11 +3374,23 @@ export default function KontrolAdrPage() {
                     <label htmlFor="cfg-step" className={LABEL}>
                       Step record
                     </label>
+                    {/* Terkunci selama site punya slot: angkanya jumlah slot di
+                        Prism Config, dan server memakainya apa pun isian form. */}
                     <input
                       id="cfg-step"
                       value={cfg.stepRecord}
+                      readOnly={stepDariSlot(stepSlot) !== null}
+                      title={
+                        stepDariSlot(stepSlot) !== null
+                          ? "Mengikuti jumlah slot di Prism Config"
+                          : undefined
+                      }
                       onChange={(e) => setRtsConfig({ ...rtsConfig, stepRecord: e.target.value })}
-                      className={cn(INPUT, "font-mono tabular-nums")}
+                      className={cn(
+                        INPUT,
+                        "font-mono tabular-nums",
+                        stepDariSlot(stepSlot) !== null && "cursor-not-allowed bg-(--paper) text-(--ink-2)"
+                      )}
                     />
                   </div>
                   <div>
@@ -3410,6 +3453,28 @@ export default function KontrolAdrPage() {
                     )}
                   </div>
                 </div>
+
+                {stepSlot && stepSlot.jumlah > 0 && (
+                  <div className="mt-2 space-y-1 text-[11px] leading-snug">
+                    <p className="text-(--ink-3)">
+                      Step record mengikuti {stepSlot.jumlah} slot di Prism Config.
+                    </p>
+                    {stepSlot.tersimpan.trim() !== String(stepSlot.jumlah) && (
+                      <p className="text-amber-700">
+                        {stepSlot.sumber === "logger" ? "Logger" : "Database"} masih{" "}
+                        {stepSlot.tersimpan.trim() || "kosong"}. Simpan untuk menyamakannya
+                        menjadi {stepSlot.jumlah}.
+                      </p>
+                    )}
+                    {!stepSlot.berurutan && (
+                      <p className="text-amber-700">
+                        Slot tidak berurutan dari P1 (kosong: P{stepSlot.kosong.join(", P")}).
+                        RTS menembak slot 1–{stepSlot.jumlah}, jadi isi ulang slot yang kosong
+                        di Prism Config.
+                      </p>
+                    )}
+                  </div>
+                )}
 
                 {/* Mode AutoTracking (`autoSearch`).
 

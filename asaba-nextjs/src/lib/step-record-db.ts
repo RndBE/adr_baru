@@ -16,6 +16,24 @@ import {
 
 export type CatatanStepRecord = { rencana: RencanaStepRecord; adaConfig: boolean };
 
+type KlienDb = Pick<Prisma.TransactionClient, "$queryRaw">;
+
+/**
+ * Hitung stepRecord dari slot t_prisma site ini, tanpa menulis apa pun.
+ *
+ * Juga dipakai RTS Config (GET dan PUT /api/config-adr): Simpan di sana dulu
+ * mengirim angka yang diketik operator, jadi satu Simpan bisa membuat logger
+ * kembali menembak slot yang sudah dihapus.
+ */
+export async function hitungStepRecord(db: KlienDb, site: string): Promise<RencanaStepRecord> {
+  const sisa = await db.$queryRaw<Array<{ id_prisma: string }>>`
+    SELECT id_prisma FROM t_prisma WHERE site = ${site}
+  `;
+  return rencanaStepRecord(
+    sisa.map((r) => nomorSlot(String(r.id_prisma))).filter((n): n is number => n !== null)
+  );
+}
+
 /**
  * Hitung stepRecord dari t_prisma site ini dan tulis ke config_adr.
  *
@@ -27,12 +45,7 @@ export async function catatStepRecord(
   tx: Prisma.TransactionClient,
   site: string
 ): Promise<CatatanStepRecord> {
-  const sisa = await tx.$queryRaw<Array<{ id_prisma: string }>>`
-    SELECT id_prisma FROM t_prisma WHERE site = ${site}
-  `;
-  const rencana = rencanaStepRecord(
-    sisa.map((r) => nomorSlot(String(r.id_prisma))).filter((n): n is number => n !== null)
-  );
+  const rencana = await hitungStepRecord(tx, site);
 
   // Dicek lewat SELECT, bukan jumlah baris hasil UPDATE: MySQL menghitung
   // 0 baris berubah bila step_record-nya kebetulan sudah sama.
