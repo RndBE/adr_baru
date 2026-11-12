@@ -46,6 +46,7 @@ npx tsx src/lib/koreksi-azimut.test.ts      # perbaikan azimut koordinat tembaka
 npx tsx src/lib/payload-sensor.test.ts      # tolak sensor berisi teks objek (map[...])
 npx tsx src/lib/payload-beacon.test.ts      # format Beacon -> payload datar /api/datamasuk/adr-json
 npx tsx src/lib/kunci-api.test.ts           # X-API-Key adr-json
+npx tsx src/lib/step-record.test.ts         # stepRecord = jumlah slot terisi, lubang urutan
 npx tsx scripts/regresi-protokol-rts.ts     # same style, protocol regression suite
 npx tsx scripts/regresi-balasan-logger.ts
 npx tsx scripts/regresi-site.ts

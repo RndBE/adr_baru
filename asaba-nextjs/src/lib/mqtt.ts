@@ -178,6 +178,22 @@ export async function sendRtsConfig(
 }
 
 /**
+ * Kirim stepRecord SAJA — dipanggil setelah prisma dihapus di Prism Config.
+ *
+ * Sengaja tidak memakai sendRtsConfig: itu mengirim ulang seluruh setelan dari
+ * config_adr, dan nilai di database bisa sudah berbeda dari yang berlaku di
+ * instrumen (misalnya setelah Sinkronkan yang tidak disimpan). Menghapus satu
+ * prisma tidak boleh diam-diam menimpa prismConst atau locCoor. `set_rts`
+ * menerima medan sebagian — SearchArea dan SapuCustom sudah dikirim begitu —
+ * dan balasannya menyebut "stepRecord" di `updated`.
+ */
+export async function sendRtsStepRecord(loggerId: string, stepRecord: number): Promise<boolean> {
+  return publishMqtt(topikPerintah(loggerId), {
+    [`set_${loggerId}`]: { command: "set_rts", stepRecord },
+  });
+}
+
+/**
  * Send recordTarget via MQTT — dipanggil saat Auto Search di Prism Config.
  */
 export async function sendRtsRecordTarget(

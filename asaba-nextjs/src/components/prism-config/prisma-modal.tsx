@@ -1,12 +1,22 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { AlertCircle, Crosshair, Gauge, Loader2, Ruler, Search, Target } from "lucide-react";
+import {
+  AlertCircle,
+  AlertTriangle,
+  Crosshair,
+  Gauge,
+  Loader2,
+  Ruler,
+  Search,
+  Target,
+} from "lucide-react";
 import mqtt from "mqtt";
 import { cn } from "@/lib/utils";
 import { nilaiBalasanLogger, balasanSelesai, balasanGagal } from "@/lib/balasan-logger";
 import {
   bacaBalasanUkur,
+  bacaKonfirmasiConfig,
   JENIS_UKUR,
   type BalasanUkur,
   bacaManualHaVa,
@@ -26,6 +36,10 @@ import {
 } from "@/components/monitoring/modal-shell";
 import type { PrismaSlot } from "./types";
 import { topikBalasan } from "@/lib/mqtt";
+import { rencanaStepRecord, type HasilStepRecord } from "@/lib/step-record";
+
+/** Logger membalas `set_rts` seketika; batasnya hanya untuk balasan yang hilang. */
+const BATAS_STEP_RECORD_MS = 20_000;
 
 /**
  * Status satu perintah ke perangkat.
@@ -137,11 +151,14 @@ export function PrismaModal({
   slot,
   site,
   idLogger,
+  slots,
   onClose,
   onSuccess,
 }: {
   mode: "set" | "edit";
   slot: PrismaSlot;
+  /** Seluruh slot site ini, untuk menghitung stepRecord sesudah slot diisi. */
+  slots: PrismaSlot[];
   /** Slot prisma hanya unik bersama site — lihat catatan di t_prisma.site. */
   site: string;
   /**
@@ -216,6 +233,33 @@ export function PrismaModal({
    * Ref ini juga menolak balasan jenis lain yang kebetulan lewat.
    */
   const ukurJenisRef = useRef<"bs" | "fs" | null>(null);
+
+  /**
+   * stepRecord (jumlah prisma per siklus) setelah slot BARU terekam.
+   *
+   * Hanya mode "set": mengubah slot yang sudah ada tidak mengubah jumlahnya.
+   * Dikirim sesudah logger membalas `recordTarget`, bukan bersamaan — lihat
+   * api/prism-config/step-record. Kegagalannya tidak membatalkan prisma yang
+   * sudah terekam; modal tetap terbuka supaya operator tahu step record di
+   * logger belum ikut naik.
+   */
+  const [stepStatus, setStepStatus] = useState<StatusPerintah>("idle");
+  const [stepPesan, setStepPesan] = useState("");
+  const [stepJumlah, setStepJumlah] = useState<number | null>(null);
+  // Dibaca handler MQTT. Dinyalakan SEBELUM fetch: server mem-publish sebelum
+  // menjawab HTTP, jadi ack logger bisa tiba lebih dulu.
+  const stepMenungguRef = useRef(false);
+  // Satu Simpan = satu recordTarget yang diproses. Balasan ganda tidak boleh
+  // menaikkan step record dua kali.
+  const rekamDiprosesRef = useRef(false);
+
+  const rencanaStep =
+    mode === "set"
+      ? rencanaStepRecord([
+          ...slots.filter((s) => s.registered && s.slot !== slot.slot).map((s) => s.slot),
+          slot.slot,
+        ])
+      : null;
 
   // Diturunkan, bukan disimpan sebagai state.
   //
@@ -294,6 +338,19 @@ export function PrismaModal({
     return () => clearTimeout(timer);
   }, [goTargetStatus]);
 
+  useEffect(() => {
+    if (stepStatus !== "waiting") return;
+    const timer = setTimeout(() => {
+      stepMenungguRef.current = false;
+      setStepStatus("failed");
+      setStepPesan(
+        `Target terekam, tapi logger tidak menjawab step record dalam ${BATAS_STEP_RECORD_MS / 1000} detik — belum tentu diterima. Periksa lewat Sinkronkan di RTS Config.`
+      );
+      setLoading(false);
+    }, BATAS_STEP_RECORD_MS);
+    return () => clearTimeout(timer);
+  }, [stepStatus]);
+
   const mqttClientRef = useRef<mqtt.MqttClient | null>(null);
 
   // Sambungan MQTT lewat WebSocket dibuka selama modal terbuka: balasan
@@ -318,12 +375,55 @@ export function PrismaModal({
       client.subscribe(topic, { qos: 0 });
     });
 
+    // Slot baru menambah satu prisma per siklus, jadi stepRecord di logger
+    // ikut naik. Sebelumnya hanya t_prisma yang bertambah dan RTS tetap
+    // menembak jumlah lama — prisma baru tidak pernah diukur sampai operator
+    // ingat mengubah Step record di RTS Config.
+    const naikkanStepRecord = async () => {
+      setStepStatus("waiting");
+      setStepPesan("");
+      stepMenungguRef.current = true;
+      try {
+        const res = await fetch("/api/prism-config/step-record", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ site }),
+        });
+        const json = await res.json();
+        if (!json.success) throw new Error(json.error || "Gagal memperbarui step record");
+        const sr = json.data as HasilStepRecord;
+        setStepJumlah(sr.jumlah);
+        if (!sr.dikirim) {
+          stepMenungguRef.current = false;
+          setStepStatus("failed");
+          setStepPesan(`Target terekam. ${sr.alasan ?? "Step record tidak dikirim ke logger."}`);
+          setLoading(false);
+        }
+        // Selanjutnya menunggu ack `updated` di handler bawah.
+      } catch (e: unknown) {
+        stepMenungguRef.current = false;
+        setStepStatus("failed");
+        setStepPesan(
+          `Target terekam, tapi step record gagal diperbarui: ${
+            e instanceof Error ? e.message : "kesalahan tak dikenal"
+          }. Kirim lewat Simpan di RTS Config.`
+        );
+        setLoading(false);
+      }
+    };
+
     client.on("message", (_t: string, message: Buffer) => {
       try {
         const data = JSON.parse(message.toString());
 
         // 1. recordTarget dari logger → simpan HA/VA (seperti PHP prism_set)
-        if (data.recordTarget && data.recordTarget.HA && data.recordTarget.VA) {
+        if (
+          data.recordTarget &&
+          data.recordTarget.HA &&
+          data.recordTarget.VA &&
+          !rekamDiprosesRef.current
+        ) {
+          rekamDiprosesRef.current = true;
           const rt = data.recordTarget;
           fetch("/api/prism-config/prism-set", {
             method: "PATCH",
@@ -336,11 +436,32 @@ export function PrismaModal({
             }),
           })
             .then(() => {
-              onSuccess();
+              if (mode === "set") naikkanStepRecord();
+              else onSuccess();
             })
             .catch((err) => {
               console.error("[PrismaModal] prism-set error:", err);
             });
+        }
+
+        // 1b. Ack stepRecord — bentuk datar {"updated":[…],"set_rts":"OK"}.
+        //     Balasan setelan lain memakai bentuk yang sama, jadi yang dihitung
+        //     hanya yang menyebut stepRecord, dan hanya saat ada yang ditunggu.
+        if (stepMenungguRef.current) {
+          const k = bacaKonfirmasiConfig(data);
+          if (k.cocok && k.updated.includes("stepRecord")) {
+            stepMenungguRef.current = false;
+            if (k.ok) {
+              setStepStatus("done");
+              onSuccess();
+            } else {
+              setStepStatus("failed");
+              setStepPesan(
+                "Target terekam, tapi logger tidak mengonfirmasi step record. Kirim ulang lewat Simpan di RTS Config."
+              );
+              setLoading(false);
+            }
+          }
         }
 
         // 2. AutoSearch response → 1 = ketemu, 0 = prisma tidak ketemu
@@ -474,7 +595,7 @@ export function PrismaModal({
     };
     // `site` ikut jadi dependency: handler MQTT mengirimnya ke prism-set,
     // jadi handler lama akan menyimpan HA/VA ke site yang sudah tidak dipilih.
-  }, [onSuccess, site, idLogger]);
+  }, [onSuccess, site, idLogger, mode]);
 
   const handleAutoSearch = async () => {
     setLoading(true);
@@ -608,6 +729,7 @@ export function PrismaModal({
     }
     setLoading(true);
     setError("");
+    rekamDiprosesRef.current = false;
     try {
       const res = await fetch("/api/prism-config", {
         method: mode === "set" ? "POST" : "PUT",
@@ -652,33 +774,70 @@ export function PrismaModal({
       judul={mode === "set" ? `Isi slot ${slot.slot}` : `Ubah slot ${slot.slot}`}
       ikon={<Target className="size-4.5" />}
       lebar="max-w-[440px]"
-      onClose={onClose}
+      // Prismanya sudah terekam begitu step record gagal, jadi menutup lewat
+      // jalan mana pun harus memuat ulang daftar slot.
+      onClose={stepStatus === "failed" ? onSuccess : onClose}
       bisaDitutup={!loading}
       footer={
-        <>
-          <button type="button" onClick={onClose} disabled={loading} className={TOMBOL_SEKUNDER}>
-            Batal
+        stepStatus === "failed" ? (
+          <button type="button" onClick={onSuccess} className={TOMBOL_UTAMA}>
+            Tutup
           </button>
-          <button
-            type="button"
-            onClick={handleSimpan}
-            disabled={!simpanEnabled || loading}
-            title={
-              simpanEnabled
-                ? undefined
-                : !targetSiap
-                  ? `Selesaikan langkah ${nomorCari} lebih dulu.`
-                  : `Uji tembak di langkah ${nomorJenis} harus lulus dulu.`
-            }
-            className={TOMBOL_UTAMA}
-          >
-            {loading && <Loader2 className="size-4 animate-spin" />}
-            Simpan
-          </button>
-        </>
+        ) : (
+          <>
+            <button type="button" onClick={onClose} disabled={loading} className={TOMBOL_SEKUNDER}>
+              Batal
+            </button>
+            <button
+              type="button"
+              onClick={handleSimpan}
+              disabled={!simpanEnabled || loading}
+              title={
+                simpanEnabled
+                  ? undefined
+                  : !targetSiap
+                    ? `Selesaikan langkah ${nomorCari} lebih dulu.`
+                    : `Uji tembak di langkah ${nomorJenis} harus lulus dulu.`
+              }
+              className={TOMBOL_UTAMA}
+            >
+              {loading && <Loader2 className="size-4 animate-spin" />}
+              {stepStatus === "waiting" ? "Mengirim step record…" : "Simpan"}
+            </button>
+          </>
+        )
       }
     >
       {error && <ModalError>{error}</ModalError>}
+
+      {stepStatus === "failed" && stepPesan && (
+        <div className="mb-4 flex gap-2.5 rounded-[10px] border border-amber-200 bg-amber-50 px-3.5 py-3 text-[12.5px] leading-relaxed text-amber-900">
+          <AlertTriangle className="mt-px size-4 shrink-0 text-amber-600" />
+          <span>{stepPesan}</span>
+        </div>
+      )}
+
+      {stepStatus === "waiting" && (
+        <p className="mb-4 flex items-center gap-2 text-[12.5px] text-(--ink-2)">
+          <Loader2 className="size-3.5 animate-spin text-(--ink-3)" />
+          Target terekam. Menunggu logger mengonfirmasi step record
+          {stepJumlah !== null ? ` ${stepJumlah}` : ""}…
+        </p>
+      )}
+
+      {/* Slot di luar urutan: jumlahnya naik dengan benar, tapi kalau RTS
+          menembak slot 1–N, slot ini tidak termasuk. Diperingatkan SEBELUM
+          merekam, karena memindahkannya nanti berarti membidik ulang. */}
+      {rencanaStep && !rencanaStep.berurutan && stepStatus === "idle" && (
+        <div className="mb-4 flex gap-2.5 rounded-[10px] border border-amber-200 bg-amber-50 px-3.5 py-3 text-[12.5px] leading-relaxed text-amber-900">
+          <AlertTriangle className="mt-px size-4 shrink-0 text-amber-600" />
+          <span>
+            Slot tidak berurutan dari 1. Step record akan jadi {rencanaStep.jumlah}; kalau RTS
+            menembak slot 1–{rencanaStep.jumlah}, slot {rencanaStep.diLuar.join(", ")} terlewat.
+            Lebih aman pakai slot {rencanaStep.kosong.join(", ")}.
+          </span>
+        </div>
+      )}
 
       <ol className="flex flex-col gap-5">
         {/* ── 1. Identitas ── */}

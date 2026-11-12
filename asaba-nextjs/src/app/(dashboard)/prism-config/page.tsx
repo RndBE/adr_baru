@@ -341,6 +341,7 @@ export default function PrismConfigPage() {
           slot={modal.slot}
           site={site}
           idLogger={idLogger}
+          slots={data}
           onClose={() => setModal(null)}
           onSuccess={setelahUbah}
         />
@@ -364,6 +365,9 @@ export default function PrismConfigPage() {
           slot={hapusSlot}
           site={site}
           namaSite={siteAktif?.nama ?? site}
+          slots={data}
+          idLogger={idLogger}
+          loggerTerhubung={isConnected}
           onClose={() => setHapusSlot(null)}
           onSuccess={() => {
             setHapusSlot(null);

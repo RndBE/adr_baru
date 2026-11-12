@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { publishMqtt, topikPerintah } from "@/lib/mqtt";
 import { getLoggerForSite } from "@/lib/sites";
+import { catatStepRecord, kirimStepRecord } from "@/lib/step-record-db";
 import { formatModeCari, uraiModeCari, validasiModeCari } from "@/lib/protokol-rts";
 
 /**
@@ -358,14 +359,20 @@ export async function PUT(request: NextRequest) {
 
 /**
  * DELETE /api/prism-config
- * Hapus prisma dari t_prisma, temp_prisma, parameter_prisma.
- * 
- * Body: { slot_id, site }
+ * Hapus prisma dari t_prisma, temp_prisma, parameter_prisma, lalu turunkan
+ * stepRecord (jumlah prisma per siklus) ke jumlah slot yang tersisa — dicatat
+ * di config_adr dan dikirim ke logger.
+ *
+ * Body: { slot_id, site, kirim_logger? }
+ *   kirim_logger: false saat logger terputus. stepRecord tetap dicatat di
+ *   config_adr, sehingga Simpan berikutnya di RTS Config mengirim angka yang
+ *   benar; perintah yang dikirim ke logger mati hanya menunggu di broker.
  */
 export async function DELETE(request: NextRequest) {
   try {
     const body = await request.json();
     const { slot_id, site } = body;
+    const kirimLogger = body.kirim_logger !== false;
 
     if (!slot_id) {
       return NextResponse.json(
@@ -384,11 +391,25 @@ export async function DELETE(request: NextRequest) {
 
     const id_prisma = `P${slot_id}`;
 
-    await prisma.$executeRaw`DELETE FROM parameter_prisma WHERE id_prisma = ${id_prisma} AND site = ${site}`;
-    await prisma.$executeRaw`DELETE FROM temp_prisma WHERE id_prisma = ${id_prisma} AND site = ${site}`;
-    await prisma.$executeRaw`DELETE FROM t_prisma WHERE id_prisma = ${id_prisma} AND site = ${site}`;
+    // Penghapusan dan stepRecord baru ditulis dalam SATU transaksi: kalau
+    // config_adr gagal diperbarui, prismanya juga tidak terhapus, sehingga
+    // RTS Config tidak pernah menampilkan jumlah yang membantah daftar slot.
+    const catatan = await prisma.$transaction(async (tx) => {
+      await tx.$executeRaw`DELETE FROM parameter_prisma WHERE id_prisma = ${id_prisma} AND site = ${site}`;
+      await tx.$executeRaw`DELETE FROM temp_prisma WHERE id_prisma = ${id_prisma} AND site = ${site}`;
+      await tx.$executeRaw`DELETE FROM t_prisma WHERE id_prisma = ${id_prisma} AND site = ${site}`;
+      return catatStepRecord(tx, site);
+    });
 
-    return NextResponse.json({ success: true, message: "Prisma berhasil dihapus" });
+    // Perintah ke perangkat DI LUAR transaksi: tidak bisa di-rollback, jadi
+    // baru dikirim setelah barisnya benar-benar terhapus.
+    const stepRecord = await kirimStepRecord(site, catatan, kirimLogger);
+
+    return NextResponse.json({
+      success: true,
+      message: "Prisma berhasil dihapus",
+      step_record: stepRecord,
+    });
   } catch (error) {
     console.error("[DELETE /api/prism-config]", error);
     return NextResponse.json(
