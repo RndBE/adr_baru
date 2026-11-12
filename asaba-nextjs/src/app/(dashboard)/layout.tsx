@@ -3,6 +3,7 @@
 import { SessionProvider } from "next-auth/react";
 import { AppSidebar } from "@/components/app-sidebar";
 import { PenjagaSesi } from "@/components/penjaga-sesi";
+import { AlarmAmbangProvider, BannerAlarm, TombolAlarm } from "@/components/alarm-ambang";
 import {
   SidebarProvider,
   SidebarTrigger,
@@ -84,38 +85,48 @@ export default function DashboardLayout({
     // dipulihkan peramban dari back/forward cache tanpa menyentuh server.
     <SessionProvider>
       <PenjagaSesi>
-        <SidebarProvider>
-          <AppSidebar />
-          <SidebarInset className="min-w-0">
-            {/* Top Header */}
-            {/* Tombol ciutkan sidebar tinggal di sini, bukan di dalam sidebar.
-            Sebelumnya ada dua: satu di header tapi `md:hidden` (mobile saja),
-            satu lagi di header sidebar untuk desktop. */}
-            <header className="sticky top-0 z-30 flex h-16 items-center gap-3 border-b bg-white/85 px-3 backdrop-blur-lg md:px-5">
-              {/* Tanpa Separator vertikal di antara tombol dan judul: garis 1×20px
-              itu menggantung di tengah header tanpa tersambung ke apa pun, dan
-              warnanya sama dengan border bawah header sehingga terbaca sebagai
-              garis yang terputus. Jarak `gap-3` sudah cukup memisahkan. */}
-              <SidebarTrigger className="-ml-1 h-8 w-8 flex-shrink-0 cursor-pointer rounded-md text-muted-foreground hover:bg-[#F4F6F9] hover:text-foreground" />
-              <h1 className="truncate text-lg font-bold tracking-tight text-gray-900">
-                {title}
-              </h1>
-            </header>
+        <AlarmAmbangProvider>
+          <SidebarProvider>
+            <AppSidebar />
+            <SidebarInset className="min-w-0">
+              {/* Top Header */}
+              {/* Tombol ciutkan sidebar tinggal di sini, bukan di dalam sidebar.
+              Sebelumnya ada dua: satu di header tapi `md:hidden` (mobile saja),
+              satu lagi di header sidebar untuk desktop. */}
+              <header className="sticky top-0 z-30 flex h-16 items-center gap-3 border-b bg-white/85 px-3 backdrop-blur-lg md:px-5">
+                {/* Tanpa Separator vertikal di antara tombol dan judul: garis 1×20px
+                itu menggantung di tengah header tanpa tersambung ke apa pun, dan
+                warnanya sama dengan border bawah header sehingga terbaca sebagai
+                garis yang terputus. Jarak `gap-3` sudah cukup memisahkan. */}
+                <SidebarTrigger className="-ml-1 h-8 w-8 flex-shrink-0 cursor-pointer rounded-md text-muted-foreground hover:bg-[#F4F6F9] hover:text-foreground" />
+                <h1 className="truncate text-lg font-bold tracking-tight text-gray-900">
+                  {title}
+                </h1>
+                <div className="ml-auto">
+                  <TombolAlarm />
+                </div>
+              </header>
 
-            {/* Page Content.
-            <div>, bukan <main>: SidebarInset di atasnya SUDAH merender <main>
-            (lihat data-slot="sidebar-inset" di components/ui/sidebar.tsx), jadi
-            elemen ini membuat dokumen punya dua landmark utama di setiap
-            halaman dashboard. Kelasnya tidak berubah — hanya tag-nya. */}
-            <div
-              className={`flex-1 overflow-auto bg-white min-w-0 ${
-                fullBleed ? "" : "p-4 md:p-6"
-              }`}
-            >
-              {children}
-            </div>
-          </SidebarInset>
-        </SidebarProvider>
+              {/* Pita alarm ambang: muncul selama ada prisma di atas Normal, di
+              halaman mana pun — bunyinya juga, jadi operator tidak harus sedang
+              membuka Dashboard untuk tahu. */}
+              <BannerAlarm />
+
+              {/* Page Content.
+              <div>, bukan <main>: SidebarInset di atasnya SUDAH merender <main>
+              (lihat data-slot="sidebar-inset" di components/ui/sidebar.tsx), jadi
+              elemen ini membuat dokumen punya dua landmark utama di setiap
+              halaman dashboard. Kelasnya tidak berubah — hanya tag-nya. */}
+              <div
+                className={`flex-1 overflow-auto bg-white min-w-0 ${
+                  fullBleed ? "" : "p-4 md:p-6"
+                }`}
+              >
+                {children}
+              </div>
+            </SidebarInset>
+          </SidebarProvider>
+        </AlarmAmbangProvider>
       </PenjagaSesi>
     </SessionProvider>
   );
