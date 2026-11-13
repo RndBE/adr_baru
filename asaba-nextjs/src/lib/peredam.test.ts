@@ -9,7 +9,9 @@
 import { type AmbangSite } from "./ambang";
 import {
   KEBIJAKAN_BAWAAN,
+  batasTakWajarMm,
   keadaanAwal,
+  nilaiPemicu,
   nilaiPeredam,
   tingkatEfektif,
   type KeadaanPrisma,
@@ -265,6 +267,53 @@ cek("bawaan konfirmasiSiklus = 1", KEBIJAKAN_BAWAAN.konfirmasiSiklus, 1);
   ]);
   cek("turun ke 99 mm dari Siaga masih ditahan histeresis", keadaan.tingkat, "Siaga");
 }
+
+// ── Penyaring derau: nilai pemicu ───────────────────────────────────────────
+cek("satu loncatan di antara bacaan tenang tidak memicu", nilaiPemicu(161, [3, 4]), 4);
+cek("loncatan di siklus sebelumnya juga tersaring", nilaiPemicu(5, [140, 4]), 5);
+cek("pergeseran sungguhan: 2 dari 3 di atas batas", nilaiPemicu(60, [58, 4]), 58);
+cek("tiga-tiganya naik → median", nilaiPemicu(90, [70, 80]), 80);
+cek("dua bacaan → yang terkecil", nilaiPemicu(161, [3]), 3);
+cek("dua bacaan sama-sama tinggi → tetap tinggi", nilaiPemicu(160, [155]), 155);
+cek("satu bacaan → dirinya sendiri", nilaiPemicu(42, []), 42);
+cek("riwayat lebih dari jendela dipotong", nilaiPemicu(10, [500, 500, 1, 1]), 500);
+
+const KOLAM: AmbangSite = {
+  geser: { normalMax: 35, waspadaMax: 80, siagaMax: 150 },
+  laju: { waspadaMin: 35, siagaMin: 80, awasMin: 150 },
+};
+
+/** Jalankan deret bacaan (terlama dulu) lewat penyaring + peredam, 10 menit per siklus. */
+function jalankanDenganPenyaring(bacaan: number[]) {
+  let keadaan = keadaanAwal();
+  const riwayat: number[] = [];
+  const kirim: Array<{ siklus: number; tingkat: string }> = [];
+  bacaan.forEach((mm, i) => {
+    const h = nilaiPeredam({ keadaan, nilaiMm: nilaiPemicu(mm, riwayat), ambang: KOLAM, sekarangMs: i * 600_000 });
+    keadaan = h.keadaan;
+    if (h.kirim) kirim.push({ siklus: i, tingkat: h.keadaan.tingkat });
+    riwayat.unshift(mm);
+  });
+  return { keadaan, kirim };
+}
+
+// Urutan dari data nyata P5 (966 m dari RTS): dulu satu tembakan 161 mm langsung jadi Awas.
+{
+  const { keadaan, kirim } = jalankanDenganPenyaring([12, 15, 161, 14, 13]);
+  cek("loncatan tunggal 161 mm di P5 tidak mengirim apa pun", kirim, []);
+  cek("dan tingkatnya tetap Normal", keadaan.tingkat, "Normal");
+}
+
+// Pergeseran sungguhan tetap sampai, terlambat paling lama satu siklus.
+{
+  const { kirim } = jalankanDenganPenyaring([10, 12, 40, 44, 47]);
+  cek("naik ke 40+ mm: Waspada dikirim di siklus kedua yang di atas batas", kirim, [{ siklus: 3, tingkat: "Waspada" }]);
+}
+
+// ── Penyaring derau: batas bacaan tak wajar ─────────────────────────────────
+cek("batas tak wajar Kolam BPP (Awas 150 mm) = 1,5 m", batasTakWajarMm(KOLAM), 1500);
+cek("batas tak wajar paling sedikit 1 m",
+  batasTakWajarMm({ geser: { normalMax: 5, waspadaMax: 10, siagaMax: 20 }, laju: { waspadaMin: 1, siagaMin: 2, awasMin: 3 } }), 1000);
 
 console.log(gagal === 0 ? "\nSEMUA LULUS" : `\n${gagal} GAGAL`);
 process.exit(gagal === 0 ? 0 : 1);

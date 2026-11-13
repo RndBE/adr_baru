@@ -238,3 +238,63 @@ export function nilaiPeredam(opsi: {
     alasan: null,
   };
 }
+
+// ─── Penyaring derau bacaan ─────────────────────────────────────────────────
+//
+// Peredam di atas menjinakkan PERUBAHAN TINGKAT. Penyaring di bawah menjinakkan
+// BACAANNYA sendiri, sebelum sampai ke peredam. Alasannya ada di data Kolam BPP
+// 16–18 Sep 2026 (± 1.770 siklus, tiap 5–10 menit, terhadap acuan R0 144500):
+//
+//   - Sebagian besar bacaan tenang: beda antar siklus berurutan bermedian
+//     0,6–6 mm, makin besar makin jauh prismanya dari RTS.
+//   - Tapi ± 10% siklus meloncat 24–70 mm dari siklus sebelumnya, dan dalam dua
+//     hari angkanya sempat 94–161 mm. Dengan satu tembakan per siklus dan
+//     `konfirmasiSiklus` 1, satu loncatan seperti itu langsung jadi pesan.
+//   - Bacaan sampah datang BERUNTUN: P1 19 kali di 167–204 m (12 siklus
+//     berturut-turut), P2 6 kali di 570 m (6 berturut-turut; inilah Awas palsu
+//     4 Nov). Pergeseran terbesar yang masuk akal di data itu di bawah 1 m.
+//
+// RTS tidak mengirim ukuran mutu per tembakan (tidak ada simpangan baku atau
+// sejenisnya), jadi derau hanya bisa disaring dari bacaannya sendiri.
+
+/** Banyak siklus terakhir — termasuk siklus ini — yang ikut menentukan nilai pemicu. */
+export const JENDELA_SIKLUS = 3;
+
+/**
+ * Siklus sebelumnya hanya ikut bila tidak lebih tua dari ini terhadap siklus
+ * sekarang. Setelah jeda panjang (Kolam BPP pernah diam 45 hari) bacaan lama
+ * tidak boleh ikut memutuskan keadaan hari ini.
+ */
+export const UMUR_JENDELA_MS = 6 * 60 * 60 * 1000;
+
+/**
+ * Pergeseran (mm) di atas mana bacaan dianggap salah tembak, bukan tanah yang
+ * bergerak: 10× batas Awas, paling sedikit 1 m. Bacaan seperti itu diperlakukan
+ * sama dengan prisma yang gagal ditembak — tingkatnya tidak diubah, dan setelah
+ * BATAS_GAGAL_BERUNTUN siklus dilaporkan sebagai tidak terbaca.
+ *
+ * Median saja tidak cukup untuk ini, karena bacaan sampah datang beruntun.
+ * Pergeseran sungguhan tidak tersaring diam-diam: jauh sebelum mencapai 10×
+ * batas Awas, Awas sudah diakui dan dikirim.
+ */
+export function batasTakWajarMm(ambang: AmbangSite): number {
+  return Math.max(1000, 10 * ambang.geser.siagaMax);
+}
+
+/**
+ * Nilai yang dibandingkan dengan ambang, dari bacaan siklus sekarang dan
+ * bacaan sah siklus-siklus sebelumnya (paling banyak JENDELA_SIKLUS − 1).
+ *
+ *   3 bacaan → median: perlu 2 dari 3 di atas batas untuk naik tingkat.
+ *   2 bacaan → yang terkecil: keduanya harus di atas batas.
+ *   1 bacaan → bacaan itu sendiri (belum ada riwayat untuk membandingkan).
+ *
+ * Ketiganya sama dengan "nilai terbesar kedua", dan itu disengaja: satu loncatan
+ * sendirian tidak pernah memicu, sedangkan pergeseran sungguhan terlambat
+ * paling lama satu siklus. Penurunan justru diakui lebih cepat bila hanya ada
+ * dua bacaan — salah ke arah tenang di sini hanya menunda pesan pulih.
+ */
+export function nilaiPemicu(sekarang: number, sebelumnya: readonly number[]): number {
+  const urut = [sekarang, ...sebelumnya.slice(0, JENDELA_SIKLUS - 1)].sort((a, b) => b - a);
+  return urut.length >= 2 ? urut[1] : urut[0];
+}

@@ -24,7 +24,15 @@ import { parseWaktuToIso, waktuDateLokal, waktuMsLokal } from "@/components/moni
 import { nfloat, rotateEN } from "@/lib/coordinates";
 import { getSite } from "@/lib/sites";
 import { type AmbangSite, type StatusLabel, indeksStatus } from "@/lib/ambang";
-import { keadaanAwal, nilaiPeredam, type KeadaanPrisma } from "@/lib/peredam";
+import {
+  JENDELA_SIKLUS,
+  UMUR_JENDELA_MS,
+  batasTakWajarMm,
+  keadaanAwal,
+  nilaiPemicu,
+  nilaiPeredam,
+  type KeadaanPrisma,
+} from "@/lib/peredam";
 import {
   kirimPeringatan,
   type BarisPerubahan,
@@ -71,6 +79,30 @@ async function barisSesi(idKontrol: string, ambilTerakhir: boolean) {
     if (ambilTerakhir || !peta.has(id)) peta.set(id, r);
   }
   return peta;
+}
+
+/**
+ * Bacaan siklus-siklus SEBELUM siklus ini, terbaru dulu — bahan nilaiPemicu().
+ *
+ * Paling banyak JENDELA_SIKLUS − 1 siklus, tidak lebih tua dari UMUR_JENDELA_MS
+ * terhadap siklus ini, dan bukan sesi acuan R0 (pergeserannya nol menurut
+ * definisi, bukan hasil ukur yang bisa dibandingkan). Diurutkan menurut
+ * `log_kontrol.datetime`, sama dengan urutan siklus di layar.
+ */
+async function sesiSebelumnya(site: string, idLog: string, idR0: string) {
+  const sesi = await prisma.$queryRaw<Array<{ id_log: string }>>`
+    SELECT l.id_log
+    FROM log_kontrol l
+    JOIN log_kontrol k ON k.id_log = ${idLog}
+    WHERE l.site = ${site}
+      AND l.id_log <> ${idLog}
+      AND l.id_log <> ${idR0}
+      AND l.datetime < k.datetime
+      AND l.datetime >= k.datetime - INTERVAL ${Math.round(UMUR_JENDELA_MS / 1000)} SECOND
+    ORDER BY l.datetime DESC
+    LIMIT ${JENDELA_SIKLUS - 1}
+  `;
+  return Promise.all(sesi.map((s) => barisSesi(s.id_log, true)));
 }
 
 /**
@@ -175,9 +207,10 @@ export async function evaluasiSiklus(opsi: {
       return;
     }
 
-    const [acuan, sekarang, prismaSite] = await Promise.all([
+    const [acuan, sekarang, lampau, prismaSite] = await Promise.all([
       barisSesi(r0.id_log, false),
       barisSesi(idLog, true),
+      sesiSebelumnya(site, idLog, r0.id_log),
       prisma.$queryRaw<Array<{ id_prisma: string }>>`
         SELECT id_prisma FROM t_prisma WHERE site = ${site} ORDER BY id_prisma
       `,
@@ -189,6 +222,12 @@ export async function evaluasiSiklus(opsi: {
     }
 
     const ambang: AmbangSite = cfg.thresholds;
+    const batasTakWajar = batasTakWajarMm(ambang);
+    /** Pergeseran satu bacaan, atau null bila gagal ditembak ATAU tak wajar. */
+    const bacaanSah = (b: BarisRts | undefined, idPrisma: string): number | null => {
+      const mm = pergeseranMm(b, acuan.get(idPrisma), cfg.rotation);
+      return mm !== null && mm <= batasTakWajar ? mm : null;
+    };
     // waktuMsLokal memancang ke +07:00, jadi hasilnya tidak ikut zona proses —
     // Node di server tidak menyetel TZ, cuma mewarisi zona sistem. Sama dengan
     // yang dipakai sesiUntukSiklus() untuk menghitung umur sesi.
@@ -211,13 +250,20 @@ export async function evaluasiSiklus(opsi: {
     for (const { id_prisma: idPrisma } of prismaSite) {
       const baris = petaKeadaan.get(idPrisma);
       const lama = baris ? keadaanDariBaris(baris) : keadaanAwal();
-      const mm = pergeseranMm(sekarang.get(idPrisma), acuan.get(idPrisma), cfg.rotation);
+      const mentah = pergeseranMm(sekarang.get(idPrisma), acuan.get(idPrisma), cfg.rotation);
+      const mmSekarang = mentah !== null && mentah <= batasTakWajar ? mentah : null;
+      if (mentah !== null && mmSekarang === null) {
+        console.log(
+          `${tag} ${site} ${idPrisma}: bacaan ${(mentah / 1000).toFixed(1)} m melebihi batas wajar ` +
+            `${(batasTakWajar / 1000).toFixed(1)} m — diperlakukan sebagai tidak terbaca`
+        );
+      }
 
-      // ── Bacaan tidak sah: gagal ditembak, atau acuannya belum ada ──────────
+      // ── Bacaan tidak sah: gagal ditembak, tak wajar, atau acuannya belum ada ─
       //
       // Tingkatnya TIDAK diubah dan calon TIDAK dimajukan — prisma yang tidak
       // terbaca berarti keadaannya tidak diketahui, bukan aman.
-      if (mm === null) {
+      if (mmSekarang === null) {
         semua.push({ idPrisma, tingkat: lama.tingkat, nilaiMm: null });
         const beruntun = Number(baris?.gagal_beruntun ?? 0) + 1;
         if (beruntun === BATAS_GAGAL_BERUNTUN) {
@@ -234,6 +280,16 @@ export async function evaluasiSiklus(opsi: {
         });
         continue;
       }
+
+      // ── Nilai pemicu: median bacaan sah siklus ini dan sebelumnya ──────────
+      //
+      // Bukan satu tembakan. Lihat penyaring derau di peredam.ts: satu
+      // loncatan tidak memicu, pergeseran sungguhan terlambat paling lama satu
+      // siklus. Nilai inilah yang disimpan, dikirim, dan dibunyikan dasbor.
+      const sebelumnya = lampau
+        .map((peta) => bacaanSah(peta.get(idPrisma), idPrisma))
+        .filter((v): v is number => v !== null);
+      const mm = nilaiPemicu(mmSekarang, sebelumnya);
 
       const hasil = nilaiPeredam({ keadaan: lama, nilaiMm: mm, ambang, sekarangMs });
       // Tingkat yang DIAKUI, bukan yang barusan terukur — sama dengan yang
