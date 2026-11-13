@@ -16,6 +16,7 @@ import {
   statusPergeseran as aturanPergeseran,
   statusKecepatan as aturanKecepatan,
 } from "@/lib/ambang";
+import { AKURASI_BAWAAN, type AkurasiRts } from "@/lib/akurasi-rts";
 
 // ─── Tipe ───────────────────────────────────────────────────────────────────
 
@@ -75,6 +76,11 @@ export interface SiteConfig {
   badgeLabel: string;
   badgeColor: string;
   thresholds: SiteThresholds;
+  /**
+   * Akurasi RTS yang melayani site ini. Dipakai evaluasi-siklus.ts menambahkan
+   * toleransi per prisma ke ambang pergeseran — lihat `@/lib/akurasi-rts`.
+   */
+  akurasiRts: AkurasiRts;
   /** Koordinat referensi RTS. Null bila site belum dikalibrasi. */
   rts: { E: number; N: number; Z: number } | null;
   utm: { zone: number; north: boolean };
@@ -140,6 +146,7 @@ export function fallbackSite(slug: string): SiteConfig {
       geser: { normalMax: 50, waspadaMax: 100, siagaMax: 200 },
       laju: { waspadaMin: 40, siagaMin: 80, awasMin: 120 },
     },
+    akurasiRts: AKURASI_BAWAAN,
     rts: null,
     utm: { zone: 50, north: true },
     map: null,
@@ -170,6 +177,9 @@ type SiteRow = {
   laju_waspada_min: number;
   laju_siaga_min: number;
   laju_awas_min: number;
+  rts_akurasi_sudut_detik: number;
+  rts_akurasi_jarak_mm: number;
+  rts_akurasi_jarak_ppm: number;
   rts_e: number | null;
   rts_n: number | null;
   rts_z: number | null;
@@ -245,6 +255,11 @@ export function toSiteConfig(row: SiteRow): SiteConfig {
         siagaMin: row.laju_siaga_min,
         awasMin: row.laju_awas_min,
       },
+    },
+    akurasiRts: {
+      sudutDetik: row.rts_akurasi_sudut_detik ?? AKURASI_BAWAAN.sudutDetik,
+      jarakMm: row.rts_akurasi_jarak_mm ?? AKURASI_BAWAAN.jarakMm,
+      jarakPpm: row.rts_akurasi_jarak_ppm ?? AKURASI_BAWAAN.jarakPpm,
     },
     rts:
       row.rts_e !== null && row.rts_n !== null && row.rts_z !== null

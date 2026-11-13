@@ -50,24 +50,17 @@ export function ThresholdStrip({
   titik,
   ambang,
   kosong = false,
-  skalaMin = 0,
 }: {
   titik: TitikAmbang[];
   ambang: AmbangSite | null;
   kosong?: boolean;
-  /**
-   * Ujung skala paling sedikit sejauh ini (mm). Tab Ambang Batas memakainya
-   * supaya keempat pita selalu terlihat walau semua prisma masih jauh di bawah
-   * Waspada; Dashboard membiarkannya 0.
-   */
-  skalaMin?: number;
 }) {
   const maksData = titik.reduce((m, t) => Math.max(m, t.geserMm), 0);
 
   // Skala selalu memuat ambang Waspada supaya pergeseran kecil terbaca kecil,
   // dan melebar bila ada prisma yang sudah melewatinya.
   const batasWaspada = ambang?.geser.normalMax ?? 0;
-  const maksSkala = Math.max(maksData * 1.12, batasWaspada * 1.25, skalaMin, 1);
+  const maksSkala = Math.max(maksData * 1.12, batasWaspada * 1.25, 1);
   const lebarPlot = W - KIRI - KANAN;
   const X = (mm: number) => KIRI + (Math.min(mm, maksSkala) / maksSkala) * lebarPlot;
 

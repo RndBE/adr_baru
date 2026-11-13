@@ -22,6 +22,7 @@
 import { prisma } from "@/lib/prisma";
 import { parseWaktuToIso, waktuDateLokal, waktuMsLokal } from "@/components/monitoring/format";
 import { nfloat, rotateEN } from "@/lib/coordinates";
+import { ambangDenganToleransi, toleransiMm } from "@/lib/akurasi-rts";
 import { getSite } from "@/lib/sites";
 import { type AmbangSite, type StatusLabel, indeksStatus } from "@/lib/ambang";
 import {
@@ -43,7 +44,8 @@ import {
 /** Berapa siklus beruntun gagal ditembak sebelum dilaporkan sebagai prisma hilang. */
 export const BATAS_GAGAL_BERUNTUN = 3;
 
-type BarisRts = { sensor1: string; sensor8: string; sensor9: string; sensor10: string };
+/** sensor7 = jarak miring (m), dipakai menghitung toleransi akurasi RTS. */
+type BarisRts = { sensor1: string; sensor7?: string; sensor8: string; sensor9: string; sensor10: string };
 
 /**
  * Acuan R0 yang DITANDAI operator. Null bila tidak ada.
@@ -65,7 +67,7 @@ async function acuanR0Bertanda(site: string) {
 /** Baris rts satu sesi, dipetakan per id_prisma. */
 async function barisSesi(idKontrol: string, ambilTerakhir: boolean) {
   const rows = await prisma.$queryRaw<BarisRts[]>`
-    SELECT sensor1, sensor8, sensor9, sensor10
+    SELECT sensor1, sensor7, sensor8, sensor9, sensor10
     FROM rts WHERE id_kontrol = ${idKontrol} ORDER BY id ASC
   `;
   const peta = new Map<string, BarisRts>();
@@ -291,7 +293,17 @@ export async function evaluasiSiklus(opsi: {
         .filter((v): v is number => v !== null);
       const mm = nilaiPemicu(mmSekarang, sebelumnya);
 
-      const hasil = nilaiPeredam({ keadaan: lama, nilaiMm: mm, ambang, sekarangMs });
+      // ── Toleransi akurasi RTS ─────────────────────────────────────────────
+      //
+      // Ambang prisma ini = ambang site + toleransi dari akurasi alat dan jarak
+      // prisma ke alat (lihat akurasi-rts.ts). Jarak dari tembakan ini; bila
+      // kosong, dari tembakan acuan R0 — jaraknya nyaris tidak berubah.
+      const jarakM =
+        nfloat(sekarang.get(idPrisma)?.sensor7) || nfloat(acuan.get(idPrisma)?.sensor7);
+      const toleransi = toleransiMm(jarakM, cfg.akurasiRts);
+      const ambangPrisma = ambangDenganToleransi(ambang, toleransi);
+
+      const hasil = nilaiPeredam({ keadaan: lama, nilaiMm: mm, ambang: ambangPrisma, sekarangMs });
       // Tingkat yang DIAKUI, bukan yang barusan terukur — sama dengan yang
       // dipakai memutuskan pesan, supaya daftar dan judulnya tidak bercerita beda.
       semua.push({ idPrisma, tingkat: hasil.keadaan.tingkat, nilaiMm: mm });

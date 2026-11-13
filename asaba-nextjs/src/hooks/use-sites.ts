@@ -17,6 +17,10 @@ export interface SiteRow {
   laju_waspada_min: number;
   laju_siaga_min: number;
   laju_awas_min: number;
+  /** Akurasi RTS site ini — lihat @/lib/akurasi-rts. */
+  rts_akurasi_sudut_detik: number;
+  rts_akurasi_jarak_mm: number;
+  rts_akurasi_jarak_ppm: number;
   rts_e: number | null;
   rts_n: number | null;
   rts_z: number | null;

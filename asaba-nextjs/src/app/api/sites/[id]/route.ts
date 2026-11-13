@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { invalidateSiteCache } from "@/lib/sites";
 import { normalizeBody, validate } from "@/lib/site-validation";
-import { KOLOM_AMBANG } from "@/lib/ambang-kolom";
+import { KOLOM_AKURASI, KOLOM_AMBANG } from "@/lib/ambang-kolom";
 
 // GET /api/sites/[id]
 export async function GET(
@@ -35,11 +35,11 @@ export async function PUT(
     if (!lama)
       return NextResponse.json({ success: false, error: "Tidak ditemukan" }, { status: 404 });
 
-    // Form Data Site tidak lagi membawa ambang — ambang diatur di tab Ambang
-    // Batas (/master-data?tab=ambang) lewat PUT /api/sites/[id]/ambang. Kolom yang tidak dikirim
-    // diisi nilai lamanya; tanpa ini normalizeBody() memasang bawaan 50/100/200
-    // dan menyimpan Data Site akan diam-diam mereset ambang site itu.
-    for (const k of KOLOM_AMBANG) {
+    // Ambang dan akurasi RTS yang TIDAK dikirim diisi nilai lamanya. Form Data
+    // Site mengirim semuanya, tapi pemanggil lain belum tentu — dan tanpa ini
+    // normalizeBody() memasang bawaan 50/100/200 mm dan 2" · 2 mm + 2 ppm,
+    // diam-diam mengubah kapan site itu memicu peringatan.
+    for (const k of [...KOLOM_AMBANG, ...KOLOM_AKURASI]) {
       if (!(k in body)) body[k] = lama[k];
     }
 

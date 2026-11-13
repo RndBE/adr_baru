@@ -2,7 +2,7 @@
 
 import { Suspense, useEffect, useState, useCallback } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { Plus, Pencil, Trash2, Loader2, MapPin, Users, Radio, Layers, KeyRound, X, Check, Siren } from "lucide-react";
+import { Plus, Pencil, Trash2, Loader2, MapPin, Users, Radio, Layers, KeyRound, X, Check } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -18,7 +18,6 @@ import {
 import { ZONA_BAWAAN_MENIT, ZONA_INDONESIA, kodeZona } from "@/components/monitoring/format";
 import { TabSite } from "@/components/master-data/tab-site";
 import { TabKodeAkses } from "@/components/master-data/tab-kode-akses";
-import { TabAmbangBatas } from "@/components/ambang-batas";
 
 // Simple toast helper
 const toast = { success: (msg: string) => console.log("✅", msg), error: (msg: string) => alert(msg) };
@@ -32,7 +31,6 @@ type KategoriLogger = { id_katlogger: number; nama_kategori: string; tabel: stri
 
 const TABS = [
   { key: "site", label: "Site", icon: Layers },
-  { key: "ambang", label: "Ambang Batas", icon: Siren },
   { key: "lokasi", label: "Lokasi", icon: MapPin },
   { key: "user", label: "User", icon: Users },
   { key: "logger", label: "Logger", icon: Radio },
@@ -54,9 +52,10 @@ export default function MasterDataPage() {
 function IsiMasterData() {
   const router = useRouter();
   const params = useSearchParams();
-  // Tab aktif disimpan di URL (?tab=ambang), bukan state: tautan dari tempat
-  // lain — mis. catatan di form Data Site — bisa langsung membuka tab yang benar,
-  // dan memuat ulang halaman tidak melempar balik ke tab Site.
+  // Tab aktif disimpan di URL (?tab=logger), bukan state: tautan bisa langsung
+  // membuka tab yang benar, dan memuat ulang halaman tidak melempar balik ke
+  // tab Site. Nilai yang tidak dikenal (mis. ?tab=ambang dari tab Ambang Batas
+  // yang sudah digabung lagi ke Site) jatuh ke Site.
   const dariUrl = params.get("tab");
   const activeTab: TabKey = TABS.some((t) => t.key === dariUrl) ? (dariUrl as TabKey) : "site";
   const setActiveTab = (k: TabKey) =>
@@ -67,7 +66,7 @@ function IsiMasterData() {
       {/* Header */}
       <div>
         <h1 className="text-[22px] font-bold text-gray-900">Master Data</h1>
-        <p className="text-sm text-gray-500 mt-0.5">Kelola data Site, Ambang Batas, Lokasi, User, Logger, dan Kode Akses</p>
+        <p className="text-sm text-gray-500 mt-0.5">Kelola data Site, Lokasi, User, Logger, dan Kode Akses</p>
       </div>
 
       {/* Tabs */}
@@ -91,7 +90,6 @@ function IsiMasterData() {
       {/* Content */}
       <div>
         {activeTab === "site" && <TabSite />}
-        {activeTab === "ambang" && <TabAmbangBatas />}
         {activeTab === "lokasi" && <TabLokasi />}
         {activeTab === "user" && <TabUser />}
         {activeTab === "logger" && <TabLogger />}

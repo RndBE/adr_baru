@@ -7,6 +7,7 @@
  */
 import { hitungTerkalibrasi } from "@/lib/sites";
 import { validasiAmbang } from "@/lib/ambang-kolom";
+import { AKURASI_BAWAAN, validasiAkurasi } from "@/lib/akurasi-rts";
 
 /** Angka opsional: "" dan null → null, sisanya divalidasi sebagai angka. */
 function optNum(v: unknown): number | null {
@@ -46,6 +47,11 @@ export function normalizeBody(body: Record<string, unknown>) {
     laju_waspada_min: reqNum(body.laju_waspada_min, 40),
     laju_siaga_min: reqNum(body.laju_siaga_min, 80),
     laju_awas_min: reqNum(body.laju_awas_min, 120),
+
+    // Akurasi RTS — bawaan 2" · 2 mm + 2 ppm, lihat @/lib/akurasi-rts.
+    rts_akurasi_sudut_detik: reqNum(body.rts_akurasi_sudut_detik, AKURASI_BAWAAN.sudutDetik),
+    rts_akurasi_jarak_mm: reqNum(body.rts_akurasi_jarak_mm, AKURASI_BAWAAN.jarakMm),
+    rts_akurasi_jarak_ppm: reqNum(body.rts_akurasi_jarak_ppm, AKURASI_BAWAAN.jarakPpm),
 
     rts_e,
     rts_n,
@@ -93,6 +99,12 @@ export function validate(d: SitePayload): string | null {
 
   const errAmbang = validasiAmbang(d);
   if (errAmbang) return errAmbang;
+  const errAkurasi = validasiAkurasi({
+    sudutDetik: d.rts_akurasi_sudut_detik,
+    jarakMm: d.rts_akurasi_jarak_mm,
+    jarakPpm: d.rts_akurasi_jarak_ppm,
+  });
+  if (errAkurasi) return errAkurasi;
 
   if (d.utm_zone < 1 || d.utm_zone > 60) return "Zona UTM harus antara 1 dan 60";
   if (d.map_lat !== null && (d.map_lat < -90 || d.map_lat > 90))

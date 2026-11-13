@@ -559,6 +559,13 @@ model Site {
   laju_siaga_min   Float
   laju_awas_min    Float
 
+  /// Akurasi RTS yang melayani site ini (spesifikasi alat, satu simpangan
+  /// baku). Toleransi pemicu ambang tiap prisma dihitung darinya — lihat
+  /// src/lib/akurasi-rts.ts dan prisma/migrations/021_akurasi_rts.sql.
+  rts_akurasi_sudut_detik Float @default(2)
+  rts_akurasi_jarak_mm    Float @default(2)
+  rts_akurasi_jarak_ppm   Float @default(2)
+
   // Koordinat referensi RTS (UTM). Null = belum dikalibrasi.
   rts_e Float?
   rts_n Float?
