@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { invalidateSiteCache } from "@/lib/sites";
 import { normalizeBody, validate } from "@/lib/site-validation";
+import { KOLOM_AMBANG } from "@/lib/ambang-kolom";
 
 // GET /api/sites/[id]
 export async function GET(
@@ -28,13 +29,23 @@ export async function PUT(
   try {
     const { id } = await params;
     const idNum = parseInt(id);
-    const data = normalizeBody(await req.json());
-    const err = validate(data);
-    if (err) return NextResponse.json({ success: false, error: err }, { status: 400 });
+    const body = (await req.json()) as Record<string, unknown>;
 
     const lama = await prisma.site.findUnique({ where: { id: idNum } });
     if (!lama)
       return NextResponse.json({ success: false, error: "Tidak ditemukan" }, { status: 404 });
+
+    // Form Data Site tidak lagi membawa ambang — ambang diatur di halaman Ambang
+    // Batas (/ambang-batas) lewat PUT /api/sites/[id]/ambang. Kolom yang tidak dikirim
+    // diisi nilai lamanya; tanpa ini normalizeBody() memasang bawaan 50/100/200
+    // dan menyimpan Data Site akan diam-diam mereset ambang site itu.
+    for (const k of KOLOM_AMBANG) {
+      if (!(k in body)) body[k] = lama[k];
+    }
+
+    const data = normalizeBody(body);
+    const err = validate(data);
+    if (err) return NextResponse.json({ success: false, error: err }, { status: 400 });
 
     // Slug adalah kunci yang menghubungkan ke log_kontrol.site. Mengubahnya akan
     // memutus seluruh riwayat pengukuran site ini, jadi tolak kalau sudah ada data.

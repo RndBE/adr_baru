@@ -28,6 +28,7 @@ const pageTitles: Record<string, string> = {
   // berbeda dan tak saling berawalan, jadi urutannya bebas.
   "/master-data": "Master Data",
   "/masterdata": "Masterdata",
+  "/ambang-batas": "Ambang Batas",
   "/pengaturan": "Pengaturan",
   "/kontrol-adr": "Kontrol ADR",
   "/prism-config": "Prism Configuration",

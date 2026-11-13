@@ -1,7 +1,8 @@
 "use client";
 
 import { useEffect, useState, useCallback } from "react";
-import { Plus, Pencil, Trash2, Loader2, AlertTriangle, CheckCircle2 } from "lucide-react";
+import Link from "next/link";
+import { Plus, Pencil, Trash2, Loader2, AlertTriangle, CheckCircle2, Siren } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -14,13 +15,15 @@ import {
 import type { SiteRow } from "@/hooks/use-sites";
 
 /** Form memakai string untuk semua field angka supaya input bisa dikosongkan.
- *  String kosong dikirim apa adanya dan diterjemahkan jadi null oleh API. */
+ *  String kosong dikirim apa adanya dan diterjemahkan jadi null oleh API.
+ *
+ *  Kolom ambang (geser_* / laju_*) sengaja TIDAK ada di form ini: ambang diatur
+ *  di halaman Ambang Batas. PUT /api/sites/[id] mengisi kolom yang tidak
+ *  dikirim dengan nilai lamanya; site baru mendapat bawaan normalizeBody(). */
 type FormState = Record<string, string | boolean>;
 
 const KOSONG: FormState = {
   slug: "", nama: "", badge_label: "", badge_color: "#303481", id_logger: "",
-  geser_normal_max: "50", geser_waspada_max: "100", geser_siaga_max: "200",
-  laju_waspada_min: "40", laju_siaga_min: "80", laju_awas_min: "120",
   rts_e: "", rts_n: "", rts_z: "",
   utm_zone: "50", utm_north: true,
   map_lat: "", map_lng: "", map_zoom: "16",
@@ -34,12 +37,6 @@ function toForm(row: SiteRow): FormState {
   return {
     slug: row.slug, nama: row.nama, badge_label: row.badge_label, badge_color: row.badge_color,
     id_logger: row.id_logger ?? "",
-    geser_normal_max: s(row.geser_normal_max),
-    geser_waspada_max: s(row.geser_waspada_max),
-    geser_siaga_max: s(row.geser_siaga_max),
-    laju_waspada_min: s(row.laju_waspada_min),
-    laju_siaga_min: s(row.laju_siaga_min),
-    laju_awas_min: s(row.laju_awas_min),
     rts_e: s(row.rts_e), rts_n: s(row.rts_n), rts_z: s(row.rts_z),
     utm_zone: s(row.utm_zone), utm_north: row.utm_north,
     map_lat: s(row.map_lat), map_lng: s(row.map_lng), map_zoom: s(row.map_zoom),
@@ -155,7 +152,12 @@ export function TabSite() {
           <div>
             <h2 className="text-[14.5px] font-bold text-gray-900">Data Site</h2>
             <p className="mt-0.5 text-[11.5px] text-gray-500">
-              Ambang bahaya, koordinat referensi, dan tampilan peta per area pemantauan
+              Koordinat referensi dan tampilan peta per area pemantauan. Ambang bahaya
+              diatur di{" "}
+              <Link href="/ambang-batas" className="font-semibold text-[#303481] hover:underline">
+                Ambang Batas
+              </Link>
+              .
             </p>
           </div>
           <Button onClick={openAdd} className="bg-[#303481] hover:bg-[#1f2259] text-white h-9 px-4 text-sm rounded-lg cursor-pointer flex items-center gap-2">
@@ -176,7 +178,6 @@ export function TabSite() {
                   <TableHead className="text-xs font-bold text-gray-500">SITE</TableHead>
                   <TableHead className="text-xs font-bold text-gray-500">SLUG</TableHead>
                   <TableHead className="text-xs font-bold text-gray-500">LOGGER</TableHead>
-                  <TableHead className="text-xs font-bold text-gray-500">AMBANG GESER (mm)</TableHead>
                   <TableHead className="text-xs font-bold text-gray-500">REFERENSI RTS</TableHead>
                   <TableHead className="text-xs font-bold text-gray-500">STATUS</TableHead>
                   <TableHead className="text-xs font-bold text-gray-500 text-right">AKSI</TableHead>
@@ -185,7 +186,7 @@ export function TabSite() {
               <TableBody>
                 {data.length === 0 ? (
                   <TableRow>
-                    <TableCell colSpan={8} className="h-24 text-center text-gray-400 text-sm">
+                    <TableCell colSpan={7} className="h-24 text-center text-gray-400 text-sm">
                       Tidak ada data
                     </TableCell>
                   </TableRow>
@@ -211,9 +212,6 @@ export function TabSite() {
                         ) : (
                           <span className="text-amber-600">belum dipilih</span>
                         )}
-                      </TableCell>
-                      <TableCell className="font-mono text-xs text-gray-600">
-                        {row.geser_normal_max} / {row.geser_waspada_max} / {row.geser_siaga_max}
                       </TableCell>
                       <TableCell className="font-mono text-xs text-gray-600">
                         {row.rts_e === null ? (
@@ -343,21 +341,16 @@ export function TabSite() {
               </div>
             </Seksi>
 
-            <Seksi judul="Ambang Pergeseran (mm)" hint="Batas atas tiap level — harus menaik">
-              <div className="grid grid-cols-3 gap-3">
-                <F label="Normal <"><Input type="number" value={form.geser_normal_max as string} onChange={(e) => set("geser_normal_max", e.target.value)} /></F>
-                <F label="Waspada <"><Input type="number" value={form.geser_waspada_max as string} onChange={(e) => set("geser_waspada_max", e.target.value)} /></F>
-                <F label="Siaga <"><Input type="number" value={form.geser_siaga_max as string} onChange={(e) => set("geser_siaga_max", e.target.value)} /></F>
-              </div>
-            </Seksi>
-
-            <Seksi judul="Ambang Kecepatan (mm/hari)" hint="Batas bawah tiap level — harus menaik">
-              <div className="grid grid-cols-3 gap-3">
-                <F label="Waspada >"><Input type="number" value={form.laju_waspada_min as string} onChange={(e) => set("laju_waspada_min", e.target.value)} /></F>
-                <F label="Siaga >"><Input type="number" value={form.laju_siaga_min as string} onChange={(e) => set("laju_siaga_min", e.target.value)} /></F>
-                <F label="Awas >"><Input type="number" value={form.laju_awas_min as string} onChange={(e) => set("laju_awas_min", e.target.value)} /></F>
-              </div>
-            </Seksi>
+            <div className="flex items-start gap-2.5 rounded-lg border border-[#DADCEC] bg-[#F5F6FA] px-3.5 py-2.5 text-[12px] leading-relaxed text-gray-600">
+              <Siren className="mt-[2px] h-4 w-4 flex-shrink-0 text-[#303481]" />
+              <span>
+                Ambang Waspada / Siaga / Awas diatur di menu{" "}
+                <Link href="/ambang-batas" className="font-semibold text-[#303481] hover:underline">
+                  Ambang Batas
+                </Link>
+                .{!editing && " Site baru memakai ambang bawaan 50 / 100 / 200 mm sampai diubah di sana."}
+              </span>
+            </div>
 
             <Seksi judul="Koordinat Referensi RTS (UTM)" hint="Kosongkan bila belum disurvei">
               <div className="grid grid-cols-3 gap-3">
@@ -431,8 +424,9 @@ export function TabSite() {
                 <span>
                   Data contoh
                   <span className="block text-[11px] text-gray-400">
-                    Centang bila koordinat dan ambang di atas belum berasal dari survei.
-                    Site tetap bisa dipakai, tapi diberi peringatan di seluruh aplikasi.
+                    Centang bila koordinat dan ambang site ini belum berasal dari survei.
+                    Site tetap bisa dipakai dan diberi tanda di seluruh aplikasi, tapi
+                    pesan peringatan WhatsApp tidak dikirim.
                   </span>
                 </span>
               </label>

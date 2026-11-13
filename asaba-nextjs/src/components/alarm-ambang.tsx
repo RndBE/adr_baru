@@ -361,12 +361,16 @@ export function BannerAlarm() {
         borderColor: WARNA_STATUS[puncak],
       }}
     >
-      <div className="flex min-w-0 flex-1 flex-wrap items-center gap-x-4 gap-y-1">
+      {/* Basis 18rem, bukan flex-1 (basis 0): dengan basis 0 di layar HP bagian
+          kanan mengambil seluruh lebarnya sendiri, daftar prisma diperas jadi
+          satu kata per baris dan teks keduanya saling menimpa. Dengan basis
+          nyata, bagian kanan turun ke baris kedua bila tidak muat. */}
+      <div className="flex min-w-0 flex-[1_1_18rem] flex-wrap items-center gap-x-4 gap-y-1">
         {perSite.map(([slug, g]) => (
           <div key={slug} className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
-            <span className="font-semibold text-[#14173a]">{g.nama}</span>
+            <span className="whitespace-nowrap font-semibold text-[#14173a]">{g.nama}</span>
             {g.prisma.slice(0, 4).map((p) => (
-              <span key={p.idPrisma} className="inline-flex items-center gap-1 text-[#14173a]">
+              <span key={p.idPrisma} className="inline-flex items-center gap-1 whitespace-nowrap text-[#14173a]">
                 <Lencana tingkat={p.tingkat} className={cn(baru.includes(p) && berbunyi && "animate-pulse")} />
                 <span className="font-medium">{p.idPrisma}</span>
                 <span className="tabular-nums text-[#4f5374]">{fmtMm(p.nilaiMm)}</span>
@@ -386,7 +390,7 @@ export function BannerAlarm() {
         {waktu && <span className="text-xs text-[#4f5374]">Siklus {waktu}</span>}
       </div>
 
-      <div className="flex items-center gap-2">
+      <div className="flex min-w-0 items-center gap-2">
         {terblokir ? (
           <button
             type="button"

@@ -6,6 +6,7 @@
  * saja yang boleh ada di sebuah route handler.
  */
 import { hitungTerkalibrasi } from "@/lib/sites";
+import { validasiAmbang } from "@/lib/ambang-kolom";
 
 /** Angka opsional: "" dan null → null, sisanya divalidasi sebagai angka. */
 function optNum(v: unknown): number | null {
@@ -90,10 +91,8 @@ export function validate(d: SitePayload): string | null {
     return "Slug hanya boleh huruf kecil, angka, tanda hubung, dan garis bawah";
   if (!d.nama) return "Nama site wajib diisi";
 
-  if (!(d.geser_normal_max < d.geser_waspada_max && d.geser_waspada_max < d.geser_siaga_max))
-    return "Ambang pergeseran harus menaik: Normal < Waspada < Siaga";
-  if (!(d.laju_waspada_min < d.laju_siaga_min && d.laju_siaga_min < d.laju_awas_min))
-    return "Ambang kecepatan harus menaik: Waspada < Siaga < Awas";
+  const errAmbang = validasiAmbang(d);
+  if (errAmbang) return errAmbang;
 
   if (d.utm_zone < 1 || d.utm_zone > 60) return "Zona UTM harus antara 1 dan 60";
   if (d.map_lat !== null && (d.map_lat < -90 || d.map_lat > 90))
