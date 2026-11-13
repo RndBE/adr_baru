@@ -1,5 +1,5 @@
 /**
- * Pemeriksaan pembacaan ambang halaman Ambang Batas.
+ * Pemeriksaan pembacaan ambang tab Ambang Batas (Master Data).
  * Jalankan: npx tsx src/lib/ambang-kolom.test.ts
  */
 import { KOLOM_AMBANG, bacaAmbang } from "./ambang-kolom";

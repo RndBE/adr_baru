@@ -1,7 +1,7 @@
 /**
  * Kolom ambang t_site — nama, urutan, dan validasinya.
  *
- * Murni (tanpa Prisma) supaya halaman Ambang Batas bisa memakai
+ * Murni (tanpa Prisma) supaya tab Ambang Batas (Master Data) bisa memakai
  * validasi yang SAMA dengan server untuk umpan balik seketika, tanpa menyalin
  * aturannya. Dipakai juga oleh site-validation.ts (POST/PUT site) dan
  * PUT /api/sites/[id]/ambang.

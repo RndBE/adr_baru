@@ -18,7 +18,7 @@ import type { SiteRow } from "@/hooks/use-sites";
  *  String kosong dikirim apa adanya dan diterjemahkan jadi null oleh API.
  *
  *  Kolom ambang (geser_* / laju_*) sengaja TIDAK ada di form ini: ambang diatur
- *  di halaman Ambang Batas. PUT /api/sites/[id] mengisi kolom yang tidak
+ *  di tab Ambang Batas (/master-data?tab=ambang). PUT /api/sites/[id] mengisi kolom yang tidak
  *  dikirim dengan nilai lamanya; site baru mendapat bawaan normalizeBody(). */
 type FormState = Record<string, string | boolean>;
 
@@ -153,8 +153,8 @@ export function TabSite() {
             <h2 className="text-[14.5px] font-bold text-gray-900">Data Site</h2>
             <p className="mt-0.5 text-[11.5px] text-gray-500">
               Koordinat referensi dan tampilan peta per area pemantauan. Ambang bahaya
-              diatur di{" "}
-              <Link href="/ambang-batas" className="font-semibold text-[#303481] hover:underline">
+              diatur di tab{" "}
+              <Link href="/master-data?tab=ambang" className="font-semibold text-[#303481] hover:underline">
                 Ambang Batas
               </Link>
               .
@@ -344,8 +344,8 @@ export function TabSite() {
             <div className="flex items-start gap-2.5 rounded-lg border border-[#DADCEC] bg-[#F5F6FA] px-3.5 py-2.5 text-[12px] leading-relaxed text-gray-600">
               <Siren className="mt-[2px] h-4 w-4 flex-shrink-0 text-[#303481]" />
               <span>
-                Ambang Waspada / Siaga / Awas diatur di menu{" "}
-                <Link href="/ambang-batas" className="font-semibold text-[#303481] hover:underline">
+                Ambang Waspada / Siaga / Awas diatur di tab{" "}
+                <Link href="/master-data?tab=ambang" className="font-semibold text-[#303481] hover:underline">
                   Ambang Batas
                 </Link>
                 .{!editing && " Site baru memakai ambang bawaan 50 / 100 / 200 mm sampai diubah di sana."}

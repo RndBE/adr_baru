@@ -1,7 +1,8 @@
 "use client";
 
-import { useEffect, useState, useCallback } from "react";
-import { Plus, Pencil, Trash2, Loader2, MapPin, Users, Radio, Layers, KeyRound, X, Check } from "lucide-react";
+import { Suspense, useEffect, useState, useCallback } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
+import { Plus, Pencil, Trash2, Loader2, MapPin, Users, Radio, Layers, KeyRound, X, Check, Siren } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -17,6 +18,7 @@ import {
 import { ZONA_BAWAAN_MENIT, ZONA_INDONESIA, kodeZona } from "@/components/monitoring/format";
 import { TabSite } from "@/components/master-data/tab-site";
 import { TabKodeAkses } from "@/components/master-data/tab-kode-akses";
+import { TabAmbangBatas } from "@/components/ambang-batas";
 
 // Simple toast helper
 const toast = { success: (msg: string) => console.log("✅", msg), error: (msg: string) => alert(msg) };
@@ -30,6 +32,7 @@ type KategoriLogger = { id_katlogger: number; nama_kategori: string; tabel: stri
 
 const TABS = [
   { key: "site", label: "Site", icon: Layers },
+  { key: "ambang", label: "Ambang Batas", icon: Siren },
   { key: "lokasi", label: "Lokasi", icon: MapPin },
   { key: "user", label: "User", icon: Users },
   { key: "logger", label: "Logger", icon: Radio },
@@ -39,24 +42,41 @@ type TabKey = typeof TABS[number]["key"];
 
 // ─── Main Page ──────────────────────────────────────────────────────────────
 
+// Suspense wajib: tab aktif dibaca dari ?tab= lewat useSearchParams.
 export default function MasterDataPage() {
-  const [activeTab, setActiveTab] = useState<TabKey>("site");
+  return (
+    <Suspense fallback={null}>
+      <IsiMasterData />
+    </Suspense>
+  );
+}
+
+function IsiMasterData() {
+  const router = useRouter();
+  const params = useSearchParams();
+  // Tab aktif disimpan di URL (?tab=ambang), bukan state: tautan dari tempat
+  // lain — mis. catatan di form Data Site — bisa langsung membuka tab yang benar,
+  // dan memuat ulang halaman tidak melempar balik ke tab Site.
+  const dariUrl = params.get("tab");
+  const activeTab: TabKey = TABS.some((t) => t.key === dariUrl) ? (dariUrl as TabKey) : "site";
+  const setActiveTab = (k: TabKey) =>
+    router.replace(k === "site" ? "/master-data" : `/master-data?tab=${k}`, { scroll: false });
 
   return (
     <div className="flex flex-col gap-6 p-4 md:p-6 bg-white">
       {/* Header */}
       <div>
         <h1 className="text-[22px] font-bold text-gray-900">Master Data</h1>
-        <p className="text-sm text-gray-500 mt-0.5">Kelola data Site, Lokasi, User, Logger, dan Kode Akses</p>
+        <p className="text-sm text-gray-500 mt-0.5">Kelola data Site, Ambang Batas, Lokasi, User, Logger, dan Kode Akses</p>
       </div>
 
       {/* Tabs */}
-      <div className="flex gap-2 border-b border-[#EAEAEA]">
+      <div className="flex gap-2 overflow-x-auto border-b border-[#EAEAEA]">
         {TABS.map(tab => (
           <button
             key={tab.key}
             onClick={() => setActiveTab(tab.key)}
-            className={`flex items-center gap-2 px-5 py-2.5 text-[13px] font-semibold border-b-2 transition-colors cursor-pointer ${
+            className={`flex flex-shrink-0 items-center gap-2 whitespace-nowrap px-5 py-2.5 text-[13px] font-semibold border-b-2 transition-colors cursor-pointer ${
               activeTab === tab.key
                 ? "border-[#303481] text-[#303481]"
                 : "border-transparent text-gray-500 hover:text-gray-700"
@@ -71,6 +91,7 @@ export default function MasterDataPage() {
       {/* Content */}
       <div>
         {activeTab === "site" && <TabSite />}
+        {activeTab === "ambang" && <TabAmbangBatas />}
         {activeTab === "lokasi" && <TabLokasi />}
         {activeTab === "user" && <TabUser />}
         {activeTab === "logger" && <TabLogger />}

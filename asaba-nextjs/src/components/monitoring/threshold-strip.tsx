@@ -56,7 +56,7 @@ export function ThresholdStrip({
   ambang: AmbangSite | null;
   kosong?: boolean;
   /**
-   * Ujung skala paling sedikit sejauh ini (mm). Halaman Ambang Batas memakainya
+   * Ujung skala paling sedikit sejauh ini (mm). Tab Ambang Batas memakainya
    * supaya keempat pita selalu terlihat walau semua prisma masih jauh di bawah
    * Waspada; Dashboard membiarkannya 0.
    */

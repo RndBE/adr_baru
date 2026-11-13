@@ -20,7 +20,7 @@ import { Button } from "@/components/ui/button";
 import { useSites, type SiteRow } from "@/hooks/use-sites";
 import { WARNA_STATUS } from "@/components/monitoring/status";
 import { ThresholdStrip, type TitikAmbang } from "@/components/monitoring/threshold-strip";
-import { KEBIJAKAN_BAWAAN } from "@/lib/peredam";
+import { JENDELA_SIKLUS, KEBIJAKAN_BAWAAN, UMUR_JENDELA_MS, batasTakWajarMm } from "@/lib/peredam";
 import {
   URUTAN_STATUS,
   ambangBerikutnya,
@@ -42,7 +42,8 @@ import {
 } from "@/lib/ambang-kolom";
 
 /**
- * Halaman Ambang Batas — satu site sekali tampil.
+ * Tab Ambang Batas di Master Data (`/master-data?tab=ambang`) — satu site sekali
+ * tampil, dan tiap site punya angka ambangnya sendiri.
  *
  * Site dipilih di baris atas (tersimpan di `?site=`, jadi tautannya bisa
  * dibagikan). Untuk site terpilih: posisi tiap prisma terhadap ambang, isian
@@ -90,7 +91,7 @@ function waktuPendek(s: string | null): string | null {
 
 // ─── Halaman ────────────────────────────────────────────────────────────────
 
-export function HalamanAmbangBatas() {
+export function TabAmbangBatas() {
   const { sites, isLoading } = useSites(true);
   const router = useRouter();
   const pathname = usePathname();
@@ -112,18 +113,19 @@ export function HalamanAmbangBatas() {
     if (slug === terpilih?.slug) return;
     if (kotor.current && !window.confirm("Perubahan ambang belum disimpan. Tinggalkan site ini?")) return;
     kotor.current = false;
-    router.replace(`${pathname}?site=${encodeURIComponent(slug)}`, { scroll: false });
+    // Parameter lain (mis. ?tab=ambang milik Master Data) dipertahankan.
+    const q = new URLSearchParams(params.toString());
+    q.set("site", slug);
+    router.replace(`${pathname}?${q}`, { scroll: false });
   };
 
   return (
     <div className="tema-monitoring flex flex-col gap-5">
-      <div>
-        <h1 className="text-[22px] font-bold text-gray-900">Ambang Batas</h1>
-        <p className="mt-0.5 max-w-3xl text-sm text-gray-500">
-          Batas Waspada, Siaga, dan Awas per site. Pergeseran prisma yang melewati batas ini
-          memicu pesan WhatsApp dan alarm di dasbor.
-        </p>
-      </div>
+      <p className="max-w-3xl text-[12.5px] leading-relaxed text-gray-500">
+        Batas Waspada, Siaga, dan Awas — <b className="font-semibold text-gray-700">tiap site punya
+        angkanya sendiri</b>. Pilih site, ubah angkanya, lalu simpan. Pergeseran prisma yang
+        melewati batas memicu pesan WhatsApp dan alarm di dasbor.
+      </p>
 
       {isLoading ? (
         <div className="flex items-center justify-center py-20">
@@ -131,7 +133,7 @@ export function HalamanAmbangBatas() {
         </div>
       ) : !terpilih ? (
         <div className="rounded-xl border border-[#EAEAEA] py-12 text-center text-sm text-gray-400">
-          Belum ada site. Tambahkan lewat Master Data → Site.
+          Belum ada site. Tambahkan lewat tab Site.
         </div>
       ) : (
         <>
@@ -394,7 +396,7 @@ function PanelSite({
 
       <aside className="flex flex-col gap-5 xl:sticky xl:top-4">
         <KartuKanal kanal={detail?.kanal ?? null} dataContoh={site.data_dummy} />
-        <AturanPeringatan />
+        <AturanPeringatan ambang={ambang} />
       </aside>
     </div>
   );
@@ -631,7 +633,8 @@ function TabelPrisma({
       <header className="flex flex-wrap items-baseline gap-x-3 gap-y-1 border-b border-[#EAEAEA] px-5 py-3.5">
         <h2 className="text-[14.5px] font-bold text-gray-900">Prisma</h2>
         <p className="text-[11.5px] text-gray-500">
-          Pergeseran siklus terakhir terhadap acuan R0, urut dari yang terbesar.
+          Nilai pemicu terakhir (median {JENDELA_SIKLUS} siklus) terhadap acuan R0, urut dari yang
+          terbesar.
         </p>
       </header>
 
@@ -826,19 +829,23 @@ function BarisKanal({
   );
 }
 
-function AturanPeringatan() {
+function AturanPeringatan({ ambang }: { ambang: AmbangSite }) {
   const k = KEBIJAKAN_BAWAAN;
   const persen = Math.round(k.histeresisRasio * 100);
   const menit = Math.round(k.jedaMs / 60000);
 
   const butir: { judul: string; isi: string }[] = [
-    { judul: "Dinilai", isi: "Di akhir tiap siklus ukur, dari pergeseran tiap prisma terhadap acuan R0." },
+    {
+      judul: "Dinilai",
+      isi: `Di akhir tiap siklus ukur, dari pergeseran tiap prisma terhadap acuan R0. Yang dibandingkan dengan ambang adalah median ${JENDELA_SIKLUS} siklus terakhir (dalam ${Math.round(UMUR_JENDELA_MS / 3_600_000)} jam), bukan satu tembakan.`,
+    },
     {
       judul: "Naik",
-      isi:
-        k.konfirmasiSiklus <= 1
-          ? "Langsung pada siklus pertama yang melewati batas."
-          : `Setelah ${k.konfirmasiSiklus} siklus beruntun melewati batas.`,
+      isi: `Bila ${JENDELA_SIKLUS - 1} dari ${JENDELA_SIKLUS} siklus terakhir melewati batas. Satu bacaan yang meloncat tidak memicu; pergeseran sungguhan terlambat paling lama satu siklus.`,
+    },
+    {
+      judul: "Bacaan tak wajar",
+      isi: `Pergeseran lebih dari ${angka(batasTakWajarMm(ambang) / 1000, 1)} m (10× batas Awas, paling sedikit 1 m) dianggap salah tembak dan dihitung tidak terbaca.`,
     },
     { judul: "Turun", isi: `Setelah ${persen}% di bawah batas, supaya tidak naik-turun di sekitar batas.` },
     {

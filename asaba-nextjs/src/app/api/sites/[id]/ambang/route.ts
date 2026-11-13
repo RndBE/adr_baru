@@ -14,7 +14,7 @@ export const dynamic = "force-dynamic";
 
 /**
  * GET /api/sites/[id]/ambang
- * Bahan halaman Ambang Batas untuk satu site: tiap prisma dengan pergeseran
+ * Bahan tab Ambang Batas (Master Data) untuk satu site: tiap prisma dengan pergeseran
  * dan tingkat terakhirnya (status_prisma — angka yang sama dengan pesan WA dan
  * alarm dasbor), kapan siklus terakhir dinilai, sesi acuan R0, dan ke mana
  * peringatannya dikirim. Nomor dan ID tujuan TIDAK ikut dikirim ke peramban.
@@ -156,8 +156,8 @@ async function kanalSite(slug: string): Promise<KanalPeringatan[]> {
 
 /**
  * PUT /api/sites/[id]/ambang
- * Simpan HANYA keenam kolom ambang satu site — dipakai halaman Ambang
- * Batas. Kolom site lain tidak disentuh, jadi dua orang yang menyunting
+ * Simpan HANYA keenam kolom ambang satu site — dipakai tab Ambang Batas
+ * di Master Data. Kolom site lain tidak disentuh, jadi dua orang yang menyunting
  * ambang dan koordinat bersamaan tidak saling menimpa.
  *
  * Berlaku mulai siklus ukur berikutnya: evaluasi-siklus.ts membaca ambang lewat

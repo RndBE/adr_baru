@@ -4,7 +4,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { signOut } from "next-auth/react";
 import Image from "next/image";
-import { LogOut, Settings2, Combine, Siren
+import { LogOut, Settings2, Combine
 } from "lucide-react";
 import {
   Sidebar,
@@ -208,12 +208,8 @@ const navGroups: { label: string; items: NavItem[] }[] = [
   },
   {
     label: "Pengaturan",
-    items: [
-      // Ambang dipisah dari Master Data → Site: angkanya yang memutuskan pesan
-      // WhatsApp dan alarm dasbor, jadi punya menu sendiri.
-      { title: "Ambang Batas", href: "/ambang-batas", icon: () => <Siren className={ICON_CLASS} strokeWidth={1.6} /> },
-      { title: "Master Data", href: "/master-data", icon: () => <Settings2 className={ICON_CLASS} strokeWidth={1.6} /> },
-    ],
+    // Ambang Batas tidak punya menu sendiri: ia tab di Master Data (?tab=ambang).
+    items: [{ title: "Master Data", href: "/master-data", icon: () => <Settings2 className={ICON_CLASS} strokeWidth={1.6} /> }],
   },
 ];
 

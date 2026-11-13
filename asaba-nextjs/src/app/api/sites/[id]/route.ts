@@ -35,8 +35,8 @@ export async function PUT(
     if (!lama)
       return NextResponse.json({ success: false, error: "Tidak ditemukan" }, { status: 404 });
 
-    // Form Data Site tidak lagi membawa ambang — ambang diatur di halaman Ambang
-    // Batas (/ambang-batas) lewat PUT /api/sites/[id]/ambang. Kolom yang tidak dikirim
+    // Form Data Site tidak lagi membawa ambang — ambang diatur di tab Ambang
+    // Batas (/master-data?tab=ambang) lewat PUT /api/sites/[id]/ambang. Kolom yang tidak dikirim
     // diisi nilai lamanya; tanpa ini normalizeBody() memasang bawaan 50/100/200
     // dan menyimpan Data Site akan diam-diam mereset ambang site itu.
     for (const k of KOLOM_AMBANG) {
