@@ -4,7 +4,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { signOut } from "next-auth/react";
 import Image from "next/image";
-import { LogOut, Settings2, Combine
+import { LogOut, Settings2, Combine, Siren
 } from "lucide-react";
 import {
   Sidebar,
@@ -176,6 +176,12 @@ const navGroups: { label: string; items: NavItem[] }[] = [
         title: "Hasil Pengukuran",
         href: "/hasil-pengukuran",
         icon: (active) => <MaskIcon basePath="/hasil_pengukuran" className={ICON_CLASS} isActive={active} />,
+      },
+      {
+        // Kejadian alarm: konfirmasi operator, verifikasi lapangan, catatan.
+        title: "Riwayat Alarm",
+        href: "/riwayat-alarm",
+        icon: () => <Siren className={ICON_CLASS} strokeWidth={1.6} />,
       },
       {
         title: "Analisa Gabungan",

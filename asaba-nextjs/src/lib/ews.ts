@@ -21,6 +21,7 @@
  * paling luarnya `EWS`. Topiknya tetap `sub_<idLoggerEws>`.
  */
 import { type StatusLabel, statusTerburuk } from "@/lib/ambang";
+import { senyapBerlaku } from "@/lib/aturan-kejadian";
 
 export type LevelEws = 0 | 1 | 2 | 3;
 
@@ -47,6 +48,19 @@ export function payloadEws(tingkat: StatusLabel): { EWS: { cmd: "CTRL"; level: L
  */
 export function tingkatSite(daftar: ReadonlyArray<StatusLabel | null | undefined>): StatusLabel {
   return statusTerburuk(daftar) ?? "Normal";
+}
+
+/**
+ * Tingkat yang dikirim ke perangkat: tingkat site, KECUALI sedang disenyapkan
+ * oleh konfirmasi operator — maka Normal (level 0, sirene + lampu mati).
+ * Naik melewati tingkat yang dikonfirmasi membunyikannya lagi. Lihat
+ * senyapBerlaku() di aturan-kejadian.ts.
+ */
+export function tingkatUntukEws(
+  tingkat: StatusLabel,
+  tingkatDikonfirmasi: StatusLabel | null
+): StatusLabel {
+  return senyapBerlaku(tingkat, tingkatDikonfirmasi) ? "Normal" : tingkat;
 }
 
 /** Yang terakhir BERHASIL diterbitkan ke perangkat (tabel status_ews). */

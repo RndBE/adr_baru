@@ -36,6 +36,7 @@ const pageTitles: Record<string, string> = {
   "/peta-jaringan-tambang/3d": "Peta Jaringan Tambang 3D",
   "/peta-jaringan-tambang": "Peta Jaringan Tambang",
   "/rekap-data": "Rekap Data Masuk",
+  "/riwayat-alarm": "Riwayat Alarm",
   "/power-rts": "Power RTS",
 };
 

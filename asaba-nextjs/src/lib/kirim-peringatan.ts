@@ -647,6 +647,11 @@ async function kirimSatuWa(
 }
 
 export async function kirimWhatsapp(site: string, r: RingkasanSiklus): Promise<HasilKirim> {
+  return kirimTeksWhatsapp(site, susunTeksWa(r));
+}
+
+/** Teks bebas ke tujuan WhatsApp site — dipakai juga oleh pesan konfirmasi/verifikasi. */
+export async function kirimTeksWhatsapp(site: string, teks: string): Promise<HasilKirim> {
   const url = (process.env.WHATSAPP_API_URL || "").replace(/\/+$/, "");
   const key = process.env.WHATSAPP_API_KEY;
   if (!url || !key) {
@@ -659,7 +664,6 @@ export async function kirimWhatsapp(site: string, r: RingkasanSiklus): Promise<H
   }
 
   const sesi = process.env.WHATSAPP_SESSION || WA_SESI_BAWAAN;
-  const teks = susunTeksWa(r);
 
   // Berbarengan, bukan berurutan: tiap tujuan satu panggilan API, dan menunggu
   // giliran membuat tenggat 15 detik terkalikan jumlah penerima di dalam
@@ -736,4 +740,22 @@ export async function kirimPeringatan(
     .filter((x): x is string => x !== null);
 
   return { ok, galat: keluhan.length > 0 ? keluhan.join(" | ") : null, kanal };
+}
+
+/**
+ * Kabar singkat tindak lanjut alarm (konfirmasi, verifikasi) ke WhatsApp dan
+ * Telegram site — tanpa email: ini catatan penanganan, bukan peringatan baru.
+ * Tidak pernah melempar; hasilnya hanya untuk dicatat di log.
+ */
+export async function kirimKabar(site: string, teks: string): Promise<string> {
+  const [whatsapp, telegram] = await Promise.all([
+    kirimTeksWhatsapp(site, teks),
+    kirimTelegram(site, teks.replace(/\*/g, "")),
+  ]);
+  const terpasang = [
+    { nama: "whatsapp", hasil: whatsapp },
+    { nama: "telegram", hasil: telegram },
+  ].filter((k) => k.hasil.ok || !("mati" in k.hasil && k.hasil.mati));
+  if (terpasang.length === 0) return "tidak ada kanal yang disetel";
+  return terpasang.map((k) => `${k.nama}=${k.hasil.ok ? "ok" : k.hasil.galat}`).join(", ");
 }

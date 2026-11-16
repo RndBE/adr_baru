@@ -11,8 +11,8 @@ import {
   useSyncExternalStore,
 } from "react";
 import Link from "next/link";
-import useSWR from "swr";
-import { BellOff, Volume2, VolumeX } from "lucide-react";
+import useSWR, { useSWRConfig } from "swr";
+import { BellOff, ClipboardCheck, Volume2, VolumeX } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { WARNA_STATUS } from "@/components/monitoring/status";
@@ -29,6 +29,20 @@ import {
   type TingkatAlarm,
 } from "@/lib/alarm-ambang";
 import {
+  catatTutupModal,
+  fmtWaktuPendek,
+  kejadianUntukModal,
+  senyapBerlaku,
+  statusKejadian,
+  uraiCatatanModal,
+  type KejadianRingkas,
+} from "@/lib/aturan-kejadian";
+import {
+  DialogVerifikasi,
+  ModalAlarm,
+  PemberitahuanEwsGagal,
+} from "@/components/kejadian-alarm/dialog-kejadian";
+import {
   bukaKunciSuara,
   hentikanBunyi,
   pantauSuara,
@@ -44,6 +58,11 @@ import {
  * sedang tampil: kenaikan berikutnya — prisma yang sama naik lagi, atau prisma
  * lain menyusul — berbunyi lagi. Aturannya di lib/alarm-ambang.ts.
  *
+ * Konfirmasi (kejadian-alarm) berbeda dari Matikan bunyi: ia tercatat di server,
+ * mematikan sirene EWS di lapangan, dan membungkam SEMUA peramban — selama
+ * tingkatnya tidak naik melewati yang dikonfirmasi. Matikan bunyi tetap ada
+ * untuk yang tidak memegang kode akses dan cuma ingin laptopnya diam.
+ *
  * Setelan dan catatan "sudah didengar" disimpan per peramban (localStorage),
  * bukan per akun: yang perlu dibungkam adalah speaker di ruangan itu, dan
  * mematikan bunyi di laptop seseorang tidak boleh ikut membungkam layar ruang
@@ -52,7 +71,11 @@ import {
 
 const KUNCI_SUARA = "adr-alarm-suara";
 const KUNCI_DIAKUI = "adr-alarm-diakui";
+/** Kapan modal tiap kejadian terakhir ditutup di peramban ini. Lihat catatTutupModal(). */
+const KUNCI_MODAL = "adr-alarm-modal";
 const LAMA_TES_MS = 3000;
+/** Seberapa sering jam dibaca ulang untuk menentukan pengingat modal. */
+const TIK_MODAL_MS = 15_000;
 const TANYA_TIAP_MS = 30_000;
 
 // ─── localStorage sebagai external store ────────────────────────────────────
@@ -93,6 +116,12 @@ const fetcher = (url: string) => fetch(url).then((r) => r.json());
 
 interface NilaiAlarm {
   daftar: PrismaAlarm[];
+  /** Kejadian yang masih butuh operator: aktif, atau pulih tapi belum diverifikasi. */
+  kejadian: KejadianRingkas[];
+  muatUlang: () => void;
+  /** Buka modal alarm (konfirmasi) / dialog verifikasi untuk satu kejadian. */
+  bukaKonfirmasi: (k: KejadianRingkas) => void;
+  bukaVerifikasi: (k: KejadianRingkas) => void;
   /** Prisma yang membuat bunyi sekarang (belum didengar). */
   baru: PrismaAlarm[];
   suaraAktif: boolean;
@@ -110,13 +139,23 @@ interface NilaiAlarm {
 const KonteksAlarm = createContext<NilaiAlarm | null>(null);
 
 export function AlarmAmbangProvider({ children }: { children: React.ReactNode }) {
-  const { data } = useSWR<{ success: boolean; data?: PrismaAlarm[] }>(
+  const { data, mutate } = useSWR<{ success: boolean; data?: PrismaAlarm[]; kejadian?: KejadianRingkas[] }>(
     "/api/alarm-ambang",
     fetcher,
     { refreshInterval: TANYA_TIAP_MS, refreshWhenHidden: true }
   );
   const sahih = data?.success === true && Array.isArray(data.data);
   const daftar = useMemo(() => (sahih ? data!.data! : []), [sahih, data]);
+  const kejadian = useMemo(
+    () => (sahih && Array.isArray(data!.kejadian) ? data!.kejadian! : []),
+    [sahih, data]
+  );
+  const { mutate: segarkan } = useSWRConfig();
+  // Halaman Riwayat Alarm membaca kejadian yang sama; ikut disegarkan.
+  const muatUlang = useCallback(() => {
+    void mutate();
+    void segarkan((k) => typeof k === "string" && k.startsWith("/api/kejadian-alarm"));
+  }, [mutate, segarkan]);
 
   const suaraAktif = useSyncExternalStore(
     langganan,
@@ -142,12 +181,75 @@ export function AlarmAmbangProvider({ children }: { children: React.ReactNode })
     if (!samaDiakui(rapi, diakui)) tulis(KUNCI_DIAKUI, JSON.stringify(rapi));
   }, [sahih, daftar, diakui]);
 
-  const baru = useMemo(() => belumDiakui(daftar, diakui), [daftar, diakui]);
+  // Prisma yang sudah dikonfirmasi operator (di peramban mana pun) tidak lagi
+  // berbunyi, selama tingkatnya tidak melebihi yang dikonfirmasi.
+  const baru = useMemo(() => {
+    const senyap = new Map(
+      kejadian.filter((k) => k.pulih === null).map((k) => [k.site, k.tingkatDikonfirmasi])
+    );
+    return belumDiakui(daftar, diakui).filter(
+      (p) => !senyapBerlaku(p.tingkat, senyap.get(p.site) ?? null)
+    );
+  }, [daftar, diakui, kejadian]);
   const bunyi = tes ?? (suaraAktif ? terburuk(baru) : null);
 
   useEffect(() => {
     setelBunyi(bunyi);
   }, [bunyi]);
+
+  // ── Modal alarm dan dialog verifikasi ─────────────────────────────────────
+  //
+  // Dipasang di sini, satu kali, supaya modal otomatis, tombol di banner, dan
+  // tombol di Riwayat Alarm memakai satu jendela — dua modal bertumpuk di atas
+  // satu alarm tidak boleh terjadi.
+  const [dialog, setDialog] = useState<{ jenis: "konfirmasi" | "verifikasi"; k: KejadianRingkas } | null>(null);
+  const [ewsGagal, setEwsGagal] = useState(false);
+
+  // Jam dibaca tiap beberapa detik, bukan tiap render: render harus murni, dan
+  // pengingat 2 menit tidak butuh ketelitian lebih dari itu. Null sampai tik
+  // pertama supaya modal tidak sempat berkedip dengan jam yang belum ada.
+  const [sekarang, setSekarang] = useState<number | null>(null);
+  useEffect(() => {
+    const tik = () => setSekarang(Date.now());
+    const awal = setTimeout(tik, 0);
+    const t = setInterval(tik, TIK_MODAL_MS);
+    return () => {
+      clearTimeout(awal);
+      clearInterval(t);
+    };
+  }, []);
+
+  const teksModal = useSyncExternalStore(
+    langganan,
+    () => baca(KUNCI_MODAL),
+    () => null
+  );
+  const kandidatModal = useMemo(
+    () => (sekarang === null ? null : kejadianUntukModal(kejadian, uraiCatatanModal(teksModal), sekarang)),
+    [kejadian, teksModal, sekarang]
+  );
+
+  // Dialog yang dibuka tangan memakai data terbaru kejadiannya bila masih ada
+  // di daftar (tingkat bisa naik saat dialog terbuka). Konfirmasi atas alarm
+  // yang sudah pulih tidak ada artinya, jadi dialognya hilang sendiri.
+  const kDialog = dialog ? (kejadian.find((x) => x.id === dialog.k.id) ?? dialog.k) : null;
+  const dialogHidup = dialog !== null && kDialog !== null && !(dialog.jenis === "konfirmasi" && kDialog.pulih !== null);
+  const tampil: { jenis: "konfirmasi" | "verifikasi"; k: KejadianRingkas; otomatis: boolean } | null = dialogHidup
+    ? { jenis: dialog!.jenis, k: kDialog!, otomatis: false }
+    : kandidatModal
+      ? { jenis: "konfirmasi", k: kandidatModal, otomatis: true }
+      : null;
+
+  const tutupModal = (k: KejadianRingkas) => {
+    const agora = Date.now();
+    // Jam diperbarui bersama catatannya: tanpa itu `sekarang` yang basi lebih
+    // tua dari jam tutup, dan pengingat dikira "jam mundur".
+    setSekarang(agora);
+    tulis(KUNCI_MODAL, JSON.stringify(catatTutupModal(uraiCatatanModal(baca(KUNCI_MODAL)), kejadian, k, agora)));
+    setDialog(null);
+  };
+  const bukaKonfirmasi = useCallback((k: KejadianRingkas) => setDialog({ jenis: "konfirmasi", k }), []);
+  const bukaVerifikasi = useCallback((k: KejadianRingkas) => setDialog({ jenis: "verifikasi", k }), []);
 
   useEffect(
     () => () => {
@@ -191,6 +293,10 @@ export function AlarmAmbangProvider({ children }: { children: React.ReactNode })
 
   const nilai: NilaiAlarm = {
     daftar,
+    kejadian,
+    muatUlang,
+    bukaKonfirmasi,
+    bukaVerifikasi,
     baru,
     suaraAktif,
     aturSuaraAktif,
@@ -202,13 +308,46 @@ export function AlarmAmbangProvider({ children }: { children: React.ReactNode })
     tesBunyi,
   };
 
-  return <KonteksAlarm.Provider value={nilai}>{children}</KonteksAlarm.Provider>;
+  return (
+    <KonteksAlarm.Provider value={nilai}>
+      {children}
+      {tampil?.jenis === "konfirmasi" && (
+        <ModalAlarm
+          key={tampil.k.id}
+          kejadian={tampil.k}
+          prisma={daftar}
+          pengingat={tampil.otomatis}
+          onClose={() => tutupModal(tampil.k)}
+          onSelesai={(ews) => {
+            tutupModal(tampil.k);
+            muatUlang();
+            if (ews === "gagal") setEwsGagal(true);
+          }}
+        />
+      )}
+      {tampil?.jenis === "verifikasi" && (
+        <DialogVerifikasi
+          key={tampil.k.id}
+          kejadian={tampil.k}
+          onClose={() => setDialog(null)}
+          onSelesai={muatUlang}
+        />
+      )}
+      {ewsGagal && <PemberitahuanEwsGagal onClose={() => setEwsGagal(false)} />}
+    </KonteksAlarm.Provider>
+  );
 }
 
 function useAlarm(): NilaiAlarm {
   const n = useContext(KonteksAlarm);
   if (!n) throw new Error("useAlarm dipakai di luar AlarmAmbangProvider");
   return n;
+}
+
+/** Untuk halaman lain (Riwayat Alarm) yang perlu membuka modal konfirmasi atau dialog verifikasi. */
+export function useDialogKejadian() {
+  const { bukaKonfirmasi, bukaVerifikasi } = useAlarm();
+  return { bukaKonfirmasi, bukaVerifikasi };
 }
 
 // ─── Tampilan ───────────────────────────────────────────────────────────────
@@ -326,10 +465,74 @@ export function TombolAlarm() {
   );
 }
 
-/** Pita di bawah header selama ada prisma di atas Normal. */
+/** Tombol dan keterangan kejadian site di banner. */
+function AksiKejadian({
+  k,
+  bukaKonfirmasi,
+  bukaVerifikasi,
+}: {
+  k: KejadianRingkas;
+  bukaKonfirmasi: (k: KejadianRingkas) => void;
+  bukaVerifikasi: (k: KejadianRingkas) => void;
+}) {
+  const status = statusKejadian(k);
+  if (status === "perlu-konfirmasi") {
+    return (
+      <button
+        type="button"
+        onClick={() => bukaKonfirmasi(k)}
+        className="inline-flex cursor-pointer items-center gap-1.5 whitespace-nowrap rounded-md bg-[#d03b3b] px-2.5 py-1 text-xs font-semibold text-white hover:brightness-90"
+      >
+        <BellOff className="h-3.5 w-3.5" />
+        Konfirmasi
+      </button>
+    );
+  }
+  if (status === "disenyapkan") {
+    return (
+      <span className="inline-flex flex-wrap items-center gap-x-2 gap-y-1">
+        <span className="whitespace-nowrap text-xs text-[#4f5374]">
+          Dikonfirmasi {k.dikonfirmasiOleh} {fmtWaktuPendek(k.dikonfirmasi)}
+        </span>
+        <button
+          type="button"
+          onClick={() => bukaVerifikasi(k)}
+          className="inline-flex cursor-pointer items-center gap-1.5 whitespace-nowrap rounded-md border border-[#303481]/40 bg-white px-2.5 py-1 text-xs font-semibold text-[#303481] hover:bg-[#303481]/5"
+        >
+          <ClipboardCheck className="h-3.5 w-3.5" />
+          Verifikasi
+        </button>
+      </span>
+    );
+  }
+  if (k.hasil) {
+    return (
+      <span className="whitespace-nowrap text-xs text-[#4f5374]">
+        Terverifikasi: <b className="text-[#14173a]">{k.hasil}</b>
+      </span>
+    );
+  }
+  return null;
+}
+
+/**
+ * Pita di bawah header selama ada prisma di atas Normal, atau ada kejadian yang
+ * sudah pulih tapi belum diverifikasi.
+ */
 export function BannerAlarm() {
-  const { daftar, baru, suaraAktif, bunyi, tes, terblokir, matikanBunyi, nyalakanSuara } =
-    useAlarm();
+  const {
+    daftar,
+    baru,
+    kejadian,
+    bukaKonfirmasi,
+    bukaVerifikasi,
+    suaraAktif,
+    bunyi,
+    tes,
+    terblokir,
+    matikanBunyi,
+    nyalakanSuara,
+  } = useAlarm();
 
   const perSite = useMemo(() => {
     const peta = new Map<string, { nama: string; prisma: PrismaAlarm[] }>();
@@ -344,8 +547,17 @@ export function BannerAlarm() {
     return [...peta.entries()];
   }, [daftar]);
 
+  const aktifPerSite = useMemo(
+    () => new Map(kejadian.filter((k) => k.pulih === null).map((k) => [k.site, k])),
+    [kejadian]
+  );
+  const menunggu = useMemo(
+    () => kejadian.filter((k) => k.pulih !== null && k.diverifikasi === null),
+    [kejadian]
+  );
+
   const puncak = terburuk(daftar);
-  if (!puncak) return null;
+  if (!puncak && menunggu.length === 0) return null;
 
   const berbunyi = bunyi !== null && tes === null;
   const waktu = fmtWaktu(
@@ -353,70 +565,124 @@ export function BannerAlarm() {
   );
 
   return (
-    <div
-      role="status"
-      className="tema-monitoring sticky top-16 z-20 flex flex-wrap items-center gap-x-4 gap-y-2 border-b px-3 py-2 text-sm md:px-5"
-      style={{
-        background: `color-mix(in srgb, ${WARNA_STATUS[puncak]} 14%, white)`,
-        borderColor: WARNA_STATUS[puncak],
-      }}
-    >
-      {/* Basis 18rem, bukan flex-1 (basis 0): dengan basis 0 di layar HP bagian
-          kanan mengambil seluruh lebarnya sendiri, daftar prisma diperas jadi
-          satu kata per baris dan teks keduanya saling menimpa. Dengan basis
-          nyata, bagian kanan turun ke baris kedua bila tidak muat. */}
-      <div className="flex min-w-0 flex-[1_1_18rem] flex-wrap items-center gap-x-4 gap-y-1">
-        {perSite.map(([slug, g]) => (
-          <div key={slug} className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
-            <span className="whitespace-nowrap font-semibold text-[#14173a]">{g.nama}</span>
-            {g.prisma.slice(0, 4).map((p) => (
-              <span key={p.idPrisma} className="inline-flex items-center gap-1 whitespace-nowrap text-[#14173a]">
-                <Lencana tingkat={p.tingkat} className={cn(baru.includes(p) && berbunyi && "animate-pulse")} />
-                <span className="font-medium">{p.idPrisma}</span>
-                <span className="tabular-nums text-[#4f5374]">{fmtMm(p.nilaiMm)}</span>
+    <>
+      <div
+        role="status"
+        className="tema-monitoring sticky top-16 z-20 flex flex-col gap-y-1.5 border-b px-3 py-1.5 text-sm md:px-5"
+        style={
+          puncak
+            ? {
+                background: `color-mix(in srgb, ${WARNA_STATUS[puncak]} 14%, white)`,
+                borderColor: WARNA_STATUS[puncak],
+              }
+            : { background: "#f3f4f8", borderColor: "rgba(20, 23, 58, 0.1)" }
+        }
+      >
+        {puncak && (
+          <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
+            {/* Basis 18rem, bukan flex-1 (basis 0): dengan basis 0 di layar HP bagian
+                kanan mengambil seluruh lebarnya sendiri, daftar prisma diperas jadi
+                satu kata per baris dan teks keduanya saling menimpa. Dengan basis
+                nyata, bagian kanan turun ke baris kedua bila tidak muat. */}
+            <div className="flex min-w-0 flex-[1_1_18rem] flex-wrap items-center gap-x-4 gap-y-1">
+              {perSite.map(([slug, g]) => {
+                const k = aktifPerSite.get(slug);
+                const butuhKonfirmasi = k !== undefined && statusKejadian(k) === "perlu-konfirmasi";
+                return (
+                  <div key={slug} className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
+                    {butuhKonfirmasi && (
+                      <span
+                        aria-hidden="true"
+                        className="size-2.5 shrink-0 animate-pulse rounded-full motion-reduce:animate-none"
+                        style={{ background: WARNA_STATUS[g.prisma[0].tingkat] }}
+                      />
+                    )}
+                    <span className="whitespace-nowrap font-semibold text-[#14173a]">{g.nama}</span>
+                    {g.prisma.slice(0, 4).map((p) => (
+                      <span key={p.idPrisma} className="inline-flex items-center gap-1 whitespace-nowrap text-[#14173a]">
+                        <Lencana tingkat={p.tingkat} className={cn(baru.includes(p) && berbunyi && "animate-pulse")} />
+                        <span className="font-medium">{p.idPrisma}</span>
+                        <span className="tabular-nums text-[#4f5374]">{fmtMm(p.nilaiMm)}</span>
+                      </span>
+                    ))}
+                    {g.prisma.length > 4 && (
+                      <span className="text-xs text-[#4f5374]">+{g.prisma.length - 4} prisma lain</span>
+                    )}
+                    <Link
+                      href={`/beranda?site=${encodeURIComponent(slug)}`}
+                      className="text-xs font-medium text-[#303481] underline underline-offset-2"
+                    >
+                      Lihat
+                    </Link>
+                    {k && <AksiKejadian k={k} bukaKonfirmasi={bukaKonfirmasi} bukaVerifikasi={bukaVerifikasi} />}
+                  </div>
+                );
+              })}
+              {waktu && <span className="hidden text-xs text-[#4f5374] md:inline">Siklus {waktu}</span>}
+            </div>
+
+            <div className="flex min-w-0 items-center gap-2">
+              {terblokir ? (
+                <button
+                  type="button"
+                  onClick={nyalakanSuara}
+                  className="inline-flex cursor-pointer items-center gap-1.5 rounded-md bg-[#303481] px-3 py-1.5 text-xs font-semibold text-white hover:bg-[#252865]"
+                >
+                  <Volume2 className="h-3.5 w-3.5" />
+                  Nyalakan suara alarm
+                </button>
+              ) : berbunyi ? (
+                <button
+                  type="button"
+                  onClick={matikanBunyi}
+                  title="Hanya membungkam peramban ini. Sirene di lapangan tetap berbunyi sampai dikonfirmasi."
+                  className="inline-flex cursor-pointer items-center gap-1.5 rounded-md bg-[#14173a] px-3 py-1.5 text-xs font-semibold text-white hover:bg-black"
+                >
+                  <VolumeX className="h-3.5 w-3.5" />
+                  Matikan bunyi di sini
+                </button>
+              ) : (
+                <span className="text-xs text-[#4f5374]">
+                  {suaraAktif
+                    ? "Tidak berbunyi — berbunyi lagi bila tingkatnya naik"
+                    : "Suara alarm nonaktif di peramban ini"}
+                </span>
+              )}
+            </div>
+          </div>
+        )}
+
+        {menunggu.length > 0 && (
+          <div className="flex flex-wrap items-center gap-x-4 gap-y-1">
+            <span className="text-xs font-semibold text-[#4f5374]">Menunggu verifikasi:</span>
+            {menunggu.slice(0, 3).map((k) => (
+              <span key={k.id} className="inline-flex flex-wrap items-center gap-x-2 gap-y-1">
+                <span className="whitespace-nowrap font-semibold text-[#14173a]">{k.namaSite}</span>
+                {k.tingkatPuncak !== "Normal" && <Lencana tingkat={k.tingkatPuncak} />}
+                <span className="whitespace-nowrap text-xs text-[#4f5374]">
+                  {fmtWaktuPendek(k.mulai)}, pulih {fmtWaktuPendek(k.pulih)}
+                </span>
+                <button
+                  type="button"
+                  onClick={() => bukaVerifikasi(k)}
+                  className="inline-flex cursor-pointer items-center gap-1.5 whitespace-nowrap rounded-md border border-[#303481]/40 bg-white px-2.5 py-1 text-xs font-semibold text-[#303481] hover:bg-[#303481]/5"
+                >
+                  <ClipboardCheck className="h-3.5 w-3.5" />
+                  Verifikasi
+                </button>
               </span>
             ))}
-            {g.prisma.length > 4 && (
-              <span className="text-xs text-[#4f5374]">+{g.prisma.length - 4} prisma lain</span>
+            {menunggu.length > 3 && (
+              <Link
+                href="/riwayat-alarm?status=perlu-verifikasi"
+                className="text-xs font-medium text-[#303481] underline underline-offset-2"
+              >
+                +{menunggu.length - 3} lainnya
+              </Link>
             )}
-            <Link
-              href={`/beranda?site=${encodeURIComponent(slug)}`}
-              className="text-xs font-medium text-[#303481] underline underline-offset-2"
-            >
-              Lihat
-            </Link>
           </div>
-        ))}
-        {waktu && <span className="text-xs text-[#4f5374]">Siklus {waktu}</span>}
-      </div>
-
-      <div className="flex min-w-0 items-center gap-2">
-        {terblokir ? (
-          <button
-            type="button"
-            onClick={nyalakanSuara}
-            className="inline-flex cursor-pointer items-center gap-1.5 rounded-md bg-[#303481] px-3 py-1.5 text-xs font-semibold text-white hover:bg-[#252865]"
-          >
-            <Volume2 className="h-3.5 w-3.5" />
-            Nyalakan suara alarm
-          </button>
-        ) : berbunyi ? (
-          <button
-            type="button"
-            onClick={matikanBunyi}
-            className="inline-flex cursor-pointer items-center gap-1.5 rounded-md bg-[#14173a] px-3 py-1.5 text-xs font-semibold text-white hover:bg-black"
-          >
-            <BellOff className="h-3.5 w-3.5" />
-            Matikan bunyi
-          </button>
-        ) : (
-          <span className="text-xs text-[#4f5374]">
-            {suaraAktif
-              ? "Bunyi dimatikan — berbunyi lagi bila tingkatnya naik"
-              : "Suara alarm nonaktif di peramban ini"}
-          </span>
         )}
       </div>
-    </div>
+    </>
   );
 }

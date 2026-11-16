@@ -1,6 +1,8 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { TINGKAT_ALARM, type PrismaAlarm, type TingkatAlarm } from "@/lib/alarm-ambang";
+import type { KejadianRingkas } from "@/lib/aturan-kejadian";
+import { ringkasKejadian } from "@/lib/kejadian-alarm";
 
 export const dynamic = "force-dynamic";
 
@@ -16,6 +18,11 @@ export const dynamic = "force-dynamic";
  * Hanya slot yang masih terdaftar di t_prisma. Baris status_prisma tidak ikut
  * terhapus saat slot dihapus di Prism Config; tanpa penyaring ini prisma yang
  * sudah dicabut bisa membunyikan alarm selamanya dengan angka terakhirnya.
+ *
+ * `kejadian`: kejadian yang masih butuh operator — aktif (perlu konfirmasi atau
+ * sedang disenyapkan) atau sudah pulih tapi belum diverifikasi. Dibaca terpisah
+ * dan boleh gagal sendiri: tanpa tabel kejadian_alarm (migrasi 024) alarm
+ * suaranya tetap harus jalan.
  */
 export async function GET() {
   try {
@@ -53,8 +60,20 @@ export async function GET() {
         waktu: r.waktu,
       }));
 
+    let kejadian: KejadianRingkas[] = [];
+    try {
+      const baris = await prisma.kejadianAlarm.findMany({
+        where: { OR: [{ pulih: null }, { diverifikasi: null }] },
+        orderBy: [{ mulai: "desc" }, { id: "desc" }],
+        take: 50,
+      });
+      kejadian = await ringkasKejadian(baris, true);
+    } catch (e) {
+      console.error("[GET /api/alarm-ambang] kejadian:", e instanceof Error ? e.message : e);
+    }
+
     return NextResponse.json(
-      { success: true, data },
+      { success: true, data, kejadian },
       { headers: { "Cache-Control": "no-store" } }
     );
   } catch (error) {

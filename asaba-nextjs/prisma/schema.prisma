@@ -705,6 +705,37 @@ model StatusEws {
   @@map("status_ews")
 }
 
+/// Satu kejadian alarm per site: dari tingkat site naik di atas Normal sampai
+/// kembali Normal (`pulih`), plus konfirmasi operator (sirene disenyapkan) dan
+/// verifikasi lapangan. Lihat migrasi 024 dan src/lib/aturan-kejadian.ts.
+model KejadianAlarm {
+  id                   Int       @id @default(autoincrement())
+  site                 String    @db.VarChar(50)
+  /// Siklus pertama yang membuka kejadian — log_kontrol.id_log.
+  id_log_mulai         String    @db.VarChar(20)
+  mulai                DateTime  @db.DateTime(0)
+  tingkat_puncak       String    @db.VarChar(10)
+  /// Tingkat site di siklus terakhir yang dinilai; "Normal" setelah pulih.
+  tingkat_terakhir     String    @db.VarChar(10)
+  prisma_puncak        String?   @db.VarChar(20)
+  nilai_puncak_mm      Float?    @db.Double
+  /// NULL selama kejadian masih aktif.
+  pulih                DateTime? @db.DateTime(0)
+  dikonfirmasi         DateTime? @db.DateTime(0)
+  dikonfirmasi_oleh    String?   @db.VarChar(100)
+  /// Tingkat yang disenyapkan. Naik melewatinya = bunyi lagi.
+  tingkat_dikonfirmasi String?   @db.VarChar(10)
+  diverifikasi         DateTime? @db.DateTime(0)
+  diverifikasi_oleh    String?   @db.VarChar(100)
+  /// "benar" (pergeseran nyata) atau "palsu".
+  hasil                String?   @db.VarChar(10)
+  penyebab             String?   @db.VarChar(50)
+  catatan              String?   @db.Text
+
+  @@index([site, mulai], map: "kejadian_alarm_site_mulai_idx")
+  @@map("kejadian_alarm")
+}
+
 /// Riwayat perubahan tingkat yang SUDAH terkonfirmasi. Calon yang gugur di
 /// tengah tidak masuk sini.
 model LogPeringatan {
