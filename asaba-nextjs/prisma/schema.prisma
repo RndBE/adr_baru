@@ -644,6 +644,11 @@ model Site {
   /// loggernya ditentukan.
   id_logger String? @db.VarChar(10)
 
+  /// Logger EWS (sirene/lampu) yang diberi perintah level saat tingkat site
+  /// berubah. Terpisah dari id_logger karena umumnya unit lain. Null = site ini
+  /// tidak punya EWS, perintah dilewati. Lihat migrasi 022 dan src/lib/ews.ts.
+  id_logger_ews String? @db.VarChar(10)
+
   /// Dihitung otomatis oleh API: true bila rts_* dan map_* sudah terisi.
   terkalibrasi Boolean @default(false)
   /// Ditandai manual: koordinat/ambang site ini masih nilai contoh, bukan hasil
@@ -655,6 +660,7 @@ model Site {
   catatan      String? @db.Text
 
   @@index([id_logger])
+  @@index([id_logger_ews], map: "t_site_id_logger_ews_idx")
   @@map("t_site")
 }
 

@@ -84,6 +84,15 @@ export async function PUT(
         );
     }
 
+    if (data.id_logger_ews) {
+      const adaEws = await prisma.logger.findFirst({ where: { id_logger: data.id_logger_ews } });
+      if (!adaEws)
+        return NextResponse.json(
+          { success: false, error: `EWS: logger "${data.id_logger_ews}" tidak terdaftar di master data` },
+          { status: 400 }
+        );
+    }
+
     const updated = await prisma.site.update({ where: { id: idNum }, data });
     invalidateSiteCache();
     return NextResponse.json({ success: true, data: updated });

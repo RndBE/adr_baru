@@ -45,6 +45,8 @@ export interface SiteRow {
   catatan: string | null;
   /** Diturunkan dari log_kontrol — hanya ada bila diminta with_logger=1. */
   id_logger?: string | null;
+  /** Logger EWS (sirene) site ini — kolom asli t_site, selalu ikut. */
+  id_logger_ews?: string | null;
   /** Nama logger dari t_logger — hanya ada bila diminta with_logger=1. */
   nama_logger?: string | null;
   /**

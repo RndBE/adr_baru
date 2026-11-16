@@ -69,6 +69,12 @@ export function normalizeBody(body: Record<string, unknown>) {
       ? null
       : String(body.id_logger).trim(),
 
+    // Logger EWS (sirene). Kosong = site tanpa EWS, perintah level dilewati.
+    id_logger_ews:
+      body.id_logger_ews === null || body.id_logger_ews === undefined || body.id_logger_ews === ""
+        ? null
+        : String(body.id_logger_ews).trim(),
+
     rotasi_deg: optNum(body.rotasi_deg),
     pivot_e: optNum(body.pivot_e),
     pivot_n: optNum(body.pivot_n),

@@ -24,7 +24,9 @@ import { parseWaktuToIso, waktuDateLokal, waktuMsLokal } from "@/components/moni
 import { nfloat, rotateEN } from "@/lib/coordinates";
 import { ambangDenganToleransi, toleransiMm } from "@/lib/akurasi-rts";
 import { getSite } from "@/lib/sites";
-import { type AmbangSite, type StatusLabel, indeksStatus } from "@/lib/ambang";
+import { type AmbangSite, type StatusLabel, asStatusLabel, indeksStatus } from "@/lib/ambang";
+import { tingkatSite } from "@/lib/ews";
+import { sendEwsLevel } from "@/lib/mqtt";
 import {
   JENDELA_SIKLUS,
   UMUR_JENDELA_MS,
@@ -237,6 +239,12 @@ export async function evaluasiSiklus(opsi: {
 
     const keadaanLama = await prisma.statusPrisma.findMany({ where: { site } });
     const petaKeadaan = new Map(keadaanLama.map((k) => [k.id_prisma, k]));
+    // Tingkat site SEBELUM siklus ini, dari prisma yang masih terdaftar saja —
+    // baris status_prisma milik prisma yang sudah dihapus tidak boleh menahan
+    // sirene di tingkat lama.
+    const tingkatSebelum = tingkatSite(
+      prismaSite.map((p) => asStatusLabel(petaKeadaan.get(p.id_prisma)?.tingkat))
+    );
 
     const naik: BarisPerubahan[] = [];
     const pulih: BarisPerubahan[] = [];
@@ -343,6 +351,16 @@ export async function evaluasiSiklus(opsi: {
       }
     }
 
+    // ── Perintah level ke logger EWS (sirene/lampu) ───────────────────────────
+    //
+    // Diletakkan SEBELUM kembalian "tidak ada yang perlu dikabarkan": peredam
+    // bisa mendiamkan PESAN (jeda kirim) padahal tingkat yang diakui sudah
+    // berubah, dan sirene harus mengikuti tingkat yang diakui, bukan mengikuti
+    // pesan. Dikirim hanya saat tingkat site berubah, supaya sirene tidak
+    // dibunyikan ulang tiap siklus. Konsekuensinya: perintah yang gagal terbit
+    // tidak diulang otomatis — kegagalannya tercatat di log aktivitas dan log.
+    await kirimLevelEws(site, cfg.idLoggerEws, tingkatSebelum, tingkatSite(semua.map((p) => p.tingkat)));
+
     if (naik.length === 0 && pulih.length === 0 && hilang.length === 0) {
       if (dicatat.length > 0) {
         await simpanRiwayat(site, idLog, sekarangMs, dicatat, false, "didiamkan peredam");
@@ -379,6 +397,35 @@ export async function evaluasiSiklus(opsi: {
     // boleh jatuh karena peringatan. Sampai migrasi 011 dijalankan, jalur ini
     // memang selalu berakhir di sini.
     console.error(`${tag} gagal (diabaikan):`, e instanceof Error ? e.message : e);
+  }
+}
+
+/**
+ * Kirim level ke EWS bila tingkat site berubah. TIDAK PERNAH melempar — alasan
+ * sama dengan evaluasiSiklus(): kegagalan sirene tidak boleh menggugurkan
+ * pesan peringatan yang menyusul di bawahnya.
+ */
+async function kirimLevelEws(
+  site: string,
+  idLoggerEws: string | null,
+  sebelum: StatusLabel,
+  sesudah: StatusLabel
+): Promise<void> {
+  if (sebelum === sesudah) return;
+  const tag = "[peringatan][ews]";
+  if (!idLoggerEws) {
+    // Bukan galat: site tanpa EWS memang wajar. Tetap dicatat supaya operator
+    // yang heran kenapa sirene diam bisa menemukan alasannya.
+    console.log(`${tag} ${site}: ${sebelum} → ${sesudah}, logger EWS belum diisi — dilewati`);
+    return;
+  }
+  try {
+    const ok = await sendEwsLevel(idLoggerEws, sesudah);
+    console.log(
+      `${tag} ${site}: ${sebelum} → ${sesudah} ke sub_${idLoggerEws} ${ok ? "terkirim" : "GAGAL terbit"}`
+    );
+  } catch (e) {
+    console.error(`${tag} ${site}: gagal (diabaikan):`, e instanceof Error ? e.message : e);
   }
 }
 

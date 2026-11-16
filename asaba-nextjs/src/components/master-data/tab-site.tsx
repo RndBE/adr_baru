@@ -19,7 +19,7 @@ import { AKURASI_BAWAAN, toleransiMm } from "@/lib/akurasi-rts";
 type FormState = Record<string, string | boolean>;
 
 const KOSONG: FormState = {
-  slug: "", nama: "", badge_label: "", badge_color: "#303481", id_logger: "",
+  slug: "", nama: "", badge_label: "", badge_color: "#303481", id_logger: "", id_logger_ews: "",
   geser_normal_max: "50", geser_waspada_max: "100", geser_siaga_max: "200",
   laju_waspada_min: "40", laju_siaga_min: "80", laju_awas_min: "120",
   rts_akurasi_sudut_detik: String(AKURASI_BAWAAN.sudutDetik),
@@ -38,6 +38,7 @@ function toForm(row: SiteRow): FormState {
   return {
     slug: row.slug, nama: row.nama, badge_label: row.badge_label, badge_color: row.badge_color,
     id_logger: row.id_logger ?? "",
+    id_logger_ews: row.id_logger_ews ?? "",
     geser_normal_max: s(row.geser_normal_max),
     geser_waspada_max: s(row.geser_waspada_max),
     geser_siaga_max: s(row.geser_siaga_max),
@@ -324,6 +325,28 @@ export function TabSite() {
                   className="h-9 w-full rounded-md border border-gray-200 bg-white px-3 text-[13px] outline-none focus:border-[#303481]"
                 >
                   <option value="">— belum dipilih —</option>
+                  {loggers.map((l) => (
+                    <option key={l.id_logger} value={l.id_logger}>
+                      {l.id_logger} — {l.nama_logger}
+                      {l.nama_lokasi ? ` (${l.nama_lokasi})` : ""}
+                    </option>
+                  ))}
+                </select>
+              </F>
+
+              {/* Logger EWS (sirene/lampu). Terpisah dari logger RTS: perintah
+                  level {"EWS":{"cmd":"CTRL","level":N}} dikirim ke sini, bukan ke
+                  logger di atas. Kosong = site tanpa EWS. */}
+              <F
+                label="Logger EWS"
+                hint="Menerima perintah level (Aman/Waspada/Siaga/Awas) saat tingkat site berubah. Kosongkan bila site tidak punya EWS."
+              >
+                <select
+                  value={form.id_logger_ews as string}
+                  onChange={(e) => set("id_logger_ews", e.target.value)}
+                  className="h-9 w-full rounded-md border border-gray-200 bg-white px-3 text-[13px] outline-none focus:border-[#303481]"
+                >
+                  <option value="">— tanpa EWS —</option>
                   {loggers.map((l) => (
                     <option key={l.id_logger} value={l.id_logger}>
                       {l.id_logger} — {l.nama_logger}

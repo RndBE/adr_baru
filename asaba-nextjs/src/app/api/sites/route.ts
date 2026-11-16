@@ -111,6 +111,9 @@ export async function POST(req: NextRequest) {
     const galatLogger = await cekLogger(data.id_logger);
     if (galatLogger)
       return NextResponse.json({ success: false, error: galatLogger }, { status: 400 });
+    const galatEws = await cekLogger(data.id_logger_ews);
+    if (galatEws)
+      return NextResponse.json({ success: false, error: `EWS: ${galatEws}` }, { status: 400 });
 
     const created = await prisma.site.create({ data });
     invalidateSiteCache();

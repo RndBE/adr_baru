@@ -6,6 +6,8 @@ import mqtt from "mqtt";
 import { waktuDbLokal } from "@/components/monitoring/format";
 import { offsetLogger } from "@/lib/sites";
 import { catatAktivitas } from "@/lib/log-aktivitas";
+import { type StatusLabel } from "@/lib/ambang";
+import { payloadEws } from "@/lib/ews";
 
 interface MqttConfig {
   host: string;
@@ -106,6 +108,21 @@ async function terbitkan(
       resolve(false);
     }, 15000);
   });
+}
+
+/**
+ * Perintahkan logger EWS (sirene/lampu) ke sebuah tingkat.
+ *
+ * Payload `{"EWS":{"cmd":"CTRL","level":N}}` tanpa pembungkus `set_<id>` —
+ * lihat src/lib/ews.ts untuk tabel level, yang angkanya terbalik dari
+ * keparahan. Balasan perangkat tidak ditunggu: seperti perintah RTS lain,
+ * terbit-lalu-lupa, dan hasil terbitnya tercatat di log aktivitas.
+ */
+export async function sendEwsLevel(
+  idLoggerEws: string,
+  tingkat: StatusLabel
+): Promise<boolean> {
+  return publishMqtt(topikPerintah(idLoggerEws), payloadEws(tingkat));
 }
 
 /**

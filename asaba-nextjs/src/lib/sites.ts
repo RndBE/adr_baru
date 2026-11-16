@@ -118,6 +118,8 @@ export interface SiteConfig {
   rotation: SiteRotation | null;
   /** Kode logger yang melayani site ini. Null bila belum dipilih. */
   idLogger: string | null;
+  /** Kode logger EWS (sirene) site ini. Null bila site tidak punya EWS. */
+  idLoggerEws: string | null;
   terkalibrasi: boolean;
   /** True bila koordinat/ambang site ini masih nilai contoh, bukan hasil survei. */
   dataDummy: boolean;
@@ -154,6 +156,7 @@ export function fallbackSite(slug: string): SiteConfig {
     koreksiAzimut: null,
     rotation: null,
     idLogger: null,
+    idLoggerEws: null,
     terkalibrasi: false,
     dataDummy: false,
     aktif: true,
@@ -210,6 +213,7 @@ type SiteRow = {
   ukur_lat: number | null;
   ukur_lng: number | null;
   id_logger: string | null;
+  id_logger_ews: string | null;
   terkalibrasi: boolean;
   data_dummy: boolean;
   aktif: boolean;
@@ -318,6 +322,7 @@ export function toSiteConfig(row: SiteRow): SiteConfig {
         }
       : null,
     idLogger: row.id_logger,
+    idLoggerEws: row.id_logger_ews ?? null,
     terkalibrasi: row.terkalibrasi,
     dataDummy: row.data_dummy,
     aktif: row.aktif,
