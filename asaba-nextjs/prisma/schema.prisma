@@ -691,6 +691,20 @@ model StatusPrisma {
   @@map("status_prisma")
 }
 
+/// Level EWS (sirene/lampu) yang terakhir BERHASIL dikirim ke perangkat, per
+/// site. Pembanding untuk perintah berikutnya — lihat migrasi 023 dan
+/// perluKirimEws() di src/lib/ews.ts.
+model StatusEws {
+  site          String   @id @db.VarChar(50)
+  id_logger_ews String   @db.VarChar(10)
+  /// Tingkat yang dikirim: Normal/Waspada/Siaga/Awas (Normal = level 0, Aman).
+  tingkat       String   @db.VarChar(10)
+  /// Jam dinding WIB, seperti kolom waktu lain di basis data ini.
+  dikirim       DateTime @db.DateTime(0)
+
+  @@map("status_ews")
+}
+
 /// Riwayat perubahan tingkat yang SUDAH terkonfirmasi. Calon yang gugur di
 /// tengah tidak masuk sini.
 model LogPeringatan {

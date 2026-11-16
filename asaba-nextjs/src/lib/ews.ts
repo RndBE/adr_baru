@@ -48,3 +48,32 @@ export function payloadEws(tingkat: StatusLabel): { EWS: { cmd: "CTRL"; level: L
 export function tingkatSite(daftar: ReadonlyArray<StatusLabel | null | undefined>): StatusLabel {
   return statusTerburuk(daftar) ?? "Normal";
 }
+
+/** Yang terakhir BERHASIL diterbitkan ke perangkat (tabel status_ews). */
+export interface EwsTerkirim {
+  idLoggerEws: string;
+  tingkat: StatusLabel;
+}
+
+/**
+ * Perlu kirim perintah level? Dibandingkan dengan yang terakhir BENAR-BENAR
+ * terkirim ke perangkat — bukan dengan tingkat site siklus sebelumnya.
+ *
+ * Membandingkan dengan tingkat sebelumnya (dari status_prisma) membuat sirene
+ * bisa nyangkut: R0 diganti menghapus status_prisma sehingga "sebelum" terbaca
+ * Normal, prisma yang dihapus ikut menurunkan "sebelum", dan terbit yang gagal
+ * tidak pernah diulang — di ketiganya perintah "Aman" tidak berangkat.
+ *
+ *   belum pernah terkirim    → kirim (perangkat diberi keadaan awal, walau Aman)
+ *   logger EWS site diganti  → kirim (perangkat baru belum tahu apa-apa)
+ *   tingkat berbeda          → kirim
+ *   sama persis              → diam, supaya sirene tidak dibunyikan ulang
+ */
+export function perluKirimEws(
+  terakhir: EwsTerkirim | null,
+  idLoggerEws: string,
+  tingkat: StatusLabel
+): boolean {
+  if (!terakhir) return true;
+  return terakhir.idLoggerEws !== idLoggerEws || terakhir.tingkat !== tingkat;
+}

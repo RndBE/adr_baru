@@ -25,7 +25,7 @@ import { nfloat, rotateEN } from "@/lib/coordinates";
 import { ambangDenganToleransi, toleransiMm } from "@/lib/akurasi-rts";
 import { getSite } from "@/lib/sites";
 import { type AmbangSite, type StatusLabel, asStatusLabel, indeksStatus } from "@/lib/ambang";
-import { tingkatSite } from "@/lib/ews";
+import { type EwsTerkirim, perluKirimEws, tingkatSite } from "@/lib/ews";
 import { sendEwsLevel } from "@/lib/mqtt";
 import {
   JENDELA_SIKLUS,
@@ -197,6 +197,9 @@ export async function evaluasiSiklus(opsi: {
     // SELURUH peringatan, karena site di sana memang belum diisi center petanya.
     if (cfg.dataDummy) {
       console.log(`${tag} ${site}: memakai DATA CONTOH — dilewati`);
+      // Site yang peringatannya dimatikan tidak boleh meninggalkan sirene
+      // berbunyi dari tingkat sebelum tanda Data contoh dipasang.
+      await sinkronEws(site, cfg.idLoggerEws, "Normal");
       return;
     }
 
@@ -222,6 +225,8 @@ export async function evaluasiSiklus(opsi: {
 
     if (prismaSite.length === 0) {
       console.log(`${tag} ${site}: tidak ada prisma terdaftar — dilewati`);
+      // Semua prisma dihapus: tidak ada lagi yang bisa membenarkan sirene.
+      await sinkronEws(site, cfg.idLoggerEws, "Normal");
       return;
     }
 
@@ -239,12 +244,6 @@ export async function evaluasiSiklus(opsi: {
 
     const keadaanLama = await prisma.statusPrisma.findMany({ where: { site } });
     const petaKeadaan = new Map(keadaanLama.map((k) => [k.id_prisma, k]));
-    // Tingkat site SEBELUM siklus ini, dari prisma yang masih terdaftar saja —
-    // baris status_prisma milik prisma yang sudah dihapus tidak boleh menahan
-    // sirene di tingkat lama.
-    const tingkatSebelum = tingkatSite(
-      prismaSite.map((p) => asStatusLabel(petaKeadaan.get(p.id_prisma)?.tingkat))
-    );
 
     const naik: BarisPerubahan[] = [];
     const pulih: BarisPerubahan[] = [];
@@ -356,10 +355,11 @@ export async function evaluasiSiklus(opsi: {
     // Diletakkan SEBELUM kembalian "tidak ada yang perlu dikabarkan": peredam
     // bisa mendiamkan PESAN (jeda kirim) padahal tingkat yang diakui sudah
     // berubah, dan sirene harus mengikuti tingkat yang diakui, bukan mengikuti
-    // pesan. Dikirim hanya saat tingkat site berubah, supaya sirene tidak
-    // dibunyikan ulang tiap siklus. Konsekuensinya: perintah yang gagal terbit
-    // tidak diulang otomatis — kegagalannya tercatat di log aktivitas dan log.
-    await kirimLevelEws(site, cfg.idLoggerEws, tingkatSebelum, tingkatSite(semua.map((p) => p.tingkat)));
+    // pesan. Dibandingkan dengan level yang terakhir TERKIRIM ke perangkat
+    // (status_ews), jadi sirene tidak dibunyikan ulang tiap siklus, tapi juga
+    // tidak nyangkut saat R0 diganti, prisma dihapus, atau terbitnya gagal.
+    // `semua` hanya memuat prisma yang masih terdaftar.
+    await sinkronEws(site, cfg.idLoggerEws, tingkatSite(semua.map((p) => p.tingkat)));
 
     if (naik.length === 0 && pulih.length === 0 && hilang.length === 0) {
       if (dicatat.length > 0) {
@@ -401,29 +401,49 @@ export async function evaluasiSiklus(opsi: {
 }
 
 /**
- * Kirim level ke EWS bila tingkat site berubah. TIDAK PERNAH melempar — alasan
- * sama dengan evaluasiSiklus(): kegagalan sirene tidak boleh menggugurkan
- * pesan peringatan yang menyusul di bawahnya.
+ * Samakan perangkat EWS dengan `tingkat`, bila yang terakhir terkirim berbeda.
+ * TIDAK PERNAH melempar — alasan sama dengan evaluasiSiklus(): kegagalan sirene
+ * tidak boleh menggugurkan pesan peringatan yang menyusul di bawahnya.
+ *
+ * status_ews ditulis HANYA setelah terbit berhasil, sehingga terbit yang gagal
+ * otomatis diulang di siklus berikutnya.
  */
-async function kirimLevelEws(
+async function sinkronEws(
   site: string,
   idLoggerEws: string | null,
-  sebelum: StatusLabel,
-  sesudah: StatusLabel
+  tingkat: StatusLabel
 ): Promise<void> {
-  if (sebelum === sesudah) return;
   const tag = "[peringatan][ews]";
   if (!idLoggerEws) {
-    // Bukan galat: site tanpa EWS memang wajar. Tetap dicatat supaya operator
-    // yang heran kenapa sirene diam bisa menemukan alasannya.
-    console.log(`${tag} ${site}: ${sebelum} → ${sesudah}, logger EWS belum diisi — dilewati`);
+    // Bukan galat: site tanpa EWS memang wajar. Dicatat hanya saat ada bahaya,
+    // supaya operator yang heran kenapa sirene diam bisa menemukan alasannya
+    // tanpa log ini terisi tiap siklus.
+    if (tingkat !== "Normal") {
+      console.log(`${tag} ${site}: ${tingkat}, logger EWS belum diisi — dilewati`);
+    }
     return;
   }
   try {
-    const ok = await sendEwsLevel(idLoggerEws, sesudah);
+    const baris = await prisma.statusEws.findUnique({ where: { site } });
+    const terakhir: EwsTerkirim | null = baris
+      ? { idLoggerEws: baris.id_logger_ews, tingkat: asStatusLabel(baris.tingkat) ?? "Normal" }
+      : null;
+    if (!perluKirimEws(terakhir, idLoggerEws, tingkat)) return;
+
+    const ok = await sendEwsLevel(idLoggerEws, tingkat);
+    const dari = terakhir ? `${terakhir.tingkat}@${terakhir.idLoggerEws}` : "belum pernah";
     console.log(
-      `${tag} ${site}: ${sebelum} → ${sesudah} ke sub_${idLoggerEws} ${ok ? "terkirim" : "GAGAL terbit"}`
+      `${tag} ${site}: ${dari} → ${tingkat} ke sub_${idLoggerEws} ` +
+        (ok ? "terkirim" : "GAGAL terbit — diulang di siklus berikutnya")
     );
+    if (!ok) return;
+
+    const dikirim = waktuDateLokal(Date.now());
+    await prisma.statusEws.upsert({
+      where: { site },
+      create: { site, id_logger_ews: idLoggerEws, tingkat, dikirim },
+      update: { id_logger_ews: idLoggerEws, tingkat, dikirim },
+    });
   } catch (e) {
     console.error(`${tag} ${site}: gagal (diabaikan):`, e instanceof Error ? e.message : e);
   }

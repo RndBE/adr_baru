@@ -2,7 +2,7 @@
  * Kunci tabel level EWS. Jalankan: npx tsx src/lib/ews.test.ts
  */
 import assert from "node:assert/strict";
-import { levelEws, payloadEws, tingkatSite } from "@/lib/ews";
+import { levelEws, payloadEws, perluKirimEws, tingkatSite } from "@/lib/ews";
 
 // Angka level terbalik dari keparahan — sesuai protokol perangkat EWS.
 assert.equal(levelEws("Waspada"), 3);
@@ -22,5 +22,19 @@ assert.equal(tingkatSite(["Normal", "Normal"]), "Normal");
 // Tanpa data = Aman, bukan galat.
 assert.equal(tingkatSite([]), "Normal");
 assert.equal(tingkatSite([null, undefined]), "Normal");
+
+// ── perluKirimEws: dibandingkan dengan yang terakhir TERKIRIM ──────────────
+const awas = { idLoggerEws: "40001", tingkat: "Awas" as const };
+assert.equal(perluKirimEws(null, "40001", "Normal"), true, "belum pernah → kirim keadaan awal");
+assert.equal(perluKirimEws(awas, "40001", "Awas"), false, "sama → diam, sirene tidak dibunyikan ulang");
+assert.equal(perluKirimEws(awas, "40001", "Siaga"), true, "turun → kirim");
+assert.equal(perluKirimEws(awas, "40002", "Awas"), true, "logger EWS diganti → kirim ke yang baru");
+// Kasus nyangkut di versi lama: R0 diganti menghapus status_prisma, jadi
+// "sebelum" dan "sesudah" sama-sama Normal — tapi perangkat masih Awas.
+assert.equal(perluKirimEws(awas, "40001", "Normal"), true, "R0 diganti saat Awas → Aman tetap dikirim");
+// Terbit gagal tidak menulis status_ews, jadi yang terakhir terkirim masih
+// tingkat lama dan siklus berikutnya mengulang.
+const waspada = { idLoggerEws: "40001", tingkat: "Waspada" as const };
+assert.equal(perluKirimEws(waspada, "40001", "Siaga"), true, "terbit Siaga gagal → diulang");
 
 console.log("ews.test.ts: semua lolos");
