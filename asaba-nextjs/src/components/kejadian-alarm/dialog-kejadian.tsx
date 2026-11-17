@@ -90,16 +90,19 @@ function Ringkasan({ k, tingkat }: { k: KejadianRingkas; tingkat: StatusLabel })
   );
 }
 
-function InputKodeAkses({
+export function InputKodeAkses({
   nilai,
   ubah,
   onEnter,
   autoFocus,
+  id = "kode-akses-alarm",
 }: {
   nilai: string;
   ubah: (v: string) => void;
   onEnter: () => void;
   autoFocus?: boolean;
+  /** Berbeda per dialog, supaya dua dialog yang terbuka bersamaan tidak berbagi id. */
+  id?: string;
 }) {
   const [lihat, setLihat] = useState(false);
   return (
@@ -109,12 +112,12 @@ function InputKodeAkses({
         onEnter();
       }}
     >
-      <label htmlFor="kode-akses-alarm" className={LABEL}>
+      <label htmlFor={id} className={LABEL}>
         Kode akses
       </label>
       <div className="relative">
         <input
-          id="kode-akses-alarm"
+          id={id}
           type={lihat ? "text" : "password"}
           value={nilai}
           onChange={(e) => ubah(e.target.value)}
@@ -136,7 +139,7 @@ function InputKodeAkses({
   );
 }
 
-async function kirim(url: string, body: unknown): Promise<{ ews?: HasilEws }> {
+export async function kirim(url: string, body: unknown): Promise<{ ews?: HasilEws }> {
   const res = await fetch(url, {
     method: "POST",
     headers: { "Content-Type": "application/json" },

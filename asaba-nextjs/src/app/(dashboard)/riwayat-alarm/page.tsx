@@ -1,14 +1,15 @@
 "use client";
 
-import { Suspense } from "react";
+import { Suspense, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import useSWR from "swr";
-import { BellOff, ClipboardCheck, Loader2 } from "lucide-react";
+import { BellOff, ClipboardCheck, Loader2, Siren } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useSites } from "@/hooks/use-sites";
 import { INPUT } from "@/components/monitoring/modal-shell";
 import { useDialogKejadian } from "@/components/alarm-ambang";
 import { LencanaTingkat } from "@/components/kejadian-alarm/dialog-kejadian";
+import { DialogUjiEws } from "@/components/kejadian-alarm/dialog-uji-ews";
 import {
   fmtWaktuPendek,
   statusKejadian,
@@ -70,6 +71,7 @@ function IsiRiwayat() {
   const site = params.get("site") ?? "";
   const status = params.get("status") ?? "semua";
   const { sites } = useSites(true);
+  const [ujiBuka, setUjiBuka] = useState(false);
 
   const kunci = `/api/kejadian-alarm?site=${encodeURIComponent(site)}&status=${encodeURIComponent(status)}`;
   const { data, isLoading } = useSWR<{ success: boolean; data?: KejadianRingkas[]; error?: string }>(
@@ -136,7 +138,16 @@ function IsiRiwayat() {
         <p className="ml-auto text-xs text-(--ink-3)">
           {daftar.length} kejadian · {jumlah.benar} benar · {jumlah.palsu} palsu
         </p>
+        <button
+          type="button"
+          onClick={() => setUjiBuka(true)}
+          className="inline-flex h-9 cursor-pointer items-center gap-2 rounded-[9px] bg-white px-3.5 text-[13px] font-semibold text-(--ink-2) ring-1 ring-(--line) outline-none transition-colors hover:text-(--ink) focus-visible:ring-2 focus-visible:ring-(--navy)/40"
+        >
+          <Siren className="size-4" />
+          Uji EWS
+        </button>
       </div>
+      {ujiBuka && <DialogUjiEws onClose={() => setUjiBuka(false)} />}
 
       <div className="overflow-x-auto rounded-[12px] border border-(--line)">
         <table className="w-full min-w-[960px] text-left text-[13px]">
