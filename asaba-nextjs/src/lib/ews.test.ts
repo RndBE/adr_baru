@@ -4,17 +4,16 @@
 import assert from "node:assert/strict";
 import { levelEws, payloadEws, perluKirimEws, tingkatSite } from "@/lib/ews";
 
-// Angka level mengikuti keparahan: 1 Waspada, 2 Siaga, 3 Awas, 0 Aman.
-// (Dulu terbalik; dikoreksi operator perangkat 2026-11-17.)
-assert.equal(levelEws("Waspada"), 1);
+// Angka level terbalik dari keparahan — sesuai protokol perangkat EWS.
+assert.equal(levelEws("Waspada"), 3);
 assert.equal(levelEws("Siaga"), 2);
-assert.equal(levelEws("Awas"), 3);
+assert.equal(levelEws("Awas"), 1);
 assert.equal(levelEws("Normal"), 0);
 
 // Bentuk payload persis seperti yang dibaca firmware: tanpa set_<id>.
-assert.deepEqual(payloadEws("Awas"), { EWS: { cmd: "CTRL", level: 3 } });
+assert.deepEqual(payloadEws("Awas"), { EWS: { cmd: "CTRL", level: 1 } });
 assert.equal(JSON.stringify(payloadEws("Normal")), '{"EWS":{"cmd":"CTRL","level":0}}');
-assert.equal(JSON.stringify(payloadEws("Waspada")), '{"EWS":{"cmd":"CTRL","level":1}}');
+assert.equal(JSON.stringify(payloadEws("Waspada")), '{"EWS":{"cmd":"CTRL","level":3}}');
 
 // Satu prisma Awas cukup; yang lain normal tidak meredamnya.
 assert.equal(tingkatSite(["Normal", "Awas", "Normal", "Siaga"]), "Awas");

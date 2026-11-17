@@ -114,8 +114,8 @@ async function terbitkan(
  * Perintahkan logger EWS (sirene/lampu) ke sebuah tingkat.
  *
  * Payload `{"EWS":{"cmd":"CTRL","level":N}}` tanpa pembungkus `set_<id>` —
- * lihat src/lib/ews.ts untuk tabel level (1 Waspada, 2 Siaga, 3 Awas,
- * 0 Aman). Balasan perangkat tidak ditunggu: seperti perintah RTS lain,
+ * lihat src/lib/ews.ts untuk tabel level, yang angkanya terbalik dari
+ * keparahan. Balasan perangkat tidak ditunggu: seperti perintah RTS lain,
  * terbit-lalu-lupa, dan hasil terbitnya tercatat di log aktivitas.
  */
 export async function sendEwsLevel(

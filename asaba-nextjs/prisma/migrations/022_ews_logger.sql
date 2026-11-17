@@ -2,7 +2,7 @@
 --
 -- Saat tingkat terburuk sebuah site berubah, evaluasi-siklus.ts menerbitkan
 -- {"EWS":{"cmd":"CTRL","level":N}} ke topik sub_<id_logger_ews> — lihat
--- src/lib/ews.ts untuk tabel level (1 Waspada, 2 Siaga, 3 Awas, 0 Aman).
+-- src/lib/ews.ts untuk tabel level (angkanya terbalik dari keparahan).
 --
 -- Kolom TERPISAH dari id_logger: perangkat EWS biasanya unit lain dari RTS,
 -- dan memakai id_logger berarti perintah sirene terkirim ke topik RTS.

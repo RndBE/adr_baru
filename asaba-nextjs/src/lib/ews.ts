@@ -4,18 +4,18 @@
  * Murni dan tanpa dependensi supaya tabelnya bisa dikunci oleh ews.test.ts —
  * aliran MQTT-nya sendiri tidak bisa diuji tanpa perangkat.
  *
- * ── Angka level mengikuti urutan keparahan ──────────────────────────────────
+ * ── Angka level TERBALIK dari urutan keparahan ──────────────────────────────
  *
- *   {"EWS":{"cmd":"CTRL","level":1}}  Waspada
+ * Dari protokol perangkat EWS:
+ *
+ *   {"EWS":{"cmd":"CTRL","level":3}}  Waspada
  *   {"EWS":{"cmd":"CTRL","level":2}}  Siaga
- *   {"EWS":{"cmd":"CTRL","level":3}}  Awas
+ *   {"EWS":{"cmd":"CTRL","level":1}}  Awas
  *   {"EWS":{"cmd":"CTRL","level":0}}  Aman
  *
- * Makin GAWAT statusnya, makin BESAR angkanya; 0 = aman. Dulu tabel ini
- * tertulis terbalik (Waspada 3, Awas 1); operator perangkat mengoreksinya
- * pada 2026-11-17. Kalau perangkat kelak
- * diganti, cocokkan dulu dengan firmware-nya: salah angka berarti sirene
- * membunyikan tingkat yang keliru.
+ * Makin GAWAT statusnya, makin KECIL angkanya (kecuali 0 = aman). Jangan
+ * "merapikan" ini jadi indeksStatus(): Awas = 3 di sana, dan perangkat akan
+ * membunyikan tingkat Waspada untuk kejadian Awas.
  *
  * Payload ini TIDAK dibungkus `set_<idLogger>` seperti perintah RTS — kunci
  * paling luarnya `EWS`. Topiknya tetap `sub_<idLoggerEws>`.
@@ -27,9 +27,9 @@ export type LevelEws = 0 | 1 | 2 | 3;
 
 export const LEVEL_EWS: Readonly<Record<StatusLabel, LevelEws>> = {
   Normal: 0,
-  Waspada: 1,
+  Waspada: 3,
   Siaga: 2,
-  Awas: 3,
+  Awas: 1,
 };
 
 export function levelEws(tingkat: StatusLabel): LevelEws {
