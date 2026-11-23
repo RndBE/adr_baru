@@ -42,6 +42,12 @@ const MENIT = 60_000;
  */
 const KONFIRMASI_3 = { konfirmasiSiklus: 3 } as const;
 
+/**
+ * Bawaan `jedaMs` turun ke 0 pada 23 November 2026. Uji yang menguji
+ * MEKANISME jeda menyebut 30 menit dengan tegas, dengan alasan yang sama.
+ */
+const JEDA_30 = { jedaMs: 30 * 60_000 } as const;
+
 /** Jalankan deret bacaan, kembalikan jumlah pesan dan urutan alasannya. */
 function jalankan(
   bacaan: Array<{ mm: number; menit: number }>,
@@ -163,7 +169,7 @@ function jalankan(
     { mm: 210, menit: 15 },
     { mm: 215, menit: 20 },
     { mm: 220, menit: 25 },  // terkonfirmasi Awas, tapi baru 15 menit sejak kirim
-  ], KONFIRMASI_3);
+  ], { ...KONFIRMASI_3, ...JEDA_30 });
   cek("kenaikan kedua tertahan jeda 30 menit", pesan.length, 1);
   cek("alasannya jeda, bukan yang lain", alasan[5], "dalam-jeda");
 }
@@ -177,7 +183,7 @@ function jalankan(
     { mm: 210, menit: 45 },
     { mm: 215, menit: 50 },
     { mm: 220, menit: 55 },  // KIRIM Awas — 45 menit sejak pesan terakhir
-  ], KONFIRMASI_3);
+  ], { ...KONFIRMASI_3, ...JEDA_30 });
   cek("setelah jeda lewat, Awas berangkat", pesan.map((p) => p.ke), ["Siaga", "Awas"]);
 }
 
@@ -195,7 +201,7 @@ function jalankan(
       { mm: 10, menit: 2 },
       { mm: 10, menit: 3 },
     ],
-    KONFIRMASI_3,
+    { ...KONFIRMASI_3, ...JEDA_30 },
     awal
   );
   cek("pulih ke Normal dikirim walau masih dalam jeda", pesan, [
@@ -251,13 +257,33 @@ cek("dari Normal tidak ada yang ditahan", tingkatEfektif(10, AMBANG, "Normal", 0
 }
 cek("bawaan konfirmasiSiklus = 1", KEBIJAKAN_BAWAAN.konfirmasiSiklus, 1);
 
-// Yang TIDAK ikut hilang: jeda 30 menit tetap menahan kenaikan beruntun.
+// Bawaan sejak 23 November 2026: tanpa jeda, kenaikan kedua langsung berangkat.
 {
   const { pesan } = jalankan([
     { mm: 120, menit: 0 },
     { mm: 260, menit: 10 },
   ]);
-  cek("kenaikan kedua dalam 10 menit tetap tertahan jeda", pesan.length, 1);
+  cek("bawaan tanpa jeda: Siaga lalu Awas 10 menit kemudian, dua-duanya dikirim", pesan.map((p) => p.ke), ["Siaga", "Awas"]);
+}
+cek("bawaan jedaMs = 0", KEBIJAKAN_BAWAAN.jedaMs, 0);
+
+// Tanpa jeda, cap waktu yang mundur tidak menahan kenaikan.
+{
+  const awal: KeadaanPrisma = { tingkat: "Waspada", tingkatCalon: null, hitungCalon: 0, kirimTerakhirMs: 20 * MENIT };
+  const { pesan } = jalankan([{ mm: 260, menit: 10 }], undefined, awal);
+  cek("bawaan tanpa jeda: jam mundur tetap mengirim", pesan.map((p) => p.ke), ["Awas"]);
+}
+
+// Jeda 30 menit tetap bisa dipasang lagi, dan tetap menahan kenaikan beruntun.
+{
+  const { pesan } = jalankan(
+    [
+      { mm: 120, menit: 0 },
+      { mm: 260, menit: 10 },
+    ],
+    JEDA_30
+  );
+  cek("dengan jeda 30 menit: kenaikan kedua dalam 10 menit tertahan", pesan.length, 1);
 }
 
 // Dan histeresis tetap menahan penurunan yang menggantung di ambang.

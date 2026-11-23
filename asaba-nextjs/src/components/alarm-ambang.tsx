@@ -75,8 +75,13 @@ const KUNCI_DIAKUI = "adr-alarm-diakui";
 const KUNCI_MODAL = "adr-alarm-modal";
 const LAMA_TES_MS = 3000;
 /** Seberapa sering jam dibaca ulang untuk menentukan pengingat modal. */
-const TIK_MODAL_MS = 15_000;
-const TANYA_TIAP_MS = 30_000;
+const TIK_MODAL_MS = 5_000;
+/**
+ * Seberapa sering status alarm ditanyakan ke server. 10 detik sejak 23 Nov 2026
+ * (sebelumnya 30): alarm tampil paling lambat 10 detik setelah sesi dinilai.
+ * Kuerinya kecil — status_prisma dan kejadian aktif, tanpa cache.
+ */
+const TANYA_TIAP_MS = 10_000;
 
 // ─── localStorage sebagai external store ────────────────────────────────────
 //
@@ -411,7 +416,8 @@ export function TombolAlarm() {
           <p className="text-sm font-semibold text-[#14173a]">Alarm suara ambang batas</p>
           <p className="mt-1 text-xs leading-relaxed text-[#4f5374]">
             Berbunyi saat prisma naik ke Waspada, Siaga, atau Awas — tingkat yang sama dengan
-            peringatan WhatsApp, dicek tiap 30 detik. Setelan ini hanya untuk peramban ini.
+            peringatan WhatsApp, dicek tiap {TANYA_TIAP_MS / 1000} detik. Setelan ini hanya untuk
+            peramban ini.
           </p>
         </div>
 

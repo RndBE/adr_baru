@@ -8,8 +8,18 @@
  * siklusnya tuntas memberi satu potret yang konsisten: satu nilai per prisma,
  * satu cap waktu, satu pesan.
  *
- * Dipanggil dari /api/datamasuk/adr saat tepi turun sensor16 (1 → 0), di dalam
- * after() supaya tidak menunda respons ke logger.
+ * Dipanggil dari datamasuk-adr.ts, di dalam after() supaya tidak menunda respons
+ * ke logger, lewat dua jalan:
+ *
+ *   1. evaluasiBilaSesiLengkap() pada tiap payload tembakan — begitu SETIAP
+ *      prisma terdaftar sudah punya bacaan di sesi ini. Sejak 23 Nov 2026,
+ *      supaya sirene, WhatsApp, dan dasbor tidak menunggu RTS pulang ke posisi
+ *      awal dan laporan menit berikutnya (±45 detik di uji kantor).
+ *   2. Tepi turun sensor16 (1 → 0) — cadangan untuk sesi yang tidak pernah
+ *      lengkap, mis. satu prisma gagal ditembak.
+ *
+ * Satu sesi dinilai SEKALI. Jalan yang datang belakangan dilewati oleh
+ * sudahDinilai() dan kunci sedangDinilai.
  *
  * ── Aturan yang tidak boleh dilanggar ───────────────────────────────────────
  *
@@ -85,6 +95,43 @@ async function barisSesi(idKontrol: string, ambilTerakhir: boolean) {
   }
   return peta;
 }
+
+/**
+ * Baris yang membawa hasil tembakan: koordinatnya tidak nol semua. Syarat yang
+ * sama dengan `sah` di pergeseranMm() — N/E/Z nol berarti prisma dibidik tapi
+ * tidak ketemu.
+ */
+function terukur(b: BarisRts | undefined): boolean {
+  if (!b) return false;
+  return nfloat(b.sensor8) !== 0 || nfloat(b.sensor9) !== 0 || nfloat(b.sensor10) !== 0;
+}
+
+/**
+ * Sesi ini sudah dinilai: setiap prisma terdaftar mencatatnya sebagai siklus
+ * terakhir. evaluasiSiklus() menulis `siklus_terakhir` untuk SETIAP prisma
+ * terdaftar, terbaca maupun tidak, jadi tanda ini tidak butuh kolom baru.
+ *
+ * Menilai sesi yang sama dua kali bukan tanpa akibat: prisma yang tidak terbaca
+ * dihitung gagal dua kali, dan laporan "prisma hilang" datang lebih cepat dari
+ * BATAS_GAGAL_BERUNTUN. Mengganti R0 menghapus status_prisma site itu, jadi
+ * sesi sesudahnya selalu dinilai lagi dari awal.
+ */
+function sudahDinilai(
+  idLog: string,
+  prismaSite: ReadonlyArray<{ id_prisma: string }>,
+  keadaan: ReadonlyArray<{ id_prisma: string; siklus_terakhir: string | null }>
+): boolean {
+  const terakhir = new Map(keadaan.map((k) => [k.id_prisma, k.siklus_terakhir]));
+  return prismaSite.length > 0 && prismaSite.every((p) => terakhir.get(p.id_prisma) === idLog);
+}
+
+/**
+ * Sesi yang sedang dinilai di proses ini. Tembakan terakhir dan laporan menit
+ * yang mengulang tembakan itu bisa tiba berselang kurang dari sedetik; tanpa
+ * kunci ini keduanya lolos sudahDinilai() sebelum salah satunya sempat menulis
+ * status_prisma.
+ */
+const sedangDinilai = new Set<string>();
 
 /**
  * Bacaan siklus-siklus SEBELUM siklus ini, terbaru dulu — bahan nilaiPemicu().
@@ -173,9 +220,17 @@ export async function evaluasiSiklus(opsi: {
 }): Promise<void> {
   const { site, idLog, waktuDb } = opsi;
   const tag = "[peringatan]";
+  const kunci = `${site}|${idLog}`;
+  let pegangKunci = false;
 
   try {
     if (!site || !idLog) return;
+    if (sedangDinilai.has(kunci)) {
+      console.log(`${tag} ${site}: siklus ${idLog} sedang dinilai — dilewati`);
+      return;
+    }
+    sedangDinilai.add(kunci);
+    pegangKunci = true;
 
     const cfg = await getSite(site);
 
@@ -216,7 +271,7 @@ export async function evaluasiSiklus(opsi: {
       return;
     }
 
-    const [acuan, sekarang, lampau, prismaSite] = await Promise.all([
+    const [acuan, sekarang, lampau, prismaSite, keadaanLama] = await Promise.all([
       barisSesi(r0.id_log, false),
       barisSesi(idLog, true),
       // Jendela 1: hanya sesi ini yang menentukan, riwayat tidak perlu dibaca.
@@ -224,6 +279,7 @@ export async function evaluasiSiklus(opsi: {
       prisma.$queryRaw<Array<{ id_prisma: string }>>`
         SELECT id_prisma FROM t_prisma WHERE site = ${site} ORDER BY id_prisma
       `,
+      prisma.statusPrisma.findMany({ where: { site } }),
     ]);
 
     if (prismaSite.length === 0) {
@@ -231,6 +287,11 @@ export async function evaluasiSiklus(opsi: {
       // Semua prisma dihapus: tidak ada lagi yang bisa membenarkan sirene.
       await tutupKejadian(site, idLog, waktuDb);
       await sinkronEws(site, cfg.idLoggerEws, "Normal");
+      return;
+    }
+
+    if (sudahDinilai(idLog, prismaSite, keadaanLama)) {
+      console.log(`${tag} ${site}: siklus ${idLog} sudah dinilai — dilewati`);
       return;
     }
 
@@ -246,7 +307,6 @@ export async function evaluasiSiklus(opsi: {
     // yang dipakai sesiUntukSiklus() untuk menghitung umur sesi.
     const sekarangMs = waktuMsLokal(waktuDb) ?? Date.now();
 
-    const keadaanLama = await prisma.statusPrisma.findMany({ where: { site } });
     const petaKeadaan = new Map(keadaanLama.map((k) => [k.id_prisma, k]));
 
     const naik: BarisPerubahan[] = [];
@@ -415,7 +475,58 @@ export async function evaluasiSiklus(opsi: {
     // boleh jatuh karena peringatan. Sampai migrasi 011 dijalankan, jalur ini
     // memang selalu berakhir di sini.
     console.error(`${tag} gagal (diabaikan):`, e instanceof Error ? e.message : e);
+  } finally {
+    if (pegangKunci) sedangDinilai.delete(kunci);
   }
+}
+
+/**
+ * Nilai sesi begitu SETIAP prisma terdaftar sudah punya bacaan di sesi ini,
+ * tanpa menunggu tepi turun sensor16. Dipanggil pada tiap payload tembakan.
+ *
+ * Tepi turun sensor16 baru datang setelah RTS pulang ke posisi awal dan logger
+ * mengirim laporan menit berikutnya. Di uji kantor 23 Nov 2026 (sesi 103124)
+ * tembakan terakhir, P2, masuk 10:32:15 dan sensor16 = 0 baru 10:33:00. Selama
+ * itu sirene, WhatsApp, dan dasbor diam padahal datanya sudah lengkap.
+ *
+ * "Punya bacaan" = baris terakhir prisma itu di sesi ini berkoordinat tidak
+ * nol, baris yang sama yang akan dinilai evaluasiSiklus(). Sesi yang salah satu
+ * prismanya gagal ditembak tidak pernah lengkap di sini dan tetap dinilai pada
+ * tepi turun sensor16, seperti sebelumnya.
+ *
+ * Tidak boleh melempar, dengan alasan yang sama seperti evaluasiSiklus().
+ */
+export async function evaluasiBilaSesiLengkap(opsi: {
+  site: string | null;
+  idLog: string;
+  waktuDb: string;
+}): Promise<void> {
+  const { site, idLog } = opsi;
+  if (!site || !idLog) return;
+
+  try {
+    const [prismaSite, sekarang, keadaan] = await Promise.all([
+      prisma.$queryRaw<Array<{ id_prisma: string }>>`
+        SELECT id_prisma FROM t_prisma WHERE site = ${site}
+      `,
+      barisSesi(idLog, true),
+      prisma.statusPrisma.findMany({ where: { site }, select: { id_prisma: true, siklus_terakhir: true } }),
+    ]);
+    if (prismaSite.length === 0) return;
+    if (!prismaSite.every((p) => terukur(sekarang.get(p.id_prisma)))) return;
+    // Laporan menit sesudah tembakan terakhir mengulang tembakan itu; sesinya
+    // sudah dinilai dan tidak perlu disentuh lagi.
+    if (sudahDinilai(idLog, prismaSite, keadaan)) return;
+  } catch (e) {
+    console.error(
+      `[peringatan] ${site}: cek sesi lengkap ${idLog} gagal (diabaikan):`,
+      e instanceof Error ? e.message : e
+    );
+    return;
+  }
+
+  console.log(`[peringatan] ${site}: siklus ${idLog} lengkap — dinilai tanpa menunggu akhir sesi`);
+  await evaluasiSiklus(opsi);
 }
 
 /**

@@ -17,7 +17,7 @@ import { getSite, offsetLogger } from "@/lib/sites";
 import { sudutKosong, perbaikiTembakan, tulisKoordinat } from "@/lib/koreksi-azimut";
 import { sesiTerakhirLogger, sesiUntukSiklus } from "@/lib/log-kontrol";
 import { awalSiklus } from "@/lib/sesi-kontrol";
-import { evaluasiSiklus } from "@/lib/evaluasi-siklus";
+import { evaluasiBilaSesiLengkap, evaluasiSiklus } from "@/lib/evaluasi-siklus";
 import { sensorBerisiTeksObjek } from "@/lib/payload-sensor";
 
 export type PayloadMap = Record<string, string>;
@@ -323,6 +323,18 @@ export async function prosesDataMasukAdr(
     const tempRtsInsert = buildInsertStatement("temp_rts", rtsPayload);
     await prisma.$executeRawUnsafe(tempRtsInsert.sql, ...tempRtsInsert.values);
 
+    // ── Sesi lengkap: nilai sekarang ────────────────────────────────────────
+    //
+    // Begitu tembakan terakhir sesi masuk, sesi bisa dinilai tanpa menunggu
+    // tepi turun sensor16 di bawah, yang baru datang setelah RTS pulang ke
+    // posisi awal dan laporan menit berikutnya (±45 detik). Lihat
+    // evaluasiBilaSesiLengkap(). Hanya payload tembakan dalam sesi yang
+    // berjalan; laporan menit di luar sesi berisi sensor1 = 0 dan sensor16 = 0.
+    // Barisnya sudah ditulis ke `rts` di atas, jadi tembakan ini ikut terhitung.
+    if (siteAktif && idLog && sensorData.sensor1 && sensorData.sensor16 === "1") {
+      after(() => evaluasiBilaSesiLengkap({ site: siteAktif, idLog, waktuDb: waktu }));
+    }
+
     const kontrolRows = await prisma.$queryRaw<
       Array<{ status: unknown; status_manual: unknown }>
     >`
@@ -389,11 +401,14 @@ export async function prosesDataMasukAdr(
 
         mqttKontrolSent = await publishMqtt(mqttKontrolTopic, kontrolPayload);
 
-        // Siklus tuntas — seluruh prisma sudah ditembak sekali putar. Inilah
-        // satu-satunya titik di mana pergeseran bisa dinilai atas potret yang
-        // konsisten: satu nilai per prisma, satu cap waktu. Menilainya per
-        // payload akan memberi sepuluh pemeriksaan terpisah untuk satu putaran
-        // yang sama.
+        // Siklus tuntas — seluruh prisma sudah ditembak sekali putar. Biasanya
+        // sesi ini SUDAH dinilai saat tembakan terakhirnya masuk (lihat "Sesi
+        // lengkap" di atas) dan panggilan ini dilewati evaluasiSiklus() sendiri.
+        // Ia tetap ada untuk sesi yang tidak pernah lengkap — prisma gagal
+        // ditembak — yang hanya bisa dinilai setelah logger menyatakan
+        // putarannya selesai. Tetap satu penilaian per putaran, bukan per
+        // payload: menilai tiap payload akan memberi sepuluh pemeriksaan
+        // terpisah untuk satu putaran yang sama.
         //
         // after() supaya logger tidak menunggu: evaluasi menyentuh basis data
         // dan bisa berakhir dengan panggilan HTTP ke Telegram. Respons ke

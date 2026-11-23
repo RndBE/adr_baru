@@ -59,7 +59,14 @@ export interface KebijakanPeredam {
 /**
  * Bawaan yang diusulkan, bukan yang paling sunyi.
  *
- * `jedaMs` 30 menit dipilih karena di situ kurvanya mendatar: pada 224 baris
+ * `jedaMs` 0 sejak 23 Nov 2026: setiap KENAIKAN tingkat langsung dikirim,
+ * termasuk kenaikan kedua untuk prisma yang sama (Waspada, lalu Awas beberapa
+ * menit kemudian). Diminta saat uji kantor supaya WhatsApp tidak tertinggal
+ * dari sirene dan dasbor. Harganya: prisma yang bergetar di sekitar ambang bisa
+ * mengirim pesan tiap sesi. Kalau volumenya jadi masalah, kembalikan ke 30
+ * menit — alasan angka itu di paragraf berikut.
+ *
+ * Sebelumnya `jedaMs` 30 menit, dipilih karena kurvanya mendatar di situ: pada 224 baris
  * riwayat tadi, "naik saja + jeda 30 menit" menyisakan 46 pesan dari 224;
  * menaikkannya ke tiga jam hanya menghapus 16 pesan lagi sambil menambah risiko
  * menelan eskalasi sungguhan yang terjadi cepat.
@@ -110,7 +117,7 @@ export interface KebijakanPeredam {
  */
 export const KEBIJAKAN_BAWAAN: KebijakanPeredam = {
   konfirmasiSiklus: 1,
-  jedaMs: 30 * 60 * 1000,
+  jedaMs: 0,
   kirimMulaiDari: "Waspada",
   histeresisRasio: 0.1,
 };
@@ -227,7 +234,14 @@ export function nilaiPeredam(opsi: {
 
   // Jeda TIDAK berlaku untuk pesan pulih. Menahan kabar "sudah aman" tidak
   // melindungi siapa pun — ia cuma membuat peringatan sebelumnya menggantung.
-  if (naik && keadaan.kirimTerakhirMs !== null && sekarangMs - keadaan.kirimTerakhirMs < k.jedaMs) {
+  // `jedaMs > 0` tegas: tanpa jeda, cap waktu sesi yang mundur (jam logger
+  // dikoreksi) tidak boleh terbaca sebagai "masih dalam jeda".
+  if (
+    naik &&
+    k.jedaMs > 0 &&
+    keadaan.kirimTerakhirMs !== null &&
+    sekarangMs - keadaan.kirimTerakhirMs < k.jedaMs
+  ) {
     return { keadaan: dasar, diakui, kirim: false, alasan: "dalam-jeda" };
   }
 

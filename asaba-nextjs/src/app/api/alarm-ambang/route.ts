@@ -9,7 +9,7 @@ export const dynamic = "force-dynamic";
 /**
  * GET /api/alarm-ambang
  * Prisma yang sedang di atas Normal, di seluruh site aktif — sumber alarm suara
- * di dasbor (components/alarm-ambang.tsx), ditanya tiap 30 detik.
+ * di dasbor (components/alarm-ambang.tsx), ditanya tiap 10 detik.
  *
  * Dibaca dari `status_prisma.tingkat`, tingkat yang diakui jalur peringatan
  * pada akhir tiap siklus — keputusan yang sama dengan pesan WhatsApp, jadi
