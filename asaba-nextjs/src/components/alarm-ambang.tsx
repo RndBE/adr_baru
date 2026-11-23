@@ -34,6 +34,7 @@ import {
   kejadianUntukModal,
   senyapBerlaku,
   statusKejadian,
+  tersembunyiDariBanner,
   uraiCatatanModal,
   type KejadianRingkas,
 } from "@/lib/aturan-kejadian";
@@ -522,8 +523,64 @@ function AksiKejadian({
 }
 
 /**
+ * Lencana di menu Riwayat Alarm (sidebar): jumlah kejadian yang masih aktif,
+ * diwarnai tingkat tertinggi. Inilah pengingat untuk kejadian yang sudah
+ * diverifikasi — banner tidak lagi menampilkannya, tapi statusnya tetap sampai
+ * pergeseran turun. Kejadian yang belum diverifikasi ikut dihitung: semuanya
+ * masih berlangsung. Di mode ringkas cukup satu titik.
+ *
+ * `tema-monitoring` di tiap span: token warna status (--st-*) hanya hidup di
+ * kelas itu, dan sidebar tidak berada di dalamnya.
+ */
+export function LencanaMenuAlarm() {
+  const n = useContext(KonteksAlarm);
+  const aktif = useMemo(
+    () =>
+      (n?.kejadian ?? []).filter(
+        (k) => k.pulih === null && (TINGKAT_ALARM as readonly string[]).includes(k.tingkatTerakhir)
+      ),
+    [n?.kejadian]
+  );
+  if (aktif.length === 0) return null;
+
+  const tingkat = aktif
+    .map((k) => k.tingkatTerakhir as TingkatAlarm)
+    .reduce((a, b) => (indeksStatus(b) > indeksStatus(a) ? b : a));
+  const rincian = aktif
+    .map((k) => {
+      const keadaan = k.hasil
+        ? `terverifikasi ${k.hasil}`
+        : k.dikonfirmasi
+          ? "menunggu verifikasi"
+          : "belum dikonfirmasi";
+      return `${k.namaSite}: ${k.tingkatTerakhir}${k.prismaPuncak ? ` (${k.prismaPuncak})` : ""}, ${keadaan}`;
+    })
+    .join("; ");
+  const judul = `${aktif.length} alarm masih aktif — ${rincian}`;
+
+  return (
+    <>
+      <span
+        title={judul}
+        className="tema-monitoring ml-auto inline-flex h-5 min-w-5 shrink-0 items-center justify-center rounded-full px-1.5 text-[11px] font-bold tabular-nums group-data-[collapsible=icon]:hidden"
+        style={{ background: WARNA_STATUS[tingkat], color: tintaDi(tingkat) }}
+      >
+        {aktif.length}
+      </span>
+      <span
+        aria-hidden="true"
+        className="tema-monitoring absolute right-1.5 top-1.5 hidden size-2 rounded-full ring-2 ring-sidebar group-data-[collapsible=icon]:block"
+        style={{ background: WARNA_STATUS[tingkat] }}
+      />
+      <span className="sr-only">{judul}</span>
+    </>
+  );
+}
+
+/**
  * Pita di bawah header selama ada prisma di atas Normal, atau ada kejadian yang
- * sudah pulih tapi belum diverifikasi.
+ * sudah pulih tapi belum diverifikasi. Site yang kejadian aktifnya sudah
+ * diverifikasi tidak ikut tampil (lihat tersembunyiDariBanner).
  */
 export function BannerAlarm() {
   const {
@@ -540,9 +597,17 @@ export function BannerAlarm() {
     nyalakanSuara,
   } = useAlarm();
 
+  // Site yang kejadian aktifnya sudah diverifikasi tidak ditampilkan: operator
+  // sudah tahu. Pengingatnya lencana di menu Riwayat Alarm (LencanaMenuAlarm).
+  // Naik melewati tingkat yang dikonfirmasi membuatnya tampil lagi.
+  const tampilDaftar = useMemo(() => {
+    const sembunyi = new Set(kejadian.filter(tersembunyiDariBanner).map((k) => k.site));
+    return sembunyi.size === 0 ? daftar : daftar.filter((p) => !sembunyi.has(p.site));
+  }, [daftar, kejadian]);
+
   const perSite = useMemo(() => {
     const peta = new Map<string, { nama: string; prisma: PrismaAlarm[] }>();
-    for (const p of daftar) {
+    for (const p of tampilDaftar) {
       const g = peta.get(p.site) ?? { nama: p.namaSite, prisma: [] };
       g.prisma.push(p);
       peta.set(p.site, g);
@@ -551,7 +616,7 @@ export function BannerAlarm() {
       g.prisma.sort((a, b) => indeksStatus(b.tingkat) - indeksStatus(a.tingkat));
     }
     return [...peta.entries()];
-  }, [daftar]);
+  }, [tampilDaftar]);
 
   const aktifPerSite = useMemo(
     () => new Map(kejadian.filter((k) => k.pulih === null).map((k) => [k.site, k])),
@@ -562,12 +627,12 @@ export function BannerAlarm() {
     [kejadian]
   );
 
-  const puncak = terburuk(daftar);
+  const puncak = terburuk(tampilDaftar);
   if (!puncak && menunggu.length === 0) return null;
 
   const berbunyi = bunyi !== null && tes === null;
   const waktu = fmtWaktu(
-    daftar.reduce<string | null>((maks, p) => (p.waktu && (!maks || p.waktu > maks) ? p.waktu : maks), null)
+    tampilDaftar.reduce<string | null>((maks, p) => (p.waktu && (!maks || p.waktu > maks) ? p.waktu : maks), null)
   );
 
   return (

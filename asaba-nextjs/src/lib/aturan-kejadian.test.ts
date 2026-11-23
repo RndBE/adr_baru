@@ -13,6 +13,7 @@ import {
   statusKejadian,
   teksKonfirmasi,
   teksVerifikasi,
+  tersembunyiDariBanner,
   uraiCatatanModal,
   validasiVerifikasi,
   type KejadianRingkas,
@@ -84,6 +85,22 @@ assert.equal(statusKejadian(senyap), "disenyapkan");
 assert.equal(statusKejadian({ ...senyap, tingkatTerakhir: "Awas" }), "perlu-konfirmasi");
 assert.equal(statusKejadian({ ...dasar, pulih: "2026-11-16 14:00:00", tingkatTerakhir: "Normal" }), "perlu-verifikasi");
 assert.equal(statusKejadian({ ...senyap, diverifikasi: "2026-11-16 14:10:00", hasil: "palsu" }), "selesai");
+
+// ── tersembunyiDariBanner ───────────────────────────────────────────────────
+const terverifikasi = { ...senyap, diverifikasi: "2026-11-16 14:10:00", hasil: "benar" as const };
+assert.equal(tersembunyiDariBanner(dasar), false, "belum dikonfirmasi tetap tampil");
+assert.equal(tersembunyiDariBanner(senyap), false, "dikonfirmasi tapi belum diverifikasi tetap tampil");
+assert.equal(tersembunyiDariBanner(terverifikasi), true, "aktif + terverifikasi pindah ke lencana");
+assert.equal(
+  tersembunyiDariBanner({ ...terverifikasi, tingkatTerakhir: "Awas" }),
+  false,
+  "naik melewati yang dikonfirmasi: banner muncul lagi"
+);
+assert.equal(
+  tersembunyiDariBanner({ ...terverifikasi, pulih: "2026-11-16 15:00:00", tingkatTerakhir: "Normal" }),
+  false,
+  "sudah pulih: bukan urusan banner aktif"
+);
 
 // ── validasiVerifikasi ──────────────────────────────────────────────────────
 assert.equal(validasiVerifikasi({}).ok, false);

@@ -206,6 +206,17 @@ export function statusKejadian(k: KejadianRingkas): StatusKejadian {
   return "selesai";
 }
 
+/**
+ * Kejadian yang masih aktif tapi sudah diverifikasi tidak ditampilkan lagi di
+ * banner: operator sudah mengonfirmasi dan sudah mengecek lapangan. Statusnya
+ * tetap (mis. Awas) sampai pergeseran turun; pengingatnya pindah ke lencana
+ * menu Riwayat Alarm. Begitu tingkatnya naik melewati yang dikonfirmasi,
+ * statusnya kembali "perlu-konfirmasi" dan banner muncul lagi.
+ */
+export function tersembunyiDariBanner(k: KejadianRingkas): boolean {
+  return k.pulih === null && statusKejadian(k) === "selesai";
+}
+
 // ─── Modal alarm otomatis ───────────────────────────────────────────────────
 //
 // Modal muncul sendiri di halaman mana pun saat ada kejadian aktif yang belum

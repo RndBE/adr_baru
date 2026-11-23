@@ -19,6 +19,7 @@ import {
   SidebarMenuButton,
 } from "@/components/ui/sidebar";
 import { cn } from "@/lib/utils";
+import { LencanaMenuAlarm } from "@/components/alarm-ambang";
 
 type SidebarIconProps = {
   className?: string;
@@ -270,6 +271,9 @@ export function AppSidebar() {
         >
           {item.icon(active)}
           <span className="group-data-[collapsible=icon]:hidden">{item.title}</span>
+          {/* Alarm yang masih aktif, termasuk yang sudah diverifikasi dan
+              tidak lagi tampil di banner. */}
+          {item.href === "/riwayat-alarm" && <LencanaMenuAlarm />}
         </SidebarMenuButton>
       </SidebarMenuItem>
     );
