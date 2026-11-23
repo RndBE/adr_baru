@@ -129,7 +129,10 @@ export async function sendEwsLevel(
  * Send RTS start command via MQTT — hanya AutoTrackingStart.
  * Config dikirim dari RTS Config page, recordTarget dari Prism Config page.
  */
-export async function sendRtsStartCommand(loggerId: string): Promise<boolean> {
+export async function sendRtsStartCommand(
+  loggerId: string,
+  dipicu: "operator" | "jadwal" = "operator"
+): Promise<boolean> {
   const sendKontrol = {
     status: "1",
     status_manual: "1",
@@ -143,7 +146,7 @@ export async function sendRtsStartCommand(loggerId: string): Promise<boolean> {
     // halaman yang sedang membuka logger lain ikut berubah jadi "sedang
     // mengukur" saat perangkat mana pun dijalankan.
     id_logger: loggerId,
-    dipicu: "operator",
+    dipicu,
   };
 
   const dataMqtt = {

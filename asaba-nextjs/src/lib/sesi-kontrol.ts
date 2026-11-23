@@ -110,5 +110,8 @@ export function pilihSiteSesi(
  * lewat panel instrumen sama-sama tiba sebagai sensor16 yang berubah jadi 1
  * tanpa permintaan apa pun dari aplikasi. Menulis "jadwal" berarti mengaku tahu
  * hal yang tidak diketahui.
+ *
+ * "jadwal" hanya untuk Jadwal running di web (scheduling_task): di situ server
+ * sendiri yang mengirim AutoTrackingStart, jadi asalnya memang diketahui.
  */
-export type AsalSesi = "operator" | "logger";
+export type AsalSesi = "operator" | "logger" | "jadwal";

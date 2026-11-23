@@ -1,12 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { getLoggerForSite, getSite, offsetLogger } from "@/lib/sites";
+import { getLoggerForSite, getSite } from "@/lib/sites";
 import { publishMqtt, topikPerintah } from "@/lib/mqtt";
 import { bacaId, gagal, namaOperator, tolakKodeAkses } from "@/lib/api-kejadian";
 import { sudutKosong } from "@/lib/koreksi-azimut";
-import { waktuDbLokal } from "@/components/monitoring/format";
+import { rtsSibuk } from "@/lib/rts-sibuk";
 import {
-  alasanRtsSibuk,
   geserSampingM,
   langkahSah,
   perintahLangkah,
@@ -43,26 +42,6 @@ async function muatKejadian(teksId: string) {
   const k = await prisma.kejadianAlarm.findUnique({ where: { id } });
   if (!k) return { galat: gagal(404, "Kejadian tidak ditemukan") } as const;
   return { k } as const;
-}
-
-async function rtsSibuk(idLogger: string): Promise<string | null> {
-  const [kontrol, temp] = await Promise.all([
-    prisma.$queryRaw<Array<{ status: number; status_manual: number; mulai: string | null }>>`
-      SELECT status, status_manual, DATE_FORMAT(datetime, '%Y-%m-%d %H:%i:%s') AS mulai
-      FROM set_tempkontrol WHERE id_logger = ${idLogger} LIMIT 1
-    `,
-    prisma.$queryRaw<Array<{ sensor16: unknown; waktu: string | null }>>`
-      SELECT sensor16, DATE_FORMAT(waktu, '%Y-%m-%d %H:%i:%s') AS waktu
-      FROM temp_rts WHERE code_logger = ${idLogger} LIMIT 1
-    `,
-  ]);
-  const sekarang = waktuDbLokal(new Date(), await offsetLogger(idLogger));
-  const kt = kontrol[0];
-  return alasanRtsSibuk(
-    kt ? { status: kt.status, statusManual: kt.status_manual, mulai: kt.mulai } : null,
-    temp[0] ?? null,
-    sekarang
-  );
 }
 
 /**

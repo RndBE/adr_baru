@@ -526,7 +526,7 @@ export default function KontrolAdrPage() {
    * diketahui cuma sensor16, dan itu tidak menyebut asalnya. Dibedakan dari
    * "operator" supaya keterangannya tidak mengaku tahu hal yang tidak diketahui.
    */
-  const [asalSesi, setAsalSesi] = useState<"operator" | "logger" | null>(null);
+  const [asalSesi, setAsalSesi] = useState<"operator" | "logger" | "jadwal" | null>(null);
 
   // ── Jembatan ke handler MQTT ──────────────────────────────────────────────
   //
@@ -946,7 +946,7 @@ export default function KontrolAdrPage() {
             console.log("[KontrolADR] kontrol-asaba: Running", data.datetime, data.dipicu);
             setIsControlRunning(true);
             if (data.datetime) setRunningDate(data.datetime);
-            if (data.dipicu === "logger") setAsalSesi("logger");
+            if (data.dipicu === "logger" || data.dipicu === "jadwal") setAsalSesi(data.dipicu);
             // Set semua prisma ke Running
             setPrismaCards(prev => prev.map(c => ({ ...c, status: "Running..." as const, y: "-", x: "-", z: "-" })));
             // Sesinya baru saja dibuka server — tarik ulang riwayat supaya
@@ -1110,7 +1110,9 @@ export default function KontrolAdrPage() {
               // yang terpampang sudah usang.
               if (nilai === "start" || nilai === "scheduled") {
                 setIsControlRunning(true);
-                setAsalSesi(nilai === "scheduled" ? "logger" : "operator");
+                // Sesi Jadwal running juga dibalas "start"; label "jadwal" dari
+                // pengumuman kontrol-asaba tidak boleh tertimpa "operator".
+                setAsalSesi((a) => (nilai === "scheduled" ? "logger" : a === "jadwal" ? "jadwal" : "operator"));
                 setPrismaCards((prev) =>
                   prev.map((c) => ({ ...c, status: "Running..." as const, y: "-", x: "-", z: "-" }))
                 );
@@ -3067,7 +3069,9 @@ export default function KontrolAdrPage() {
                   <span className="text-[11.5px] text-(--ink-2)">
                     {asalSesi === "logger"
                       ? "· dimulai sendiri oleh logger (jadwal AutoTracking)"
-                      : asalSesi === "operator"
+                      : asalSesi === "jadwal"
+                        ? "· dijalankan oleh Jadwal running"
+                        : asalSesi === "operator"
                         ? "· dijalankan dari halaman ini"
                         : "· sudah berjalan sebelum halaman dibuka"}
                   </span>
@@ -3124,6 +3128,14 @@ export default function KontrolAdrPage() {
                                 catat. "Otomatis", bukan "jadwal": server tidak
                                 bisa membedakan siklus `trackEvery` dari siklus
                                 yang dimulai lewat panel instrumen. */}
+                            {item.dipicu === "jadwal" && (
+                              <span
+                                title="Dimulai server menurut Jadwal running"
+                                className="rounded-full bg-(--paper) px-1.5 py-px text-[10.5px] font-semibold text-(--ink-2) ring-1 ring-(--line)"
+                              >
+                                Jadwal
+                              </span>
+                            )}
                             {item.dipicu === "logger" && (
                               <span
                                 title="Dimulai sendiri oleh logger — jadwal AutoTracking atau panel instrumen, bukan tombol Mulai"

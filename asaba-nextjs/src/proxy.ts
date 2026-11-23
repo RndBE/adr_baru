@@ -38,7 +38,9 @@ import { tokenDariHeader, verifikasiTokenMobile } from "@/lib/mobile-auth";
  *                      token acak, bukan cookie Auth.js.
  * - `/login`         — tujuan pengalihannya sendiri.
  */
-const JALUR_TERBUKA = ["/login", "/api/auth", "/api/datamasuk", "/api/mobile"];
+// `/api/jadwal-running` dipanggil cron server, bukan peramban: tidak punya
+// cookie sesi. Route-nya sendiri mewajibkan header X-API-Key.
+const JALUR_TERBUKA = ["/login", "/api/auth", "/api/datamasuk", "/api/mobile", "/api/jadwal-running"];
 
 function terbuka(path: string): boolean {
   return JALUR_TERBUKA.some((p) => path === p || path.startsWith(`${p}/`));
