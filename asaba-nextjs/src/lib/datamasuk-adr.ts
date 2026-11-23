@@ -10,13 +10,13 @@
  * (id_alat, tanggal, jam, sensor1..sensor25, sn).
  */
 import { NextResponse, after } from "next/server";
-import { waktuDbLokal } from "@/components/monitoring/format";
+import { waktuDbLokal, waktuMsLokal } from "@/components/monitoring/format";
 import { prisma } from "@/lib/prisma";
 import { publishMqtt } from "@/lib/mqtt";
 import { getSite, offsetLogger } from "@/lib/sites";
 import { sudutKosong, perbaikiTembakan, tulisKoordinat } from "@/lib/koreksi-azimut";
 import { sesiTerakhirLogger, sesiUntukSiklus } from "@/lib/log-kontrol";
-import { awalSiklus } from "@/lib/sesi-kontrol";
+import { awalSiklus, langkahKontrol } from "@/lib/sesi-kontrol";
 import { evaluasiBilaSesiLengkap, evaluasiSiklus } from "@/lib/evaluasi-siklus";
 import { sensorBerisiTeksObjek } from "@/lib/payload-sensor";
 
@@ -336,9 +336,9 @@ export async function prosesDataMasukAdr(
     }
 
     const kontrolRows = await prisma.$queryRaw<
-      Array<{ status: unknown; status_manual: unknown }>
+      Array<{ status: unknown; status_manual: unknown; mulai: string | null }>
     >`
-      SELECT status, status_manual
+      SELECT status, status_manual, DATE_FORMAT(datetime, '%Y-%m-%d %H:%i:%s') AS mulai
       FROM set_tempkontrol
       WHERE id_logger = ${idAlat}
       LIMIT 1
@@ -364,24 +364,52 @@ export async function prosesDataMasukAdr(
     // Kontrol ADR (`=== "1" || === 1`); rute ini satu-satunya yang terlewat.
     const bit = (v: unknown): string => String(v ?? "");
 
+    // Aturan transisinya di langkahKontrol() (sesi-kontrol.ts, dikunci tesnya):
+    // "selesai" hanya pada tepi turun sensor16 yang sungguhan.
+    const langkah = kontrol
+      ? langkahKontrol({
+          status: bit(kontrol.status),
+          statusManual: bit(kontrol.status_manual),
+          sensor16Dilaporkan,
+          sensor16: sensorData.sensor16,
+          sensor16Sebelumnya: rtsSebelumnya[0]?.sensor16,
+          umurMulaiMs: (() => {
+            const a = waktuMsLokal(waktu);
+            const b = waktuMsLokal(kontrol.mulai);
+            return a === null || b === null ? null : a - b;
+          })(),
+        })
+      : "tetap";
+
     if (kontrol) {
-      if (bit(kontrol.status) === "1" && sensorData.sensor16 === "1") {
+      if (langkah === "mulai-terkonfirmasi") {
         await prisma.$executeRaw`
           UPDATE set_tempkontrol
           SET status = '0', status_manual = '1'
           WHERE id_logger = ${idAlat}
         `;
-      } else if (
-        bit(kontrol.status) === "0" &&
-        bit(kontrol.status_manual) === "0" &&
-        sensorData.sensor16 === "1"
-      ) {
+      } else if (langkah === "mulai-sendiri") {
         await prisma.$executeRaw`
           UPDATE set_tempkontrol
           SET status_manual = '1'
           WHERE id_logger = ${idAlat}
         `;
-      } else if (bit(kontrol.status_manual) === "1" && sensorData.sensor16 === "0") {
+      } else if (langkah === "batal") {
+        // Mulai yang tidak pernah dijalankan instrumen. Tanda dibereskan tanpa
+        // penilaian: sesinya tidak punya satu tembakan pun untuk dinilai.
+        await prisma.$executeRaw`
+          UPDATE set_tempkontrol
+          SET status = '0', status_manual = '0'
+          WHERE id_logger = ${idAlat}
+        `;
+        mqttKontrolSent = await publishMqtt(mqttKontrolTopic, {
+          status: 0,
+          status_manual: 0,
+          site: siteAktif,
+          id_logger: idAlat,
+        });
+        console.log(`[datamasuk/adr] ${idAlat}: Mulai tidak dijalankan instrumen dalam 10 menit, tanda direset`);
+      } else if (langkah === "selesai") {
         // `site` dan `id_logger` ikut dikirim dengan alasan yang sama seperti
         // pada pengumuman "mulai": topik ini dipakai bersama semua perangkat,
         // jadi tanpa keduanya halaman yang sedang membuka site lain ikut

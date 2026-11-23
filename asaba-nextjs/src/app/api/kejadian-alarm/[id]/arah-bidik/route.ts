@@ -6,6 +6,8 @@ import { bacaId, gagal, namaOperator, tolakKodeAkses } from "@/lib/api-kejadian"
 import { sudutKosong } from "@/lib/koreksi-azimut";
 import { rtsSibuk } from "@/lib/rts-sibuk";
 import {
+  ALASAN_REKAM_ARAH_MATI,
+  REKAM_ARAH_AKTIF,
   geserSampingM,
   langkahSah,
   perintahLangkah,
@@ -179,6 +181,9 @@ export async function POST(req: NextRequest, { params }: Konteks) {
     }
 
     if (!langkahSah(body.langkah)) return gagal(400, "Langkah tidak dikenal");
+    // Penjaga di server, bukan cuma tombol yang disembunyikan: dialog yang
+    // terbuka sebelum fitur dimatikan tetap bisa mengirim langkah.
+    if (!REKAM_ARAH_AKTIF) return gagal(409, ALASAN_REKAM_ARAH_MATI);
     const langkah = body.langkah;
 
     const idLogger = await getLoggerForSite(k.site);

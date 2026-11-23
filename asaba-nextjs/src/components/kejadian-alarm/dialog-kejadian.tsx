@@ -26,6 +26,7 @@ import {
 import { type StatusLabel, indeksStatus } from "@/lib/ambang";
 import type { PrismaAlarm } from "@/lib/alarm-ambang";
 import { DialogRekamArah } from "@/components/kejadian-alarm/dialog-rekam-arah";
+import { REKAM_ARAH_AKTIF } from "@/lib/rekam-arah";
 
 /**
  * Modal alarm (konfirmasi) dan dialog verifikasi kejadian alarm. Dipasang satu
@@ -341,7 +342,7 @@ export function DialogVerifikasi({
   // Pergeseran yang benar membuat arah bidik tersimpan meleset dari prisma.
   // Dicentang bawaan; untuk kejadian yang sudah pernah diverifikasi Benar
   // (membuka "Ubah"), rekam ulangnya mungkin sudah dilakukan.
-  const [perbaruiArah, setPerbaruiArah] = useState(k.hasil !== "benar");
+  const [perbaruiArah, setPerbaruiArah] = useState(REKAM_ARAH_AKTIF && k.hasil !== "benar");
   const [tahap, setTahap] = useState<"isi" | "arah">("isi");
 
   const lengkap =
@@ -362,7 +363,7 @@ export function DialogVerifikasi({
         catatan,
       });
       onSelesai();
-      if (hasil === "benar" && perbaruiArah) setTahap("arah");
+      if (REKAM_ARAH_AKTIF && hasil === "benar" && perbaruiArah) setTahap("arah");
       else onClose();
     } catch (e) {
       setGalat(e instanceof Error ? e.message : "Terjadi kesalahan");
@@ -460,6 +461,7 @@ export function DialogVerifikasi({
             Verifikasi tidak mengubah perhitungan. Status kembali Normal setelah R0 diganti (saat
             keadaan sudah aman) atau ambangnya diubah.
           </p>
+          {REKAM_ARAH_AKTIF && (
           <label className="mt-2 flex cursor-pointer items-start gap-2 text-(--ink)">
             <input
               type="checkbox"
@@ -475,6 +477,7 @@ export function DialogVerifikasi({
               </span>
             </span>
           </label>
+          )}
         </div>
       )}
 

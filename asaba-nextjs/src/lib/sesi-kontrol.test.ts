@@ -7,7 +7,7 @@
  * adalah keadaan nyata yang memicu keluhan: sesi 101109 dibuka 21 November 2025
  * dan masih menampung baris pengukuran bertanggal 26 Agustus 2026.
  */
-import { awalSiklus, bolehAdopsiSesi, pilihSiteSesi, BATAS_ADOPSI_SESI_MS } from "./sesi-kontrol";
+import { awalSiklus, bolehAdopsiSesi, langkahKontrol, pilihSiteSesi, BATAS_ADOPSI_SESI_MS, BATAS_MULAI_TERTUNDA_MS } from "./sesi-kontrol";
 
 let gagal = 0;
 function cek(judul: string, dapat: unknown, harus: unknown) {
@@ -56,6 +56,33 @@ cek("dua site, tidak ada yang cocok", pilihSiteSesi(["ccp", "viewpoint"], "polit
 // daripada tidak mencatat site sama sekali.
 cek("logger tak punya site terdaftar", pilihSiteSesi([], "ccp"), "ccp");
 cek("tidak ada petunjuk apa pun", pilihSiteSesi([], null), null);
+
+// ── langkahKontrol ──────────────────────────────────────────────────────────
+// Urutan nyata Jadwal running 23 Nov 2026 15:30: Mulai dikirim 15:30:01
+// (status=1, manual=1), laporan menit 15:30:00 tiba sesudahnya dengan
+// sensor16 = 0, lalu instrumen mulai 15:30:26.
+const L = (o: Partial<Parameters<typeof langkahKontrol>[0]>) =>
+  langkahKontrol({
+    status: 0,
+    statusManual: 0,
+    sensor16Dilaporkan: true,
+    sensor16: "0",
+    sensor16Sebelumnya: "0",
+    umurMulaiMs: 0,
+    ...o,
+  });
+cek("Mulai diminta, laporan menit sensor16=0 BUKAN selesai", L({ status: "1", statusManual: "1", umurMulaiMs: 5_000 }), "tetap");
+cek("Mulai diminta, instrumen mulai", L({ status: "1", statusManual: "1", sensor16: "1" }), "mulai-terkonfirmasi");
+cek("siklus berjalan", L({ statusManual: "1", sensor16: "1", sensor16Sebelumnya: "1" }), "tetap");
+cek("tepi turun sungguhan = selesai", L({ statusManual: "1", sensor16: "0", sensor16Sebelumnya: "1" }), "selesai");
+cek("tepi turun, sebelumnya angka float", L({ statusManual: 1, sensor16: "0", sensor16Sebelumnya: 1 }), "selesai");
+cek("manual=1 tapi sensor16 sudah 0 sebelumnya: tidak dinilai dua kali", L({ statusManual: "1", sensor16: "0", sensor16Sebelumnya: "0" }), "tetap");
+cek("siklus dimulai logger sendiri", L({ sensor16: "1" }), "mulai-sendiri");
+cek("diam", L({}), "tetap");
+cek("payload tanpa sensor16 tidak mengubah apa pun", L({ statusManual: "1", sensor16Dilaporkan: false, sensor16Sebelumnya: "1" }), "tetap");
+cek("Mulai tidak pernah dijalankan instrumen > 10 menit = batal", L({ status: "1", statusManual: "1", umurMulaiMs: BATAS_MULAI_TERTUNDA_MS + 1 }), "batal");
+cek("Mulai tertunda 10 menit pas belum batal", L({ status: "1", statusManual: "1", umurMulaiMs: BATAS_MULAI_TERTUNDA_MS }), "tetap");
+cek("umur Mulai tidak diketahui: tidak dibatalkan", L({ status: "1", statusManual: "1", umurMulaiMs: null }), "tetap");
 
 console.log(gagal === 0 ? "\nSEMUA LULUS" : `\n${gagal} GAGAL`);
 process.exit(gagal === 0 ? 0 : 1);

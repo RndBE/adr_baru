@@ -34,6 +34,22 @@ import { bacaSudut, sudutKosong } from "@/lib/koreksi-azimut";
 import { balasanGagal, balasanSelesai, nilaiBalasanLogger } from "@/lib/balasan-logger";
 import { JENIS_UKUR, bacaBalasanUkur, klasifikasiTurningTarget, type KodeUkur } from "@/lib/protokol-rts";
 
+// ─── Sakelar ────────────────────────────────────────────────────────────────
+
+/**
+ * DIMATIKAN 23 Nov 2026. Uji pertama di kantor (kejadian #2, P2): putar,
+ * AutoSearch, dan ukur berhasil, tapi balasan logger atas `recordTarget`
+ * ditolak sebagai tidak sah dan sejak itu RTS tidak lagi menemukan P2 —
+ * termasuk di sesi AutoTracking biasa. `recordTarget` yang dikirim sesudah
+ * `measure_fs` tampaknya merekam sudut yang salah ke slot. Hidupkan lagi
+ * hanya setelah bentuk balasannya dilihat langsung di MQTT dan urutan
+ * langkahnya dibetulkan.
+ */
+export const REKAM_ARAH_AKTIF: boolean = false;
+
+export const ALASAN_REKAM_ARAH_MATI =
+  "Rekam ulang arah bidik dimatikan sementara: uji pertama merusak sudut slot di RTS. Daftarkan ulang prisma lewat Prism Config.";
+
 // ─── Langkah dan perintahnya ────────────────────────────────────────────────
 
 export const LANGKAH_REKAM = ["putar", "cari", "ukur", "rekam"] as const;

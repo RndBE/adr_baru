@@ -34,6 +34,58 @@ export function awalSiklus(sekarang: unknown, sebelumnya: unknown): boolean {
 }
 
 /**
+ * Langkah mesin-status `set_tempkontrol` untuk satu payload logger.
+ *
+ *   status=1  : Mulai sudah diminta (tombol Mulai / Jadwal running), siklus
+ *               belum terlihat di instrumen.
+ *   manual=1  : siklus sedang berjalan.
+ *
+ * "selesai" hanya pada TEPI TURUN sungguhan — sensor16 payload sebelumnya 1,
+ * sekarang 0. Aturan lama cukup `manual=1 && sensor16=0`, padahal Mulai
+ * menyetel manual=1 SEBELUM instrumen bergerak. Laporan menit pertama sesudah
+ * Mulai (sensor16 masih 0) lalu terbaca "putaran selesai": sesi barunya
+ * dinilai kosong dengan semua prisma gagal, dan siklus sungguhannya mendarat
+ * di sesi lain yang dibuka logger. Jadwal running, yang memulai di detik :01
+ * persis setelah laporan menit, selalu kena (23 Nov 2026: 153001/153026,
+ * 154001/154024, …).
+ *
+ * "batal": Mulai yang tidak pernah terlihat dimulai instrumen dalam
+ * BATAS_MULAI_TERTUNDA_MS. Tanda-tandanya dibereskan tanpa menilai apa pun,
+ * supaya halaman tidak terjebak "sedang berjalan" selamanya.
+ *
+ * Payload yang tidak menyebut sensor16 tidak mengubah apa pun.
+ */
+export type LangkahKontrol = "mulai-terkonfirmasi" | "mulai-sendiri" | "selesai" | "batal" | "tetap";
+
+export const BATAS_MULAI_TERTUNDA_MS = 10 * 60 * 1000;
+
+export function langkahKontrol(o: {
+  status: unknown;
+  statusManual: unknown;
+  sensor16Dilaporkan: boolean;
+  sensor16: unknown;
+  sensor16Sebelumnya: unknown;
+  /** Umur permintaan Mulai (set_tempkontrol.datetime) terhadap jam payload. */
+  umurMulaiMs: number | null;
+}): LangkahKontrol {
+  if (!o.sensor16Dilaporkan) return "tetap";
+  const satu = (v: unknown) => Number(v ?? 0) === 1;
+  const jalan = satu(o.sensor16);
+  if (satu(o.status) && jalan) return "mulai-terkonfirmasi";
+  if (!satu(o.status) && !satu(o.statusManual) && jalan) return "mulai-sendiri";
+  if (satu(o.statusManual) && !jalan && satu(o.sensor16Sebelumnya)) return "selesai";
+  if (
+    satu(o.status) &&
+    !jalan &&
+    o.umurMulaiMs !== null &&
+    o.umurMulaiMs > BATAS_MULAI_TERTUNDA_MS
+  ) {
+    return "batal";
+  }
+  return "tetap";
+}
+
+/**
  * Seberapa tua sesi yang masih boleh "diadopsi" siklus yang baru mulai.
  *
  * Dua jam, bukan hitungan menit: jarak antara operator menekan Mulai dan

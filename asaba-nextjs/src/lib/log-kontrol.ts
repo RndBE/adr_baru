@@ -163,8 +163,13 @@ export async function sesiUntukSiklus(opsi: {
   const sekarangMs = waktuMsLokal(opsi.waktuDb) ?? Date.now();
 
   if (terakhir) {
+    // "Kosong" = belum ada baris SIKLUS (sensor16 = 1). Laporan menit di luar
+    // siklus (sensor16 = 0) ikut menempel ke sesi terbaru; sesi yang dibuka
+    // Mulai atau Jadwal running hampir selalu kebagian satu sebelum instrumen
+    // bergerak, dan menghitungnya sebagai isi membuat siklusnya pindah ke sesi
+    // kedua yang dibuka logger — sesi Mulai-nya tertinggal kosong.
     const isi = await prisma.$queryRaw<Array<{ ada: number }>>`
-      SELECT 1 AS ada FROM rts WHERE id_kontrol = ${terakhir.idLog} LIMIT 1
+      SELECT 1 AS ada FROM rts WHERE id_kontrol = ${terakhir.idLog} AND sensor16 = 1 LIMIT 1
     `;
     const umurMs = (() => {
       const ms = waktuMsLokal(terakhir.datetime);
