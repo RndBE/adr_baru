@@ -1,31 +1,48 @@
 "use client";
 
-import { useLayoutEffect, useRef } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
+import { Clock } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 /**
- * Pemilih jam dan menit untuk Jadwal running: dua kolom yang digulir.
+ * Tombol waktu + dropdown jam/menit untuk Jadwal running.
  *
- * Dipasang DI BAWAH baris jadwalnya, bukan melayang. Versi melayang
- * (`absolute`) terpotong area gulir modal — di layar laptop hanya empat baris
- * pertama yang terlihat, sisanya tertutup footer.
+ * Bentuk dropdown-nya sama dengan sebelumnya; yang dibetulkan dua hal:
  *
- * Saat dibuka, tiap kolom digulir sampai nilai tersimpan berada di tengah.
- * Versi sebelumnya mencari kelas `time-active-hour`/`time-active-minute`
- * yang terhapus saat redesign 3 Sep 2026, jadi pemilihnya selalu terbuka di
- * 00 dan operator harus menggulir sendiri ke, misalnya, 20:25. Kolomnya
- * digulir lewat `scrollTop`, bukan `scrollIntoView`: yang terakhir ikut
- * menggulir modal dan halaman di belakangnya.
+ * 1. Saat dibuka, kolom jam dan menit langsung digulir ke nilai tersimpan.
+ *    Versi lama mencari kelas `time-active-hour`/`time-active-minute` yang
+ *    terhapus saat redesign 3 Sep 2026, jadi dropdown selalu terbuka di 00.
+ *    Kolomnya digulir lewat `scrollTop`, bukan `scrollIntoView` — yang
+ *    terakhir ikut menggulir modal dan halaman di belakangnya.
+ * 2. Dropdown tidak lagi terpotong area gulir modal. Ia dirender di
+ *    `document.body` dengan posisi `fixed` menempel di tombolnya, dan dibuka
+ *    ke atas bila ruang di bawah tidak cukup.
  */
 
 const JAM = Array.from({ length: 24 }, (_, i) => String(i).padStart(2, "0"));
 const MENIT = Array.from({ length: 60 }, (_, i) => String(i).padStart(2, "0"));
 
+const TINGGI = 168;
+const LEBAR = 124;
+const JARAK = 4;
+
 export function pisahWaktu(nilai: string | null | undefined): [string, string] {
   const [j, m] = (nilai ?? "").split(":");
-  const jam = JAM.includes((j ?? "").padStart(2, "0")) ? (j ?? "").padStart(2, "0") : "00";
-  const menit = MENIT.includes((m ?? "").padStart(2, "0")) ? (m ?? "").padStart(2, "0") : "00";
-  return [jam, menit];
+  const jam = (j ?? "").padStart(2, "0");
+  const menit = (m ?? "").padStart(2, "0");
+  return [JAM.includes(jam) ? jam : "00", MENIT.includes(menit) ? menit : "00"];
+}
+
+type Posisi = { top: number; left: number };
+
+function hitungPosisi(tombol: HTMLElement | null): Posisi | null {
+  if (!tombol) return null;
+  const r = tombol.getBoundingClientRect();
+  const ruangBawah = window.innerHeight - r.bottom;
+  const top = ruangBawah >= TINGGI + JARAK + 8 ? r.bottom + JARAK : Math.max(8, r.top - JARAK - TINGGI);
+  const left = Math.min(window.innerWidth - LEBAR - 8, Math.max(8, r.right - LEBAR));
+  return { top, left };
 }
 
 function tengahkan(kolom: HTMLDivElement | null, nilai: string) {
@@ -35,90 +52,155 @@ function tengahkan(kolom: HTMLDivElement | null, nilai: string) {
 }
 
 function Kolom({
-  judul,
   daftar,
   dipilih,
   pilih,
   kolomRef,
+  label,
+  garis,
 }: {
-  judul: string;
   daftar: string[];
   dipilih: string;
   pilih: (v: string) => void;
   kolomRef: React.RefObject<HTMLDivElement | null>;
+  label: string;
+  garis?: boolean;
 }) {
   return (
-    <div className="w-[64px]">
-      <p className="pb-1 text-center text-[10.5px] font-semibold tracking-wide text-(--ink-3) uppercase">{judul}</p>
-      <div
-        ref={kolomRef}
-        role="listbox"
-        aria-label={judul}
-        className="relative h-[168px] overflow-y-auto overscroll-contain rounded-[8px] bg-white ring-1 ring-(--line) [scrollbar-width:thin]"
-      >
-        {daftar.map((v) => {
-          const aktif = v === dipilih;
-          return (
-            <button
-              type="button"
-              key={v}
-              data-nilai={v}
-              role="option"
-              aria-selected={aktif}
-              onClick={() => pilih(v)}
-              className={cn(
-                "w-full cursor-pointer py-1.5 font-mono text-[13px] tabular-nums transition-colors outline-none focus-visible:ring-2 focus-visible:ring-(--navy)/40 focus-visible:ring-inset",
-                aktif ? "bg-(--navy) text-white" : "text-(--ink-2) hover:bg-(--paper)"
-              )}
-            >
-              {v}
-            </button>
-          );
-        })}
-      </div>
+    <div
+      ref={kolomRef}
+      role="listbox"
+      aria-label={label}
+      className={cn(
+        "relative h-full w-1/2 overflow-y-auto overscroll-contain [scrollbar-width:none] [&::-webkit-scrollbar]:hidden",
+        garis && "border-r border-(--line)"
+      )}
+    >
+      {daftar.map((v) => {
+        const aktif = v === dipilih;
+        return (
+          <button
+            type="button"
+            key={v}
+            data-nilai={v}
+            role="option"
+            aria-selected={aktif}
+            onClick={() => pilih(v)}
+            className={cn(
+              "w-full cursor-pointer py-1.5 font-mono text-[13px] tabular-nums transition-colors",
+              aktif ? "bg-(--navy) text-white" : "text-(--ink-2) hover:bg-(--paper)"
+            )}
+          >
+            {v}
+          </button>
+        );
+      })}
     </div>
+  );
+}
+
+function Dropdown({
+  tombolRef,
+  nilai,
+  onUbah,
+  onTutup,
+}: {
+  tombolRef: React.RefObject<HTMLButtonElement | null>;
+  nilai: string;
+  onUbah: (nilai: string) => void;
+  onTutup: () => void;
+}) {
+  const [jam, menit] = pisahWaktu(nilai);
+  const [posisi, setPosisi] = useState<Posisi | null>(() => hitungPosisi(tombolRef.current));
+  const jamRef = useRef<HTMLDivElement>(null);
+  const menitRef = useRef<HTMLDivElement>(null);
+
+  // Sekali saat dibuka. Menggulir ulang tiap kali nilai berubah membuat kolom
+  // melompat di bawah kursor saat operator sedang memilih.
+  useLayoutEffect(() => {
+    tengahkan(jamRef.current, jam);
+    tengahkan(menitRef.current, menit);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Ikuti tombolnya kalau modal digulir atau jendela berubah ukuran.
+  useEffect(() => {
+    const ikut = (e: Event) => {
+      if (e.target instanceof Node && (jamRef.current?.contains(e.target) || menitRef.current?.contains(e.target))) return;
+      const p = hitungPosisi(tombolRef.current);
+      setPosisi((lama) => (p && lama && p.top === lama.top && p.left === lama.left ? lama : p));
+    };
+    const esc = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        e.stopPropagation();
+        onTutup();
+      }
+    };
+    window.addEventListener("resize", ikut);
+    window.addEventListener("scroll", ikut, true);
+    window.addEventListener("keydown", esc, true);
+    return () => {
+      window.removeEventListener("resize", ikut);
+      window.removeEventListener("scroll", ikut, true);
+      window.removeEventListener("keydown", esc, true);
+    };
+  }, [tombolRef, onTutup]);
+
+  if (!posisi) return null;
+
+  // `tema-monitoring` membawa token warna (--navy, --line, …); di luar modal
+  // token itu tidak berlaku.
+  return createPortal(
+    <div className="tema-monitoring">
+      <div className="fixed inset-0 z-[60]" onClick={onTutup} />
+      <div
+        className="fixed z-[61] flex overflow-hidden rounded-[10px] bg-white shadow-xl ring-1 ring-(--line)"
+        style={{ top: posisi.top, left: posisi.left, height: TINGGI, width: LEBAR }}
+      >
+        <Kolom daftar={JAM} dipilih={jam} pilih={(j) => onUbah(`${j}:${menit}`)} kolomRef={jamRef} label="Jam" garis />
+        <Kolom daftar={MENIT} dipilih={menit} pilih={(m) => onUbah(`${jam}:${m}`)} kolomRef={menitRef} label="Menit" />
+      </div>
+    </div>,
+    document.body
   );
 }
 
 export function PemilihWaktu({
   nilai,
+  buka,
+  disabled,
+  label,
+  onBuka,
+  onTutup,
   onUbah,
-  onSelesai,
 }: {
   /** "HH:MM". Kosong atau rusak dibaca 00:00. */
   nilai: string;
+  buka: boolean;
+  disabled?: boolean;
+  label: string;
+  onBuka: () => void;
+  onTutup: () => void;
   onUbah: (nilai: string) => void;
-  onSelesai: () => void;
 }) {
-  const [jam, menit] = pisahWaktu(nilai);
-  const akarRef = useRef<HTMLDivElement>(null);
-  const jamRef = useRef<HTMLDivElement>(null);
-  const menitRef = useRef<HTMLDivElement>(null);
-
-  // Sekali saat dibuka saja. Menggulir ulang tiap kali nilai berubah membuat
-  // kolom melompat di bawah kursor saat operator sedang memilih.
-  useLayoutEffect(() => {
-    tengahkan(jamRef.current, jam);
-    tengahkan(menitRef.current, menit);
-    akarRef.current?.scrollIntoView({ block: "nearest" });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
+  const tombolRef = useRef<HTMLButtonElement>(null);
+  const tutup = useCallback(() => onTutup(), [onTutup]);
   return (
-    <div
-      ref={akarRef}
-      className="relative z-50 mt-2 flex items-end justify-end gap-3 rounded-[10px] bg-(--paper) p-2.5 ring-1 ring-(--line)"
-    >
-      <Kolom judul="Jam" daftar={JAM} dipilih={jam} pilih={(j) => onUbah(`${j}:${menit}`)} kolomRef={jamRef} />
-      <span className="pb-[76px] font-mono text-[15px] font-semibold text-(--ink-3)">:</span>
-      <Kolom judul="Menit" daftar={MENIT} dipilih={menit} pilih={(m) => onUbah(`${jam}:${m}`)} kolomRef={menitRef} />
+    <>
       <button
+        ref={tombolRef}
         type="button"
-        onClick={onSelesai}
-        className="ml-1 inline-flex h-8 cursor-pointer items-center rounded-[8px] bg-(--navy) px-3 text-[12.5px] font-semibold text-white outline-none hover:brightness-110 focus-visible:ring-2 focus-visible:ring-(--navy)/40"
+        onClick={() => (buka ? onTutup() : onBuka())}
+        disabled={disabled}
+        aria-expanded={buka}
+        aria-haspopup="listbox"
+        aria-label={label}
+        className="inline-flex h-8 w-[92px] cursor-pointer items-center justify-center gap-1.5 rounded-[8px] bg-white font-mono text-[13px] tabular-nums text-(--ink) ring-1 ring-(--line) outline-none transition-colors hover:bg-(--paper) focus-visible:ring-2 focus-visible:ring-(--navy)/40 disabled:cursor-not-allowed disabled:bg-(--paper) disabled:text-(--ink-3)"
       >
-        Selesai
+        <Clock className="size-3.5 text-(--ink-3)" />
+        {nilai || "00:00"}
       </button>
-    </div>
+      {buka && !disabled && <Dropdown tombolRef={tombolRef} nilai={nilai} onUbah={onUbah} onTutup={tutup} />}
+    </>
   );
 }

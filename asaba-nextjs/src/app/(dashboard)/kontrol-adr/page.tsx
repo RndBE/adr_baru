@@ -8,7 +8,6 @@ import {
   CalendarDays,
   Check,
   CheckCircle2,
-  Clock,
   Database,
   Crosshair,
   Eye,
@@ -4117,59 +4116,43 @@ export default function KontrolAdrPage() {
                     {currentSchedule.runs.map((r, i) => (
                       <li
                         key={r.id}
-                        className={cn("px-3.5 py-2.5", i > 0 && "border-t border-(--line)")}
-                      >
-                        <div className="flex items-center justify-between gap-3">
-                          <label className="inline-flex min-w-0 cursor-pointer items-center gap-2.5">
-                            <input
-                              type="checkbox"
-                              checked={r.active}
-                              onChange={() => toggleRunActive(r.id)}
-                              className="peer sr-only"
-                            />
-                            <span
-                              aria-hidden="true"
-                              className={cn(
-                                "flex size-[17px] shrink-0 items-center justify-center rounded-[5px] border transition-colors",
-                                r.active
-                                  ? "border-(--navy) bg-(--navy)"
-                                  : "border-(--ink-3)/50 bg-white"
-                              )}
-                            >
-                              {r.active && <Check className="size-3 text-white" strokeWidth={3.5} />}
-                            </span>
-                            <span className="truncate text-[13px] text-(--ink)">{r.nama}</span>
-                          </label>
-
-                          <div className="shrink-0">
-                            <button
-                              type="button"
-                              onClick={() =>
-                                r.active && setOpenTimePickerId(openTimePickerId === r.id ? null : r.id)
-                              }
-                              disabled={!r.active}
-                              aria-expanded={openTimePickerId === r.id}
-                              aria-label={`Waktu ${r.nama}: ${r.time || "00:00"}`}
-                              className="inline-flex h-8 w-[92px] cursor-pointer items-center justify-center gap-1.5 rounded-[8px] bg-white font-mono text-[13px] tabular-nums text-(--ink) ring-1 ring-(--line) outline-none transition-colors hover:bg-(--paper) focus-visible:ring-2 focus-visible:ring-(--navy)/40 disabled:cursor-not-allowed disabled:bg-(--paper) disabled:text-(--ink-3)"
-                            >
-                              <Clock className="size-3.5 text-(--ink-3)" />
-                              {r.time || "00:00"}
-                            </button>
-                          </div>
-                        </div>
-                        {openTimePickerId === r.id && r.active && (
-                          <>
-                            <div
-                              className="fixed inset-0 z-40"
-                              onClick={() => setOpenTimePickerId(null)}
-                            />
-                            <PemilihWaktu
-                              nilai={r.time || "00:00"}
-                              onUbah={(t) => updateRunTime(r.id, t)}
-                              onSelesai={() => setOpenTimePickerId(null)}
-                            />
-                          </>
+                        className={cn(
+                          "flex items-center justify-between gap-3 px-3.5 py-2.5",
+                          i > 0 && "border-t border-(--line)"
                         )}
+                      >
+                        <label className="inline-flex min-w-0 cursor-pointer items-center gap-2.5">
+                          <input
+                            type="checkbox"
+                            checked={r.active}
+                            onChange={() => toggleRunActive(r.id)}
+                            className="peer sr-only"
+                          />
+                          <span
+                            aria-hidden="true"
+                            className={cn(
+                              "flex size-[17px] shrink-0 items-center justify-center rounded-[5px] border transition-colors",
+                              r.active
+                                ? "border-(--navy) bg-(--navy)"
+                                : "border-(--ink-3)/50 bg-white"
+                            )}
+                          >
+                            {r.active && <Check className="size-3 text-white" strokeWidth={3.5} />}
+                          </span>
+                          <span className="truncate text-[13px] text-(--ink)">{r.nama}</span>
+                        </label>
+
+                        <div className="shrink-0">
+                          <PemilihWaktu
+                            nilai={r.time || "00:00"}
+                            buka={openTimePickerId === r.id}
+                            disabled={!r.active}
+                            label={`Waktu ${r.nama}: ${r.time || "00:00"}`}
+                            onBuka={() => setOpenTimePickerId(r.id)}
+                            onTutup={() => setOpenTimePickerId(null)}
+                            onUbah={(t) => updateRunTime(r.id, t)}
+                          />
+                        </div>
                       </li>
                     ))}
                   </ul>
