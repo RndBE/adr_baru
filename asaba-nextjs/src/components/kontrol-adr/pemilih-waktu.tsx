@@ -16,16 +16,22 @@ import { cn } from "@/lib/utils";
  *    Kolomnya digulir lewat `scrollTop`, bukan `scrollIntoView` — yang
  *    terakhir ikut menggulir modal dan halaman di belakangnya.
  * 2. Dropdown tidak lagi terpotong area gulir modal. Ia dirender di
- *    `document.body` dengan posisi `fixed` menempel di tombolnya, dan dibuka
- *    ke atas bila ruang di bawah tidak cukup.
+ *    `document.body` dengan posisi `fixed` menempel di tombolnya, tetapi
+ *    tetap di dalam kotak modal: dibuka ke bawah bila muat, ke atas bila
+ *    ruang di atas yang muat, dan bila keduanya tidak muat tingginya
+ *    dipendekkan ke sisi yang lebih lega.
  */
 
 const JAM = Array.from({ length: 24 }, (_, i) => String(i).padStart(2, "0"));
 const MENIT = Array.from({ length: 60 }, (_, i) => String(i).padStart(2, "0"));
 
 const TINGGI = 168;
+/** Tiga baris; lebih pendek dari ini kolomnya tidak bisa dipakai. */
+const TINGGI_MIN = 96;
 const LEBAR = 124;
 const JARAK = 4;
+/** Jarak dropdown dari tepi modal. */
+const TEPI = 8;
 
 export function pisahWaktu(nilai: string | null | undefined): [string, string] {
   const [j, m] = (nilai ?? "").split(":");
@@ -34,15 +40,43 @@ export function pisahWaktu(nilai: string | null | undefined): [string, string] {
   return [JAM.includes(jam) ? jam : "00", MENIT.includes(menit) ? menit : "00"];
 }
 
-type Posisi = { top: number; left: number };
+type Posisi = { top: number; left: number; height: number };
+type Kotak = { top: number; bottom: number; left: number; right: number };
+
+/**
+ * Letak dropdown untuk tombol `r` di dalam `batas` (kotak modal). Murni,
+ * supaya aturan buka-ke-bawah / ke-atas / dipendekkan bisa diuji.
+ */
+export function letakDropdown(r: Kotak, batas: Kotak): Posisi {
+  const ruangBawah = batas.bottom - TEPI - (r.bottom + JARAK);
+  const ruangAtas = r.top - JARAK - (batas.top + TEPI);
+  let top: number;
+  let height: number;
+  if (ruangBawah >= TINGGI) {
+    top = r.bottom + JARAK;
+    height = TINGGI;
+  } else if (ruangAtas >= TINGGI) {
+    top = r.top - JARAK - TINGGI;
+    height = TINGGI;
+  } else if (ruangBawah >= ruangAtas) {
+    top = r.bottom + JARAK;
+    height = Math.max(TINGGI_MIN, ruangBawah);
+  } else {
+    height = Math.max(TINGGI_MIN, ruangAtas);
+    top = r.top - JARAK - height;
+  }
+  const left = Math.min(batas.right - TEPI - LEBAR, Math.max(batas.left + TEPI, r.right - LEBAR));
+  return { top, left, height };
+}
 
 function hitungPosisi(tombol: HTMLElement | null): Posisi | null {
   if (!tombol) return null;
-  const r = tombol.getBoundingClientRect();
-  const ruangBawah = window.innerHeight - r.bottom;
-  const top = ruangBawah >= TINGGI + JARAK + 8 ? r.bottom + JARAK : Math.max(8, r.top - JARAK - TINGGI);
-  const left = Math.min(window.innerWidth - LEBAR - 8, Math.max(8, r.right - LEBAR));
-  return { top, left };
+  // Kotak modal tempat tombol berada; di luar modal, layar.
+  const modal = tombol.closest<HTMLElement>('[role="dialog"]');
+  const batas: Kotak = modal
+    ? modal.getBoundingClientRect()
+    : { top: 0, left: 0, bottom: window.innerHeight, right: window.innerWidth };
+  return letakDropdown(tombol.getBoundingClientRect(), batas);
 }
 
 function tengahkan(kolom: HTMLDivElement | null, nilai: string) {
@@ -128,7 +162,9 @@ function Dropdown({
     const ikut = (e: Event) => {
       if (e.target instanceof Node && (jamRef.current?.contains(e.target) || menitRef.current?.contains(e.target))) return;
       const p = hitungPosisi(tombolRef.current);
-      setPosisi((lama) => (p && lama && p.top === lama.top && p.left === lama.left ? lama : p));
+      setPosisi((lama) =>
+        p && lama && p.top === lama.top && p.left === lama.left && p.height === lama.height ? lama : p
+      );
     };
     const esc = (e: KeyboardEvent) => {
       if (e.key === "Escape") {
@@ -155,7 +191,7 @@ function Dropdown({
       <div className="fixed inset-0 z-[60]" onClick={onTutup} />
       <div
         className="fixed z-[61] flex overflow-hidden rounded-[10px] bg-white shadow-xl ring-1 ring-(--line)"
-        style={{ top: posisi.top, left: posisi.left, height: TINGGI, width: LEBAR }}
+        style={{ top: posisi.top, left: posisi.left, height: posisi.height, width: LEBAR }}
       >
         <Kolom daftar={JAM} dipilih={jam} pilih={(j) => onUbah(`${j}:${menit}`)} kolomRef={jamRef} label="Jam" garis />
         <Kolom daftar={MENIT} dipilih={menit} pilih={(m) => onUbah(`${jam}:${m}`)} kolomRef={menitRef} label="Menit" />
