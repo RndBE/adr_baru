@@ -472,7 +472,7 @@ export function DialogVerifikasi({
             <span>
               <b className="font-semibold">Perbarui arah bidik prisma setelah disimpan.</b>{" "}
               <span className="text-(--ink-2)">
-                RTS merekam ulang sudut HA/VA prisma yang bergeser ke posisi barunya. Prismanya dipilih di
+                Sudut HA/VA slot prisma yang bergeser di RTS diganti dengan posisi barunya. Prismanya dipilih di
                 langkah berikut.
               </span>
             </span>

@@ -1,58 +1,49 @@
 /**
- * Rekam ulang arah bidik prisma setelah pergeseran diverifikasi BENAR.
+ * Perbarui arah bidik prisma setelah pergeseran diverifikasi BENAR.
  *
  * Arah bidik tiap prisma tersimpan di DUA tempat:
  *
  *   1. Slot firmware RTS (1–50). Inilah yang dipakai alat di setiap sesi:
- *      `turning_target` memutar ke sudut rekaman, lalu AutoSearch mencari
- *      prisma di sekitarnya.
- *   2. `t_prisma.HA`/`VA` di web — SALINAN dari balasan `recordTarget`, untuk
- *      ditampilkan. Mengubahnya saja tidak menggerakkan apa pun.
+ *      teleskop diputar ke sudut slot, lalu AutoSearch mencari prisma di
+ *      sekitarnya.
+ *   2. `t_prisma.HA`/`VA` di web — salinan untuk ditampilkan.
  *
- * Firmware tidak punya perintah "isi sudut slot dengan angka X". Satu-satunya
- * cara mengubah sudut slot adalah `recordTarget`, yang merekam ke mana teleskop
- * SEDANG menghadap. Jadi rekam ulang = arahkan teleskop ke prisma di posisi
- * barunya, lalu rekam:
+ * Sejak firmware BL1100-v2.2.3 (23 Nov 2026) sudut slot bisa ditulis dan dibaca
+ * langsung, tanpa memutar teleskop (docs/permintaan-firmware-settarget-gettarget.md):
  *
- *   putar   turning_target <slot>    teleskop ke sudut lama
- *   cari    auto_search              mengunci prisma di posisi barunya
- *   ukur    measure_fs / measure_bs  bukti: jarak dan arahnya cocok dengan
- *                                    tembakan terakhir prisma itu
- *   rekam   recordTarget             slot menyimpan arah teleskop sekarang;
- *                                    balasannya membawa HA/VA baru
- *   simpan  t_prisma.HA/VA           salinan web ikut diperbarui
+ *   baca      getTarget <slot>          isi slot sebelum diubah
+ *   tulis     setTarget <slot> HA VA    sudut dari tembakan sah terakhir prisma
+ *                                       itu; balasannya = yang benar-benar
+ *                                       tersimpan, harus sama persis
+ *   pastikan  getTarget <slot>          dibaca ulang, harus sama persis
+ *   simpan    t_prisma.HA/VA            salinan web ikut diperbarui
  *
- * Langkah ukur adalah pagar. AutoSearch bisa mengunci prisma LAIN yang
- * kebetulan dekat, dan merekamnya berarti setiap sesi berikutnya menembak
- * target yang salah tanpa satu galat pun. Rekam hanya dikirim bila hasil ukur
- * cocok dengan tembakan terakhir prisma itu.
+ * Versi pertama fitur ini memakai `recordTarget` (merekam arah teleskop
+ * sekarang) sesudah putar, AutoSearch, dan ukur. Uji di kantor 23 Nov merekam
+ * sudut kosong ke slot 2 — `getTarget` kemudian menunjukkan HA/VA ",," — dan
+ * P2 tidak ditemukan lagi sampai slotnya ditulis ulang dengan `setTarget`.
  *
- * R0 tidak disentuh: pergeseran tetap dihitung dari R0, jadi status alarm
- * tidak berubah karena rekam ulang.
+ * Sudut yang ditulis diambil server dari tembakan sah terakhir prisma di sesi
+ * site ini, bukan dari peramban, dan formatnya persis seperti yang dikirim
+ * alat sendiri. R0 tidak disentuh: status alarm tidak berubah karena ini.
  */
 import { bacaSudut, sudutKosong } from "@/lib/koreksi-azimut";
-import { balasanGagal, balasanSelesai, nilaiBalasanLogger } from "@/lib/balasan-logger";
-import { JENIS_UKUR, bacaBalasanUkur, klasifikasiTurningTarget, type KodeUkur } from "@/lib/protokol-rts";
+import type { KodeUkur } from "@/lib/protokol-rts";
 
 // ─── Sakelar ────────────────────────────────────────────────────────────────
 
 /**
- * DIMATIKAN 23 Nov 2026. Uji pertama di kantor (kejadian #2, P2): putar,
- * AutoSearch, dan ukur berhasil, tapi balasan logger atas `recordTarget`
- * ditolak sebagai tidak sah dan sejak itu RTS tidak lagi menemukan P2 —
- * termasuk di sesi AutoTracking biasa. `recordTarget` yang dikirim sesudah
- * `measure_fs` tampaknya merekam sudut yang salah ke slot. Hidupkan lagi
- * hanya setelah bentuk balasannya dilihat langsung di MQTT dan urutan
- * langkahnya dibetulkan.
+ * Hidup sejak firmware punya `setTarget`/`getTarget`. Versi `recordTarget`
+ * dimatikan setelah merusak slot P2 (lihat catatan di atas).
  */
-export const REKAM_ARAH_AKTIF: boolean = false;
+export const REKAM_ARAH_AKTIF: boolean = true;
 
 export const ALASAN_REKAM_ARAH_MATI =
-  "Rekam ulang arah bidik dimatikan sementara: uji pertama merusak sudut slot di RTS. Daftarkan ulang prisma lewat Prism Config.";
+  "Perbarui arah bidik sedang dimatikan. Perbarui slot prisma lewat Prism Config.";
 
 // ─── Langkah dan perintahnya ────────────────────────────────────────────────
 
-export const LANGKAH_REKAM = ["putar", "cari", "ukur", "rekam"] as const;
+export const LANGKAH_REKAM = ["baca", "tulis", "pastikan"] as const;
 export type LangkahRekam = (typeof LANGKAH_REKAM)[number];
 
 export function langkahSah(v: unknown): v is LangkahRekam {
@@ -60,49 +51,43 @@ export function langkahSah(v: unknown): v is LangkahRekam {
 }
 
 export const LABEL_LANGKAH: Record<LangkahRekam | "simpan", string> = {
-  putar: "Memutar ke sudut lama",
-  cari: "Mencari prisma",
-  ukur: "Mengukur",
-  rekam: "Merekam arah baru",
+  baca: "Membaca slot",
+  tulis: "Menulis sudut baru",
+  pastikan: "Memastikan isi slot",
   simpan: "Menyimpan",
 };
 
-/**
- * Batas menunggu jawaban per langkah. Putar dan ukur mengikuti Arahkan RTS
- * (35 dan 20 detik). AutoSearch bisa menyapu lama sebelum menyerah, jadi
- * diberi 90 detik.
- */
+/** Perintah baca/tulis slot tidak menggerakkan apa pun; jawabannya cepat. */
 export const BATAS_LANGKAH_MS: Record<LangkahRekam, number> = {
-  putar: 35_000,
-  cari: 90_000,
-  ukur: 20_000,
-  rekam: 20_000,
+  baca: 15_000,
+  tulis: 15_000,
+  pastikan: 15_000,
 };
 
 /**
- * Isi `set_<idLogger>` untuk satu langkah.
- *
- * `recordTarget` sengaja TANPA `mode`: tanpa medan itu firmware mempertahankan
- * cara cari yang tersimpan di slot. Nama dan tinggi target dikirim ulang apa
- * adanya dari t_prisma.
+ * Isi `set_<idLogger>` untuk satu langkah. `setTarget` tanpa `name`,
+ * `targetHigh`, dan `mode`: firmware mempertahankan nilai yang tersimpan.
  */
 export function perintahLangkah(
   langkah: LangkahRekam,
-  t: { slot: number; nama: string; targetHeight: number; jenis: KodeUkur }
+  t: { slot: number; HA?: string; VA?: string }
 ): Record<string, unknown> {
   switch (langkah) {
-    case "putar":
-      return { command: "set_rts", turning_target: t.slot };
-    case "cari":
-      return { command: "set_rts", auto_search: true };
-    case "ukur":
-      return { command: "set_rts", [JENIS_UKUR[t.jenis].perintah]: true };
-    case "rekam":
-      return {
-        command: "set_rts",
-        recordTarget: { slot: t.slot, name: t.nama, targetHigh: String(t.targetHeight) },
-      };
+    case "baca":
+    case "pastikan":
+      return { command: "set_rts", getTarget: { slot: t.slot } };
+    case "tulis":
+      return { command: "set_rts", setTarget: { slot: t.slot, HA: t.HA, VA: t.VA } };
   }
+}
+
+/**
+ * Sudut berformat firmware: derajat lalu dua kelompok dua digit,
+ * mis. "130,34,79". Firmware menolak bentuk lain dengan `bad angle`
+ * ("130,3,14" ditolak), jadi diperiksa lebih dulu di sini.
+ */
+export function sudutFirmwareSah(v: unknown): v is string {
+  return typeof v === "string" && /^\d{1,3},\d{2},\d{2}$/.test(v.trim()) && !sudutKosong(v);
 }
 
 // ─── Geometri ───────────────────────────────────────────────────────────────
@@ -163,7 +148,7 @@ export interface PrismaArah {
   idPrisma: string;
   nama: string;
   jenis: KodeUkur;
-  /** t_prisma.HA/VA — salinan rekaman slot terakhir. */
+  /** t_prisma.HA/VA — salinan web isi slot. */
   tersimpan: { HA: string | null; VA: string | null };
   /** Tembakan sah terakhir prisma ini di sesi site ini. Null = belum pernah. */
   terakhir: (Tembakan & { waktu: string; idLog: string }) | null;
@@ -184,67 +169,12 @@ export interface RencanaArah {
   prisma: PrismaArah[];
 }
 
-// ─── Pagar ukur ─────────────────────────────────────────────────────────────
-
-/**
- * Batas beda hasil ukur dengan tembakan terakhir prisma yang sama.
- *
- * Keduanya mengukur prisma yang SUDAH bergeser, jadi bedanya seharusnya
- * hanya derau ditambah gerakan sejak sesi terakhir — sentimeter. Prisma lain
- * hampir selalu berbeda jarak atau arahnya jauh lebih dari ini.
- */
-export const BATAS_BEDA_JARAK_M = 0.1;
-export const BATAS_BEDA_SAMPING_M = 0.25;
-
-export type HasilCek =
-  | { cocok: true; bedaJarakM: number; bedaSampingM: number }
-  | { cocok: false; alasan: string };
-
-function cm(m: number): string {
-  return `${Math.round(m * 100).toLocaleString("id-ID")} cm`;
-}
-
-function bacaJarak(v: unknown): number {
-  return typeof v === "number" ? v : Number(String(v ?? "").trim().replace(",", "."));
-}
-
-export function cekKecocokan(
-  ukur: { HA: string; VA: string; SD: string },
-  terakhir: Tembakan,
-  faktorDerajat: number
-): HasilCek {
-  const sd = bacaJarak(ukur.SD);
-  if (!Number.isFinite(sd) || sd <= 0) return { cocok: false, alasan: "Jarak hasil ukur tidak terbaca." };
-  const samping = geserSampingM(ukur, terakhir, sd, faktorDerajat);
-  if (samping === null) return { cocok: false, alasan: "Sudut hasil ukur tidak terbaca." };
-
-  const bedaJarak = Math.abs(sd - terakhir.SD);
-  const sebab =
-    "Kemungkinan AutoSearch mengunci prisma lain, atau prisma bergeser lagi sejak sesi terakhir — jalankan satu sesi ukur dulu, lalu ulangi.";
-  if (bedaJarak > BATAS_BEDA_JARAK_M) {
-    return {
-      cocok: false,
-      alasan: `Jarak terukur ${sd.toFixed(3)} m, tembakan terakhir ${terakhir.SD.toFixed(3)} m (beda ${cm(bedaJarak)}). ${sebab}`,
-    };
-  }
-  if (samping > BATAS_BEDA_SAMPING_M) {
-    return {
-      cocok: false,
-      alasan: `Arah terukur meleset ${cm(samping)} dari tembakan terakhir. ${sebab}`,
-    };
-  }
-  return { cocok: true, bedaJarakM: bedaJarak, bedaSampingM: samping };
-}
-
 // ─── Balasan logger ─────────────────────────────────────────────────────────
 
 export type BacaanLangkah =
   | { jenis: "abaikan" }
-  /** Langkah ini tuntas. */
-  | { jenis: "maju" }
   | { jenis: "gagal"; pesan: string }
-  | { jenis: "hasil-ukur"; HA: string; VA: string; SD: string }
-  | { jenis: "hasil-rekam"; HA: string; VA: string };
+  | { jenis: "isi-slot"; HA: string; VA: string };
 
 const ABAIKAN: BacaanLangkah = { jenis: "abaikan" };
 
@@ -252,62 +182,49 @@ function teks(v: unknown): string {
   return v === null || v === undefined ? "" : String(v).trim();
 }
 
+const SEBAB_GALAT: Record<string, string> = {
+  busy: "RTS sedang sibuk (sesi atau gerakan lain berjalan).",
+  "empty slot": "Slot ini kosong di RTS.",
+  "bad target": "Nomor slot di luar 1–50.",
+  "bad angle": "Format sudut ditolak firmware.",
+};
+
 /**
  * Artikan satu pesan di `pub_<idLogger>` untuk langkah yang sedang berjalan.
- * Pesan milik perintah lain di topik yang sama dikembalikan "abaikan".
+ *
+ *   {"getTarget":{"slot":2,"name":"P2","HA":"130,34,14","VA":"099,11,97",…}}
+ *   {"getTarget":{"slot":7,"error":"empty slot"}}
+ *   {"setTarget":{"slot":2,…,"HA":…,"VA":…,"value":"done"}}
+ *   {"setTarget":{"slot":2,"error":"bad angle"}}
+ *
+ * Balasan slot lain, atau `getTarget` bentuk daftar ("all"), bukan milik
+ * langkah ini.
  */
 export function bacaBalasanLangkah(
   langkah: LangkahRekam,
-  t: { slot: number; jenis: KodeUkur },
+  t: { slot: number },
   data: Record<string, unknown>
 ): BacaanLangkah {
-  // Data berkala punya topik sendiri; balasan perintah tidak pernah memuat
-  // `id_alat` di tingkat teratas.
   if (data.id_alat !== undefined) return ABAIKAN;
+  const kunci = langkah === "tulis" ? "setTarget" : "getTarget";
+  const paket = data[kunci];
+  if (paket === null || typeof paket !== "object") return ABAIKAN;
+  const o = paket as Record<string, unknown>;
+  if (Number(o.slot) !== t.slot) return ABAIKAN;
 
-  switch (langkah) {
-    case "putar": {
-      const k = klasifikasiTurningTarget(data.TurningTarget ?? data.turning_target);
-      if (k === "selesai") return { jenis: "maju" };
-      if (k === "gagal") return { jenis: "gagal", pesan: "Teleskop gagal diputar ke slot ini." };
-      return ABAIKAN;
-    }
-    case "cari": {
-      if (data.AutoSearch === undefined) return ABAIKAN;
-      const n = nilaiBalasanLogger(data.AutoSearch);
-      if (balasanSelesai(n)) return { jenis: "maju" };
-      if (balasanGagal(n)) {
-        return { jenis: "gagal", pesan: "AutoSearch tidak menemukan prisma di sekitar sudut lama." };
-      }
-      return ABAIKAN;
-    }
-    case "ukur": {
-      const b = bacaBalasanUkur(data[JENIS_UKUR[t.jenis].balasan]);
-      if (b.jenis === "hasil") {
-        if (b.kosong) return { jenis: "gagal", pesan: "Pengukuran tidak mendapat pantulan." };
-        return { jenis: "hasil-ukur", HA: b.HADMS ?? "", VA: b.VADMS ?? "", SD: b.SDis ?? "" };
-      }
-      if (b.jenis === "gagal") return { jenis: "gagal", pesan: "Pengukuran gagal." };
-      if (b.jenis === "selesai") return { jenis: "maju" };
-      return ABAIKAN;
-    }
-    case "rekam": {
-      const r = data.recordTarget;
-      if (r === null || typeof r !== "object") return ABAIKAN;
-      const o = r as Record<string, unknown>;
-      // Balasan rekaman slot lain (halaman Prism Config yang terbuka di
-      // tempat lain) bukan milik langkah ini.
-      if (o.slot !== undefined && Number(o.slot) !== t.slot) return ABAIKAN;
-      if (teks(o.error)) return { jenis: "gagal", pesan: `Logger menolak recordTarget: ${teks(o.error)}` };
-      const HA = teks(o.HA);
-      const VA = teks(o.VA);
-      if (!HA && !VA) return ABAIKAN;
-      if (sudutKosong(HA) || sudutKosong(VA)) {
-        return { jenis: "gagal", pesan: "Logger membalas recordTarget tanpa sudut yang sah." };
-      }
-      return { jenis: "hasil-rekam", HA, VA };
-    }
+  const galat = teks(o.error);
+  if (galat) return { jenis: "gagal", pesan: `Ditolak RTS: ${SEBAB_GALAT[galat] ?? galat}` };
+
+  if (langkah === "tulis" && teks(o.value) !== "done") return ABAIKAN;
+  const HA = teks(o.HA);
+  const VA = teks(o.VA);
+  if (!sudutFirmwareSah(HA) || !sudutFirmwareSah(VA)) {
+    // Slot yang rusak (HA ",,") masih boleh DIBACA sebelum ditulis ulang —
+    // justru itu yang sedang diperbaiki. Sesudah ditulis tidak boleh.
+    if (langkah === "baca") return { jenis: "isi-slot", HA, VA };
+    return { jenis: "gagal", pesan: `RTS menyimpan sudut yang tidak sah (HA "${HA}", VA "${VA}").` };
   }
+  return { jenis: "isi-slot", HA, VA };
 }
 
 // ─── Keadaan sibuk RTS ──────────────────────────────────────────────────────
@@ -359,18 +276,19 @@ export function alasanRtsSibuk(
 export interface SasaranRekam {
   slot: number;
   nama: string;
-  jenis: KodeUkur;
-  terakhir: Tembakan;
 }
 
 export type StatusBaris =
   | { tahap: "antre" }
   | { tahap: "jalan"; langkah: LangkahRekam }
-  | { tahap: "selesai"; HA: string; VA: string; bedaJarakM: number; bedaSampingM: number }
+  | { tahap: "selesai"; HA: string; VA: string; sebelum: { HA: string; VA: string } | null }
   | { tahap: "gagal"; langkah: LangkahRekam | "simpan"; pesan: string }
   | { tahap: "dilewati"; pesan: string };
 
-export type HasilKirim = { ok: true } | { ok: false; pesan: string };
+/** `tujuan` diisi server pada langkah tulis: sudut yang benar-benar dikirim. */
+export type HasilKirim =
+  | { ok: true; tujuan?: { HA: string; VA: string } }
+  | { ok: false; pesan: string };
 
 export interface AlatJalur {
   /** Terbitkan perintah satu langkah lewat server. Gagal = seluruh jalur berhenti. */
@@ -384,33 +302,30 @@ export interface AlatJalur {
 }
 
 /**
- * Menjalankan putar → cari → ukur → rekam → simpan untuk tiap prisma,
- * berurutan, satu langkah sekali jalan.
+ * Menjalankan baca → tulis → pastikan → simpan untuk tiap prisma, berurutan,
+ * satu perintah sekali jalan.
  *
- * Satu perintah dikirim, jawabannya ditunggu, baru perintah berikutnya —
- * dokumen protokol melarang mencampur perintah aksi, dan urutan eksekusi
- * firmware bukan urutan penulisan.
+ * Tulis dianggap berhasil hanya bila balasan `setTarget` DAN pembacaan ulang
+ * `getTarget` sama persis dengan sudut yang dikirim. Baru setelah itu salinan
+ * web diperbarui.
  *
- * Gagal di satu prisma tidak menghentikan prisma berikutnya: masing-masing
- * slot berdiri sendiri. Yang menghentikan seluruh jalur hanya penolakan dari
- * server (RTS sedang sesi, kode akses salah, jaringan putus) — mengulang
- * perintah ke prisma lain tidak akan menolong.
+ * Gagal di satu prisma tidak menghentikan prisma berikutnya. Yang menghentikan
+ * seluruh jalur hanya penolakan dari server (RTS sedang sesi, kode akses
+ * salah, jaringan putus).
  */
 export class JalurRekamArah {
   private antrian: SasaranRekam[] = [];
   private indeks = -1;
   private langkah: LangkahRekam | null = null;
-  private cek: HasilCek | null = null;
+  private sebelum: { HA: string; VA: string } | null = null;
+  private tujuan: { HA: string; VA: string } | null = null;
   private batalTimer: (() => void) | null = null;
   private status: Record<number, StatusBaris> = {};
   private jalan = false;
   /** Naik tiap langkah berganti; jawaban async yang basi tidak boleh bertindak. */
   private token = 0;
 
-  constructor(
-    private readonly alat: AlatJalur,
-    private readonly faktorDerajat: number
-  ) {}
+  constructor(private readonly alat: AlatJalur) {}
 
   get sedangJalan(): boolean {
     return this.jalan;
@@ -440,31 +355,36 @@ export class JalurRekamArah {
     const s = this.antrian[this.indeks];
     const langkah = this.langkah;
     const b = bacaBalasanLangkah(langkah, s, data);
-
-    switch (b.jenis) {
-      case "abaikan":
-        return;
-      case "gagal":
-        this.gagalkan(b.pesan);
-        return;
-      case "hasil-ukur":
-        this.cek = cekKecocokan(b, s.terakhir, this.faktorDerajat);
-        if (!this.cek.cocok) this.gagalkan(this.cek.alasan);
-        // Cocok: tunggu "done" sebelum merekam. Hasil datang SEBELUM penutup,
-        // dan recordTarget yang menyusul di tengah pengukuran bisa ditolak.
-        return;
-      case "maju":
-        if (langkah === "putar") this.mulaiLangkah("cari");
-        else if (langkah === "cari") this.mulaiLangkah("ukur");
-        else if (langkah === "ukur") {
-          if (this.cek?.cocok) this.mulaiLangkah("rekam");
-          else this.gagalkan("Pengukuran selesai tanpa hasil.");
-        }
-        return;
-      case "hasil-rekam":
-        void this.simpan(b.HA, b.VA);
-        return;
+    if (b.jenis === "abaikan") return;
+    if (b.jenis === "gagal") {
+      this.gagalkan(b.pesan);
+      return;
     }
+
+    const isi = { HA: b.HA, VA: b.VA };
+    if (langkah === "baca") {
+      this.sebelum = isi;
+      this.mulaiLangkah("tulis");
+      return;
+    }
+
+    // tulis / pastikan: harus sama persis dengan yang dikirim.
+    const t = this.tujuan;
+    if (!t) {
+      // Balasan setTarget tiba sebelum server menjawab HTTP (yang membawa
+      // sudut tujuannya). Disimpan, dicocokkan begitu tujuannya ada.
+      this.tertunda = data;
+      return;
+    }
+    if (isi.HA !== t.HA || isi.VA !== t.VA) {
+      this.gagalkan(
+        `${langkah === "tulis" ? "Balasan setTarget" : "Isi slot sesudah ditulis"} (HA ${isi.HA}, VA ${isi.VA}) ` +
+          `berbeda dari yang dikirim (HA ${t.HA}, VA ${t.VA}).`
+      );
+      return;
+    }
+    if (langkah === "tulis") this.mulaiLangkah("pastikan");
+    else void this.simpan(t.HA, t.VA);
   }
 
   private terbitkan(): void {
@@ -473,14 +393,16 @@ export class JalurRekamArah {
 
   private lanjutPrisma(): void {
     this.indeks++;
-    this.cek = null;
+    this.sebelum = null;
+    this.tujuan = null;
+    this.tertunda = null;
     if (this.indeks >= this.antrian.length) {
       this.langkah = null;
       this.jalan = false;
       this.terbitkan();
       return;
     }
-    this.mulaiLangkah("putar");
+    this.mulaiLangkah("baca");
   }
 
   private mulaiLangkah(langkah: LangkahRekam): void {
@@ -496,10 +418,26 @@ export class JalurRekamArah {
     });
 
     // Langkah dipasang SEBELUM perintah dikirim: server menerbitkan sebelum
-    // menjawab HTTP, jadi balasan logger bisa tiba lebih dulu.
+    // menjawab HTTP, jadi balasan logger bisa tiba lebih dulu. Untuk "tulis"
+    // sudut tujuannya baru diketahui dari jawaban HTTP; balasan yang tiba
+    // lebih dulu disimpan dan dicocokkan begitu tujuannya ada.
     void this.alat.kirim(langkah, s.slot).then(
       (r) => {
-        if (token === this.token && !r.ok) this.henti(r.pesan);
+        if (token !== this.token) return;
+        if (!r.ok) {
+          this.henti(r.pesan);
+          return;
+        }
+        if (langkah === "tulis") {
+          if (!r.tujuan) {
+            this.henti("Server tidak menyebut sudut yang ditulis.");
+            return;
+          }
+          this.tujuan = r.tujuan;
+          const tertunda = this.tertunda;
+          this.tertunda = null;
+          if (tertunda) this.terima(tertunda);
+        }
       },
       () => {
         if (token === this.token) this.henti("Terjadi kesalahan jaringan.");
@@ -507,17 +445,15 @@ export class JalurRekamArah {
     );
   }
 
+  /** Balasan setTarget yang tiba sebelum jawaban HTTP langkah tulis. */
+  private tertunda: Record<string, unknown> | null = null;
+
   private habisWaktu(langkah: LangkahRekam): void {
-    // Hasil ukur yang cocok sudah ada, hanya penutupnya yang tidak datang.
-    if (langkah === "ukur" && this.cek?.cocok) {
-      this.mulaiLangkah("rekam");
-      return;
-    }
     const detik = BATAS_LANGKAH_MS[langkah] / 1000;
     this.gagalkan(
-      langkah === "rekam"
-        ? `recordTarget tidak dijawab dalam ${detik} detik. Slot di RTS mungkin sudah terekam — cek sudutnya di Prism Config.`
-        : `Tidak ada jawaban dalam ${detik} detik.`
+      langkah === "tulis"
+        ? `setTarget tidak dijawab dalam ${detik} detik. Cek isi slot di Prism Config.`
+        : `getTarget tidak dijawab dalam ${detik} detik.`
     );
   }
 
@@ -527,7 +463,7 @@ export class JalurRekamArah {
     this.batalTimer?.();
     this.batalTimer = null;
     this.langkah = null;
-    const cek = this.cek;
+    const sebelum = this.sebelum;
 
     let r: HasilKirim;
     try {
@@ -538,17 +474,11 @@ export class JalurRekamArah {
     if (token !== this.token) return;
 
     this.status[s.slot] = r.ok
-      ? {
-          tahap: "selesai",
-          HA,
-          VA,
-          bedaJarakM: cek?.cocok ? cek.bedaJarakM : 0,
-          bedaSampingM: cek?.cocok ? cek.bedaSampingM : 0,
-        }
+      ? { tahap: "selesai", HA, VA, sebelum }
       : {
           tahap: "gagal",
           langkah: "simpan",
-          pesan: `Slot di RTS sudah terekam (HA ${HA}, VA ${VA}), tapi gagal disimpan di web: ${r.pesan}`,
+          pesan: `Slot di RTS sudah berisi HA ${HA}, VA ${VA}, tapi gagal disimpan di web: ${r.pesan}`,
         };
     this.lanjutPrisma();
   }

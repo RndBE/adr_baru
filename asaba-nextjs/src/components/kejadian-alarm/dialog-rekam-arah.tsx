@@ -19,12 +19,12 @@ import {
 import { ModalError, ModalShell, TOMBOL_SEKUNDER, TOMBOL_UTAMA } from "@/components/monitoring/modal-shell";
 
 /**
- * Rekam ulang arah bidik prisma setelah verifikasi Benar.
+ * Perbarui arah bidik prisma setelah verifikasi Benar.
  *
- * Setiap prisma terpilih menjalani putar → cari → ukur → rekam → simpan (lihat
- * src/lib/rekam-arah.ts). Teleskop di lapangan BERGERAK, jadi dialog ini tidak
- * bisa ditutup selama jalurnya berjalan: menutupnya memutus sambungan MQTT, dan
- * perintah yang sudah dikirim tidak bisa dibatalkan.
+ * Setiap prisma terpilih menjalani baca → tulis → pastikan → simpan (lihat
+ * src/lib/rekam-arah.ts): sudut slot RTS ditulis langsung dengan `setTarget`,
+ * teleskop tidak bergerak. Dialog tidak bisa ditutup selama jalurnya berjalan:
+ * menutupnya memutus sambungan MQTT sebelum balasan slot sempat dicocokkan.
  */
 
 function fmtMm(m: number | null): string {
@@ -58,11 +58,16 @@ function SelStatus({ s }: { s: StatusBaris | undefined }) {
         <span className="text-[#0a7d0a]">
           <span className="inline-flex items-center gap-1 font-semibold">
             <Check className="size-3.5" />
-            Terekam
+            Slot diperbarui
           </span>
           <span className="block font-mono text-[11px] tabular-nums">
             {s.HA} · {s.VA}
           </span>
+          {s.sebelum && (
+            <span className="block text-[11px] text-(--ink-3)">
+              sebelumnya {s.sebelum.HA || "kosong"} · {s.sebelum.VA || "kosong"}
+            </span>
+          )}
         </span>
       );
     case "gagal":
@@ -136,17 +141,23 @@ export function DialogRekamArah({
   }, [jalan, muat]);
 
   // ── Jalur langkah ─────────────────────────────────────────────────────────
-  const faktor = rencana?.faktorDerajat ?? null;
+  const siap = rencana !== null;
   useEffect(() => {
-    if (faktor === null) return;
+    if (!siap) return;
     const kirimLangkah = async (body: Record<string, unknown>): Promise<HasilKirim> => {
       const res = await fetch(url, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ kode_akses: kode, ...body }),
       });
-      const json = (await res.json().catch(() => null)) as { success?: boolean; error?: string } | null;
-      return json?.success ? { ok: true } : { ok: false, pesan: json?.error || `HTTP ${res.status}` };
+      const json = (await res.json().catch(() => null)) as {
+        success?: boolean;
+        error?: string;
+        tujuan?: { HA: string; VA: string };
+      } | null;
+      return json?.success
+        ? { ok: true, ...(json.tujuan ? { tujuan: json.tujuan } : {}) }
+        : { ok: false, pesan: json?.error || `HTTP ${res.status}` };
     };
     const jalur = new JalurRekamArah(
       {
@@ -160,15 +171,14 @@ export function DialogRekamArah({
           setStatus(s);
           setJalan(j);
         },
-      },
-      faktor
+      }
     );
     jalurRef.current = jalur;
     return () => {
       jalur.hentikan();
       jalurRef.current = null;
     };
-  }, [faktor, kode, url]);
+  }, [siap, kode, url]);
 
   // ── Sambungan MQTT ────────────────────────────────────────────────────────
   const idLogger = rencana?.idLogger ?? null;
@@ -208,7 +218,7 @@ export function DialogRekamArah({
   const daftar = rencana?.prisma ?? [];
   const sasaran: SasaranRekam[] = daftar
     .filter((p): p is PrismaArah & { terakhir: NonNullable<PrismaArah["terakhir"]> } => pilih.has(p.slot) && p.terakhir !== null)
-    .map((p) => ({ slot: p.slot, nama: p.nama, jenis: p.jenis, terakhir: p.terakhir }));
+    .map((p) => ({ slot: p.slot, nama: p.nama }));
 
   const sudahJalan = Object.keys(status).length > 0;
   const bisaMulai = !!rencana && !rencana.sibuk && !!idLogger && terhubung && !jalan && sasaran.length > 0;
@@ -246,7 +256,7 @@ export function DialogRekamArah({
           </button>
           <button type="button" onClick={mulai} disabled={!bisaMulai} className={TOMBOL_UTAMA}>
             {jalan && <Loader2 className="size-4 animate-spin" />}
-            {selesai ? "Ulangi yang dipilih" : `Rekam ulang ${sasaran.length} prisma`}
+            {selesai ? "Ulangi yang dipilih" : `Perbarui ${sasaran.length} slot`}
           </button>
         </>
       }
@@ -268,13 +278,12 @@ export function DialogRekamArah({
       )}
       {rencana && !idLogger && <ModalError>Site ini belum punya logger RTS.</ModalError>}
 
-      <p className="mb-3 flex gap-2 rounded-[10px] bg-[#fff4e0] px-3 py-2.5 text-[12px] leading-relaxed text-(--ink-2)">
-        <AlertTriangle className="mt-0.5 size-4 shrink-0 text-[#b26a00]" aria-hidden="true" />
+      <p className="mb-3 flex gap-2 rounded-[10px] bg-(--paper) px-3 py-2.5 text-[12px] leading-relaxed text-(--ink-2)">
+        <AlertTriangle className="mt-0.5 size-4 shrink-0 text-(--ink-3)" aria-hidden="true" />
         <span>
-          Teleskop RTS akan bergerak sendiri: diputar ke sudut lama tiap prisma, mengunci prisma lewat AutoSearch,
-          mengukur, lalu merekam arahnya yang sekarang ke slot. Rekam hanya jalan bila hasil ukur cocok dengan
-          tembakan terakhir prisma itu. Jangan mulai sesi ukur atau Arahkan RTS sampai selesai. R0 dan status alarm
-          tidak berubah.
+          Sudut slot tiap prisma terpilih di RTS diganti dengan sudut tembakan terakhirnya, lalu dibaca ulang untuk
+          memastikan. Teleskop tidak bergerak. Salinan di web baru diperbarui bila isi slot sama persis dengan yang
+          dikirim. R0 dan status alarm tidak berubah.
         </span>
       </p>
 
@@ -348,7 +357,7 @@ export function DialogRekamArah({
       <p className="mt-3 text-[11.5px] leading-relaxed text-(--ink-3)">
         Selisih = jarak arah tersimpan ke tembakan terakhir di ujung bidikan.{" "}
         {rencana && !rencana.sibuk && idLogger && !terhubung && "Menyambung ke MQTT… "}
-        {selesai && `${jumlahTerekam} dari ${Object.keys(status).length} prisma terekam.`}
+        {selesai && `${jumlahTerekam} dari ${Object.keys(status).length} slot diperbarui.`}
       </p>
     </ModalShell>
   );
