@@ -25,6 +25,7 @@ import {
 } from "@/lib/aturan-kejadian";
 import { type StatusLabel, indeksStatus } from "@/lib/ambang";
 import type { PrismaAlarm } from "@/lib/alarm-ambang";
+import { DialogRekamArah } from "@/components/kejadian-alarm/dialog-rekam-arah";
 
 /**
  * Modal alarm (konfirmasi) dan dialog verifikasi kejadian alarm. Dipasang satu
@@ -337,6 +338,11 @@ export function DialogVerifikasi({
   const [kode, setKode] = useState("");
   const [proses, setProses] = useState(false);
   const [galat, setGalat] = useState("");
+  // Pergeseran yang benar membuat arah bidik tersimpan meleset dari prisma.
+  // Dicentang bawaan; untuk kejadian yang sudah pernah diverifikasi Benar
+  // (membuka "Ubah"), rekam ulangnya mungkin sudah dilakukan.
+  const [perbaruiArah, setPerbaruiArah] = useState(k.hasil !== "benar");
+  const [tahap, setTahap] = useState<"isi" | "arah">("isi");
 
   const lengkap =
     hasil !== null &&
@@ -356,7 +362,8 @@ export function DialogVerifikasi({
         catatan,
       });
       onSelesai();
-      onClose();
+      if (hasil === "benar" && perbaruiArah) setTahap("arah");
+      else onClose();
     } catch (e) {
       setGalat(e instanceof Error ? e.message : "Terjadi kesalahan");
     } finally {
@@ -368,6 +375,8 @@ export function DialogVerifikasi({
     { nilai: "benar", judul: "Benar", ket: "Pergeseran nyata di lapangan", warna: "var(--st-awas)" },
     { nilai: "palsu", judul: "Palsu", ket: "Bukan pergeseran sungguhan", warna: "var(--st-normal)" },
   ];
+
+  if (tahap === "arah") return <DialogRekamArah kejadian={k} kode={kode} onClose={onClose} />;
 
   return (
     <ModalShell
@@ -446,10 +455,27 @@ export function DialogVerifikasi({
       )}
 
       {hasil === "benar" && (
-        <p className="mb-4 rounded-[10px] bg-(--st-awas)/8 px-3 py-2 text-[12px] leading-relaxed text-(--ink-2)">
-          Verifikasi tidak mengubah perhitungan. Status kembali Normal setelah R0 diganti (saat
-          keadaan sudah aman) atau ambangnya diubah.
-        </p>
+        <div className="mb-4 rounded-[10px] bg-(--st-awas)/8 px-3 py-2.5 text-[12px] leading-relaxed text-(--ink-2)">
+          <p>
+            Verifikasi tidak mengubah perhitungan. Status kembali Normal setelah R0 diganti (saat
+            keadaan sudah aman) atau ambangnya diubah.
+          </p>
+          <label className="mt-2 flex cursor-pointer items-start gap-2 text-(--ink)">
+            <input
+              type="checkbox"
+              checked={perbaruiArah}
+              onChange={(e) => setPerbaruiArah(e.target.checked)}
+              className="mt-0.5 size-4 shrink-0 cursor-pointer accent-(--navy)"
+            />
+            <span>
+              <b className="font-semibold">Perbarui arah bidik prisma setelah disimpan.</b>{" "}
+              <span className="text-(--ink-2)">
+                RTS merekam ulang sudut HA/VA prisma yang bergeser ke posisi barunya. Prismanya dipilih di
+                langkah berikut.
+              </span>
+            </span>
+          </label>
+        </div>
       )}
 
       <div className="mb-4">
