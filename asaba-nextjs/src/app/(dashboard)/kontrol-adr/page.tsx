@@ -45,6 +45,7 @@ import { PrismaGrid } from "@/components/kontrol-adr/prisma-grid";
 import { ProcessSteps, type LangkahProses } from "@/components/kontrol-adr/process-steps";
 import { mapStatus, type PrismaCard, type TempPrisma } from "@/components/kontrol-adr/prisma";
 import { UjiSapuanModal, useBatasBaca, useBatasJawabSapuan } from "@/components/kontrol-adr/uji-sapuan-modal";
+import { PemilihWaktu } from "@/components/kontrol-adr/pemilih-waktu";
 import {
   keadaanBacaAwal,
   terapkanBacaan as terapkanBacaanHaVa,
@@ -1515,18 +1516,6 @@ export default function KontrolAdrPage() {
   const [openTimePickerId, setOpenTimePickerId] = useState<string | null>(null);
 
   const currentSchedule = schedules.find(s => s.day === activeTab) || DEFAULT_SCHEDULES[0];
-
-  // Auto-scroll to selected time when picker opens
-  useEffect(() => {
-    if (openTimePickerId) {
-      setTimeout(() => {
-        const activeHour = document.querySelector('.time-active-hour');
-        const activeMinute = document.querySelector('.time-active-minute');
-        if (activeHour) activeHour.scrollIntoView({ block: "start" });
-        if (activeMinute) activeMinute.scrollIntoView({ block: "start" });
-      }, 50);
-    }
-  }, [openTimePickerId]);
 
   const fetchScheduling = async () => {
     setShowJadwalModal(true);
@@ -4128,102 +4117,59 @@ export default function KontrolAdrPage() {
                     {currentSchedule.runs.map((r, i) => (
                       <li
                         key={r.id}
-                        className={cn(
-                          "flex items-center justify-between gap-3 px-3.5 py-2.5",
-                          i > 0 && "border-t border-(--line)"
-                        )}
+                        className={cn("px-3.5 py-2.5", i > 0 && "border-t border-(--line)")}
                       >
-                        <label className="inline-flex min-w-0 cursor-pointer items-center gap-2.5">
-                          <input
-                            type="checkbox"
-                            checked={r.active}
-                            onChange={() => toggleRunActive(r.id)}
-                            className="peer sr-only"
-                          />
-                          <span
-                            aria-hidden="true"
-                            className={cn(
-                              "flex size-[17px] shrink-0 items-center justify-center rounded-[5px] border transition-colors",
-                              r.active
-                                ? "border-(--navy) bg-(--navy)"
-                                : "border-(--ink-3)/50 bg-white"
-                            )}
-                          >
-                            {r.active && <Check className="size-3 text-white" strokeWidth={3.5} />}
-                          </span>
-                          <span className="truncate text-[13px] text-(--ink)">{r.nama}</span>
-                        </label>
+                        <div className="flex items-center justify-between gap-3">
+                          <label className="inline-flex min-w-0 cursor-pointer items-center gap-2.5">
+                            <input
+                              type="checkbox"
+                              checked={r.active}
+                              onChange={() => toggleRunActive(r.id)}
+                              className="peer sr-only"
+                            />
+                            <span
+                              aria-hidden="true"
+                              className={cn(
+                                "flex size-[17px] shrink-0 items-center justify-center rounded-[5px] border transition-colors",
+                                r.active
+                                  ? "border-(--navy) bg-(--navy)"
+                                  : "border-(--ink-3)/50 bg-white"
+                              )}
+                            >
+                              {r.active && <Check className="size-3 text-white" strokeWidth={3.5} />}
+                            </span>
+                            <span className="truncate text-[13px] text-(--ink)">{r.nama}</span>
+                          </label>
 
-                        <div className="relative shrink-0">
-                          <button
-                            type="button"
-                            onClick={() =>
-                              r.active && setOpenTimePickerId(openTimePickerId === r.id ? null : r.id)
-                            }
-                            disabled={!r.active}
-                            className="inline-flex h-8 w-[92px] cursor-pointer items-center justify-center gap-1.5 rounded-[8px] bg-white font-mono text-[13px] tabular-nums text-(--ink) ring-1 ring-(--line) outline-none transition-colors hover:bg-(--paper) focus-visible:ring-2 focus-visible:ring-(--navy)/40 disabled:cursor-not-allowed disabled:bg-(--paper) disabled:text-(--ink-3)"
-                          >
-                            <Clock className="size-3.5 text-(--ink-3)" />
-                            {r.time || "00:00"}
-                          </button>
-
-                          {openTimePickerId === r.id && (
-                            <>
-                              <div
-                                className="fixed inset-0 z-40"
-                                onClick={() => setOpenTimePickerId(null)}
-                              />
-                              <div className="absolute top-9 right-0 z-50 flex h-[168px] w-[124px] overflow-hidden rounded-[10px] bg-white shadow-xl ring-1 ring-(--line)">
-                                <div className="h-full w-1/2 overflow-y-auto border-r border-(--line) [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
-                                  {Array.from({ length: 24 }, (_, i) => {
-                                    const h = String(i).padStart(2, "0");
-                                    const dipilih = (r.time?.split(":")[0] || "00") === h;
-                                    return (
-                                      <button
-                                        type="button"
-                                        key={`h-${i}`}
-                                        onClick={() =>
-                                          updateRunTime(r.id, `${h}:${r.time?.split(":")[1] || "00"}`)
-                                        }
-                                        className={cn(
-                                          "w-full cursor-pointer py-1.5 font-mono text-[13px] tabular-nums transition-colors",
-                                          dipilih
-                                            ? "bg-(--navy) text-white"
-                                            : "text-(--ink-2) hover:bg-(--paper)"
-                                        )}
-                                      >
-                                        {h}
-                                      </button>
-                                    );
-                                  })}
-                                </div>
-                                <div className="h-full w-1/2 overflow-y-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
-                                  {Array.from({ length: 60 }, (_, i) => {
-                                    const m = String(i).padStart(2, "0");
-                                    const dipilih = (r.time?.split(":")[1] || "00") === m;
-                                    return (
-                                      <button
-                                        type="button"
-                                        key={`m-${i}`}
-                                        onClick={() =>
-                                          updateRunTime(r.id, `${r.time?.split(":")[0] || "00"}:${m}`)
-                                        }
-                                        className={cn(
-                                          "w-full cursor-pointer py-1.5 font-mono text-[13px] tabular-nums transition-colors",
-                                          dipilih
-                                            ? "bg-(--navy) text-white"
-                                            : "text-(--ink-2) hover:bg-(--paper)"
-                                        )}
-                                      >
-                                        {m}
-                                      </button>
-                                    );
-                                  })}
-                                </div>
-                              </div>
-                            </>
-                          )}
+                          <div className="shrink-0">
+                            <button
+                              type="button"
+                              onClick={() =>
+                                r.active && setOpenTimePickerId(openTimePickerId === r.id ? null : r.id)
+                              }
+                              disabled={!r.active}
+                              aria-expanded={openTimePickerId === r.id}
+                              aria-label={`Waktu ${r.nama}: ${r.time || "00:00"}`}
+                              className="inline-flex h-8 w-[92px] cursor-pointer items-center justify-center gap-1.5 rounded-[8px] bg-white font-mono text-[13px] tabular-nums text-(--ink) ring-1 ring-(--line) outline-none transition-colors hover:bg-(--paper) focus-visible:ring-2 focus-visible:ring-(--navy)/40 disabled:cursor-not-allowed disabled:bg-(--paper) disabled:text-(--ink-3)"
+                            >
+                              <Clock className="size-3.5 text-(--ink-3)" />
+                              {r.time || "00:00"}
+                            </button>
+                          </div>
                         </div>
+                        {openTimePickerId === r.id && r.active && (
+                          <>
+                            <div
+                              className="fixed inset-0 z-40"
+                              onClick={() => setOpenTimePickerId(null)}
+                            />
+                            <PemilihWaktu
+                              nilai={r.time || "00:00"}
+                              onUbah={(t) => updateRunTime(r.id, t)}
+                              onSelesai={() => setOpenTimePickerId(null)}
+                            />
+                          </>
+                        )}
                       </li>
                     ))}
                   </ul>
