@@ -257,8 +257,22 @@ export function nilaiPeredam(opsi: {
 // RTS tidak mengirim ukuran mutu per tembakan (tidak ada simpangan baku atau
 // sejenisnya), jadi derau hanya bisa disaring dari bacaannya sendiri.
 
-/** Banyak siklus terakhir — termasuk siklus ini — yang ikut menentukan nilai pemicu. */
-export const JENDELA_SIKLUS = 3;
+/**
+ * Banyak siklus terakhir — termasuk siklus ini — yang ikut menentukan nilai pemicu.
+ *
+ * 1 sejak 23 Nov 2026: satu sesi pengukuran langsung jadi satu keputusan, jadi
+ * sirene menyala di akhir sesi pertama yang melewati ambang. Site dengan 1 prisma
+ * diputuskan setelah 1 tembakan, 2 prisma setelah 2 tembakan, dan seterusnya.
+ * Sebelumnya 3 (median, perlu 2 dari 3 sesi), yang menunda sirene satu sesi.
+ *
+ * Harganya derau: diputar ulang pada data Kolam BPP 16–18 Sep (348 sesi), sirene
+ * berpindah dari Aman ke menyala 16 kali dengan jendela 1, 5 kali dengan jendela
+ * 3. Loncatan tunggal kini padam sendiri di sesi berikutnya yang tenang, dan
+ * operator bisa mendiamkannya lewat Konfirmasi. Kembalikan ke 3 untuk menyaring
+ * loncatan tunggal lagi; nilaiPemicu() dan sesi-sesi sebelumnya ikut dengan
+ * sendirinya.
+ */
+export const JENDELA_SIKLUS = 1;
 
 /**
  * Siklus sebelumnya hanya ikut bila tidak lebih tua dari ini terhadap siklus
@@ -283,7 +297,10 @@ export function batasTakWajarMm(ambang: AmbangSite): number {
 
 /**
  * Nilai yang dibandingkan dengan ambang, dari bacaan siklus sekarang dan
- * bacaan sah siklus-siklus sebelumnya (paling banyak JENDELA_SIKLUS − 1).
+ * bacaan sah siklus-siklus sebelumnya (paling banyak `jendela` − 1). Dengan
+ * jendela 1 (bawaan sekarang) hasilnya selalu bacaan siklus ini sendiri.
+ *
+ * Untuk jendela 3:
  *
  *   3 bacaan → median: perlu 2 dari 3 di atas batas untuk naik tingkat.
  *   2 bacaan → yang terkecil: keduanya harus di atas batas.
@@ -294,7 +311,11 @@ export function batasTakWajarMm(ambang: AmbangSite): number {
  * paling lama satu siklus. Penurunan justru diakui lebih cepat bila hanya ada
  * dua bacaan — salah ke arah tenang di sini hanya menunda pesan pulih.
  */
-export function nilaiPemicu(sekarang: number, sebelumnya: readonly number[]): number {
-  const urut = [sekarang, ...sebelumnya.slice(0, JENDELA_SIKLUS - 1)].sort((a, b) => b - a);
+export function nilaiPemicu(
+  sekarang: number,
+  sebelumnya: readonly number[],
+  jendela: number = JENDELA_SIKLUS
+): number {
+  const urut = [sekarang, ...sebelumnya.slice(0, Math.max(0, jendela - 1))].sort((a, b) => b - a);
   return urut.length >= 2 ? urut[1] : urut[0];
 }

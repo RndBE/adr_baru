@@ -219,7 +219,8 @@ export async function evaluasiSiklus(opsi: {
     const [acuan, sekarang, lampau, prismaSite] = await Promise.all([
       barisSesi(r0.id_log, false),
       barisSesi(idLog, true),
-      sesiSebelumnya(site, idLog, r0.id_log),
+      // Jendela 1: hanya sesi ini yang menentukan, riwayat tidak perlu dibaca.
+      JENDELA_SIKLUS > 1 ? sesiSebelumnya(site, idLog, r0.id_log) : Promise.resolve([]),
       prisma.$queryRaw<Array<{ id_prisma: string }>>`
         SELECT id_prisma FROM t_prisma WHERE site = ${site} ORDER BY id_prisma
       `,
@@ -293,11 +294,12 @@ export async function evaluasiSiklus(opsi: {
         continue;
       }
 
-      // ── Nilai pemicu: median bacaan sah siklus ini dan sebelumnya ──────────
+      // ── Nilai pemicu ──────────────────────────────────────────────────────
       //
-      // Bukan satu tembakan. Lihat penyaring derau di peredam.ts: satu
-      // loncatan tidak memicu, pergeseran sungguhan terlambat paling lama satu
-      // siklus. Nilai inilah yang disimpan, dikirim, dan dibunyikan dasbor.
+      // Dengan JENDELA_SIKLUS 1 (bawaan sejak 23 Nov 2026) ini bacaan sesi ini
+      // sendiri: satu sesi pengukuran langsung menentukan tingkat. Dengan
+      // jendela 3 jadi median sesi ini dan dua sebelumnya — lihat peredam.ts.
+      // Nilai inilah yang disimpan, dikirim, dan dibunyikan dasbor.
       const sebelumnya = lampau
         .map((peta) => bacaanSah(peta.get(idPrisma), idPrisma))
         .filter((v): v is number => v !== null);
