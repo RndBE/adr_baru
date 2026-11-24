@@ -1,5 +1,6 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextRequest, NextResponse, after } from "next/server";
 import { prisma } from "@/lib/prisma";
+import { kabarkanAcuanBaru, tetapkanAcuanPrisma } from "@/lib/acuan-prisma";
 import { getLoggerForSite, getSite } from "@/lib/sites";
 import { publishMqtt, topikPerintah } from "@/lib/mqtt";
 import { bacaId, gagal, namaOperator, tolakKodeAkses } from "@/lib/api-kejadian";
@@ -30,6 +31,10 @@ import {
  * slot terdaftar di site, dan RTS tidak sedang menjalankan sesi. Sudut yang
  * ditulis ditentukan di SINI, dari tembakan sah terakhir prisma — peramban
  * tidak bisa menyuruh menulis angka lain.
+ *
+ * Langkah "simpan" juga menetapkan tembakan itu sebagai acuan baru prisma
+ * (acuan-prisma.ts): pergeserannya diterima, statusnya kembali Normal, dan
+ * kabarnya dikirim ke WhatsApp.
  */
 
 type Konteks = { params: Promise<{ id: string }> };
@@ -187,10 +192,27 @@ export async function POST(req: NextRequest, { params }: Konteks) {
       await prisma.$executeRaw`
         UPDATE t_prisma SET HA = ${HA}, VA = ${VA} WHERE site = ${k.site} AND id_prisma = ${idPrisma}
       `;
+      const oleh = await namaOperator();
       console.log(
-        `[arah-bidik] kejadian #${k.id} ${k.site} ${idPrisma}: t_prisma HA ${p.HA} -> ${HA}, VA ${p.VA} -> ${VA} oleh ${await namaOperator()}`
+        `[arah-bidik] kejadian #${k.id} ${k.site} ${idPrisma}: t_prisma HA ${p.HA} -> ${HA}, VA ${p.VA} -> ${VA} oleh ${oleh}`
       );
-      return NextResponse.json({ success: true });
+
+      // Posisi baru diterima: tembakan bersudut ini jadi acuan prisma, dan
+      // statusnya disetel ulang (lihat aturan-acuan.ts). Gagal di sini tidak
+      // membatalkan arah bidik yang sudah tersimpan di slot dan t_prisma.
+      let acuan: { dari: string; ke: string; nilaiMm: number; tingkatSite: string } | null = null;
+      try {
+        const hasil = await tetapkanAcuanPrisma({ site: k.site, idPrisma, HA, VA, oleh, idKejadian: k.id });
+        if (hasil) {
+          acuan = { dari: hasil.dari, ke: hasil.ke, nilaiMm: hasil.nilaiMm, tingkatSite: hasil.tingkatSite };
+          after(async () => {
+            console.log(`[arah-bidik] kejadian #${k.id} ${idPrisma} kabar acuan baru: ${await kabarkanAcuanBaru(k.site, hasil)}`);
+          });
+        }
+      } catch (e) {
+        console.error(`[arah-bidik] kejadian #${k.id} ${idPrisma}: acuan baru gagal ditetapkan:`, e instanceof Error ? e.message : e);
+      }
+      return NextResponse.json({ success: true, acuan });
     }
 
     if (!langkahSah(body.langkah)) return gagal(400, "Langkah tidak dikenal");

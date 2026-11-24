@@ -283,7 +283,8 @@ export function DialogRekamArah({
         <span>
           Sudut slot tiap prisma terpilih di RTS diganti dengan sudut tembakan terakhirnya, lalu dibaca ulang untuk
           memastikan. Teleskop tidak bergerak. Salinan di web baru diperbarui bila isi slot sama persis dengan yang
-          dikirim. R0 dan status alarm tidak berubah.
+          dikirim. Posisi tembakan itu lalu jadi acuan baru prisma tersebut: pergeserannya diterima, statusnya
+          kembali Normal, dan kabarnya dikirim ke WhatsApp. Prisma lain tetap terhadap R0.
         </span>
       </p>
 

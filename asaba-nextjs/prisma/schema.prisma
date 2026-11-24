@@ -736,6 +736,28 @@ model KejadianAlarm {
   @@map("kejadian_alarm")
 }
 
+/// Acuan baru per prisma sesudah arah bidiknya diperbarui: tembakan yang
+/// sudutnya ditulis ke slot RTS menggantikan R0 untuk prisma itu, di sesi
+/// sesudah sesi tembakannya. Lihat migrasi 025 dan src/lib/aturan-acuan.ts.
+model AcuanPrisma {
+  id                Int      @id @default(autoincrement())
+  site              String   @db.VarChar(50)
+  id_prisma         String   @db.VarChar(20)
+  /// rts.id tembakan acuan.
+  id_rts            Int
+  /// Sesi tembakan acuan — log_kontrol.id_log.
+  id_log            String   @db.VarChar(20)
+  /// Pergeseran tembakan itu terhadap acuan sebelumnya: yang diterima.
+  geser_diterima_mm Float?   @db.Double
+  id_kejadian       Int?
+  ditetapkan        DateTime @db.DateTime(0)
+  oleh              String?  @db.VarChar(100)
+
+  @@index([site, id_prisma], map: "acuan_prisma_site_idx")
+  @@index([id_log], map: "acuan_prisma_log_idx")
+  @@map("acuan_prisma")
+}
+
 /// Riwayat perubahan tingkat yang SUDAH terkonfirmasi. Calon yang gugur di
 /// tengah tidak masuk sini.
 model LogPeringatan {

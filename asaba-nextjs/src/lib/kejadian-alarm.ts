@@ -170,13 +170,28 @@ async function batalkanKonfirmasiBilaNaik(
   idLog: string
 ): Promise<void> {
   if (!aktif.dikonfirmasi || prismaSiklus.length === 0) return;
-  const riwayat = await prisma.logPeringatan.findMany({
-    where: { site: aktif.site, waktu: { gte: aktif.mulai, lte: aktif.dikonfirmasi } },
-    select: { id_prisma: true, ke: true },
-  });
+  const [riwayat, acuan] = await Promise.all([
+    prisma.logPeringatan.findMany({
+      where: { site: aktif.site, waktu: { gte: aktif.mulai, lte: aktif.dikonfirmasi } },
+      select: { id_prisma: true, ke: true, waktu: true },
+    }),
+    // Prisma yang diberi acuan baru selama kejadian ini: riwayatnya sebelum
+    // itu tidak lagi mencakup apa pun (lihat tingkatTercakup).
+    prisma.acuanPrisma
+      .findMany({ where: { site: aktif.site, ditetapkan: { gte: aktif.mulai } }, select: { id_prisma: true, ditetapkan: true } })
+      .catch(() => []),
+  ]);
+  const sejak = new Map<string, number>();
+  for (const a of acuan) {
+    // getTime() di kedua sisi: kolomnya sama-sama jam dinding, jadi selisihnya benar.
+    sejak.set(a.id_prisma, Math.max(sejak.get(a.id_prisma) ?? 0, a.ditetapkan.getTime()));
+  }
   const naik = naikSesudahKonfirmasi(
     prismaSiklus,
-    tingkatTercakup(riwayat.map((r) => ({ idPrisma: r.id_prisma, ke: asStatusLabel(r.ke) ?? "Normal" })))
+    tingkatTercakup(
+      riwayat.map((r) => ({ idPrisma: r.id_prisma, ke: asStatusLabel(r.ke) ?? "Normal", waktuMs: r.waktu.getTime() })),
+      sejak
+    )
   );
   if (naik.length === 0) return;
 

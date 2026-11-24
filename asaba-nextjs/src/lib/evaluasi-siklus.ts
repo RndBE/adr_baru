@@ -31,7 +31,9 @@
  */
 import { prisma } from "@/lib/prisma";
 import { parseWaktuToIso, waktuDateLokal, waktuMsLokal } from "@/components/monitoring/format";
-import { nfloat, rotateEN } from "@/lib/coordinates";
+import { nfloat } from "@/lib/coordinates";
+import { type BarisRts, pergeseranMm } from "@/lib/pergeseran";
+import { acuanBerlaku, type AcuanBerlaku } from "@/lib/acuan-prisma";
 import { ambangDenganToleransi, toleransiMm } from "@/lib/akurasi-rts";
 import { getSite } from "@/lib/sites";
 import { type AmbangSite, type StatusLabel, indeksStatus } from "@/lib/ambang";
@@ -57,8 +59,6 @@ import {
 /** Berapa siklus beruntun gagal ditembak sebelum dilaporkan sebagai prisma hilang. */
 export const BATAS_GAGAL_BERUNTUN = 3;
 
-/** sensor7 = jarak miring (m), dipakai menghitung toleransi akurasi RTS. */
-type BarisRts = { sensor1: string; sensor7?: string; sensor8: string; sensor9: string; sensor10: string };
 
 /**
  * Acuan R0 yang DITANDAI operator. Null bila tidak ada.
@@ -157,44 +157,7 @@ async function sesiSebelumnya(site: string, idLog: string, idR0: string) {
   return Promise.all(sesi.map((s) => barisSesi(s.id_log, true)));
 }
 
-/**
- * Pergeseran linier 2D terhadap acuan, dalam mm. Null bila salah satu bacaan
- * tidak sah.
- *
- * Penjagaan nol bukan kehati-hatian berlebih. Di temp_prisma, status_get = 1
- * dengan N1/E1/Z1 semuanya nol berarti "Failed / Not Found" — prisma dibidik
- * tapi tidak ketemu. Tanpa penjagaan ini, satu prisma berkabut menghasilkan
- * jarak sebesar koordinat UTM penuh (ratusan kilometer dalam mm) dan langsung
- * jadi "Awas" palsu. /api/deformasi menjaga hal yang sama lewat `valid1`.
- */
-export function pergeseranMm(
-  sekarang: BarisRts | undefined,
-  acuan: BarisRts | undefined,
-  rotasi: Parameters<typeof rotateEN>[2] | null
-): number | null {
-  if (!sekarang || !acuan) return null;
-
-  let N1 = nfloat(sekarang.sensor8);
-  let E1 = nfloat(sekarang.sensor9);
-  const Z1 = nfloat(sekarang.sensor10);
-  let N0 = nfloat(acuan.sensor8);
-  let E0 = nfloat(acuan.sensor9);
-  const Z0 = nfloat(acuan.sensor10);
-
-  const sah1 = N1 !== 0 || E1 !== 0 || Z1 !== 0;
-  const sah0 = N0 !== 0 || E0 !== 0 || Z0 !== 0;
-  if (!sah1 || !sah0) return null;
-
-  if (rotasi) {
-    [E1, N1] = rotateEN(E1, N1, rotasi);
-    [E0, N0] = rotateEN(E0, N0, rotasi);
-  }
-
-  const dE = E1 - E0;
-  const dN = N1 - N0;
-  // Koordinat UTM dalam meter; ambang t_site dalam mm.
-  return Math.sqrt(dE * dE + dN * dN) * 1000;
-}
+export { pergeseranMm };
 
 function keadaanDariBaris(r: {
   tingkat: string;
@@ -271,8 +234,10 @@ export async function evaluasiSiklus(opsi: {
       return;
     }
 
-    const [acuan, sekarang, lampau, prismaSite, keadaanLama] = await Promise.all([
+    const [acuanR0, acuanPrisma, sekarang, lampau, prismaSite, keadaanLama] = await Promise.all([
       barisSesi(r0.id_log, false),
+      // Prisma yang arah bidiknya diperbarui diukur terhadap acuan barunya.
+      acuanBerlaku(site, idLog),
       barisSesi(idLog, true),
       // Jendela 1: hanya sesi ini yang menentukan, riwayat tidak perlu dibaca.
       JENDELA_SIKLUS > 1 ? sesiSebelumnya(site, idLog, r0.id_log) : Promise.resolve([]),
@@ -295,11 +260,15 @@ export async function evaluasiSiklus(opsi: {
       return;
     }
 
+    /** Acuan prisma ini di siklus ini: acuan baru bila ada (aturan-acuan.ts), selain itu R0. */
+    const acuanUntuk = (idPrisma: string): BarisRts | undefined =>
+      acuanPrisma.get(idPrisma)?.baris ?? acuanR0.get(idPrisma);
+
     const ambang: AmbangSite = cfg.thresholds;
     const batasTakWajar = batasTakWajarMm(ambang);
     /** Pergeseran satu bacaan, atau null bila gagal ditembak ATAU tak wajar. */
     const bacaanSah = (b: BarisRts | undefined, idPrisma: string): number | null => {
-      const mm = pergeseranMm(b, acuan.get(idPrisma), cfg.rotation);
+      const mm = pergeseranMm(b, acuanUntuk(idPrisma), cfg.rotation);
       return mm !== null && mm <= batasTakWajar ? mm : null;
     };
     // waktuMsLokal memancang ke +07:00, jadi hasilnya tidak ikut zona proses —
@@ -323,7 +292,7 @@ export async function evaluasiSiklus(opsi: {
     for (const { id_prisma: idPrisma } of prismaSite) {
       const baris = petaKeadaan.get(idPrisma);
       const lama = baris ? keadaanDariBaris(baris) : keadaanAwal();
-      const mentah = pergeseranMm(sekarang.get(idPrisma), acuan.get(idPrisma), cfg.rotation);
+      const mentah = pergeseranMm(sekarang.get(idPrisma), acuanUntuk(idPrisma), cfg.rotation);
       const mmSekarang = mentah !== null && mentah <= batasTakWajar ? mentah : null;
       if (mentah !== null && mmSekarang === null) {
         console.log(
@@ -369,9 +338,9 @@ export async function evaluasiSiklus(opsi: {
       //
       // Ambang prisma ini = ambang site + toleransi dari akurasi alat dan jarak
       // prisma ke alat (lihat akurasi-rts.ts). Jarak dari tembakan ini; bila
-      // kosong, dari tembakan acuan R0 — jaraknya nyaris tidak berubah.
+      // kosong, dari tembakan acuannya — jaraknya nyaris tidak berubah.
       const jarakM =
-        nfloat(sekarang.get(idPrisma)?.sensor7) || nfloat(acuan.get(idPrisma)?.sensor7);
+        nfloat(sekarang.get(idPrisma)?.sensor7) || nfloat(acuanUntuk(idPrisma)?.sensor7);
       const toleransi = toleransiMm(jarakM, cfg.akurasiRts);
       const ambangPrisma = ambangDenganToleransi(ambang, toleransi);
 
@@ -457,6 +426,10 @@ export async function evaluasiSiklus(opsi: {
       // parseWaktuToIso, bukan new Date().toISOString(): nilainya jam dinding
       // WIB, dan $queryRaw bisa mengembalikannya sebagai Date ATAU string.
       waktuAcuanR0: parseWaktuToIso(r0.datetime)?.slice(0, 10) ?? null,
+      acuanPrisma: prismaSite
+        .map((p) => acuanPrisma.get(p.id_prisma))
+        .filter((a): a is AcuanBerlaku => a !== undefined)
+        .map((a) => ({ idPrisma: a.idPrisma, waktuTembakan: a.waktuTembakan })),
     };
 
     const hasilKirim = await kirimPeringatan(site, ringkasan);

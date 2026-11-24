@@ -25,7 +25,8 @@
  *
  * Sudut yang ditulis diambil server dari tembakan sah terakhir prisma di sesi
  * site ini, bukan dari peramban, dan formatnya persis seperti yang dikirim
- * alat sendiri. R0 tidak disentuh: status alarm tidak berubah karena ini.
+ * alat sendiri. R0 tidak disentuh, tapi sejak 24 Nov 2026 tembakan itu jadi
+ * acuan baru prisma tersebut dan statusnya disetel ulang (aturan-acuan.ts).
  */
 import { bacaSudut, sudutKosong } from "@/lib/koreksi-azimut";
 import type { KodeUkur } from "@/lib/protokol-rts";

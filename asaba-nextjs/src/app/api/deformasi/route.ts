@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { cariAcuanR0 } from "@/lib/log-kontrol";
+import { acuanBerlaku } from "@/lib/acuan-prisma";
 import { Prisma } from "@prisma/client";
 import { nfloat, fmt, rotateEN, arah8ID, utm2ll } from "@/lib/coordinates";
 import {
@@ -77,6 +78,10 @@ export async function GET(request: NextRequest) {
     // Acuan (R0) lewat cariAcuanR0 — aturan yang sama dipakai guard penghapusan
     // sesi, supaya yang dilindungi persis yang dipakai menghitung di sini.
     const firstLogId = (await cariAcuanR0(site)) || idLog;
+    // Prisma yang arah bidiknya diperbarui diukur terhadap acuan barunya di
+    // sesi-sesi sesudah tembakan acuan itu — sama dengan evaluasi-siklus.ts,
+    // supaya angka di layar cocok dengan status alarm dan pesan WhatsApp.
+    const acuanPrisma = await acuanBerlaku(site, idLog);
 
     // Get daily logs
     const dt = log.datetime;
@@ -113,8 +118,11 @@ export async function GET(request: NextRequest) {
           LIMIT 1
         `;
 
-        // Baseline measurement
-        const firstData = await prisma.$queryRaw<Array<Record<string, unknown>>>`
+        // Baseline measurement: acuan baru prisma ini bila ada, selain itu R0.
+        const acuanBaru = acuanPrisma.get(idPrisma);
+        const firstData = acuanBaru
+          ? await prisma.$queryRaw<Array<Record<string, unknown>>>`SELECT * FROM rts WHERE id = ${acuanBaru.idRts} LIMIT 1`
+          : await prisma.$queryRaw<Array<Record<string, unknown>>>`
           SELECT * FROM rts 
           WHERE id_kontrol = ${firstLogId} AND sensor1 = ${idPrisma}
           ORDER BY waktu ASC LIMIT 1
@@ -209,6 +217,7 @@ export async function GET(request: NextRequest) {
           nama_prisma: namaPrisma,
           id_logger: idLogger,
           waktu: current.waktu || datetime,
+          acuan_prisma: acuanBaru ? { id_log: acuanBaru.idLog, waktu: acuanBaru.waktuTembakan } : null,
           temp_tembak: {
             nama_prisma: namaPrisma,
             N0, E0, Z0,

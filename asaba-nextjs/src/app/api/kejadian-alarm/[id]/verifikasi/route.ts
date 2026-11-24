@@ -16,7 +16,8 @@ import { bacaId, gagal, namaOperator, tolakKodeAkses } from "@/lib/api-kejadian"
  * berlaku, dan tiap verifikasi dikabarkan ke WhatsApp.
  *
  * Verifikasi tidak mengubah perhitungan apa pun. Pergeseran yang BENAR tetap
- * berstatus sampai R0 diganti atau ambangnya diubah.
+ * berstatus sampai arah bidik prismanya diperbarui (acuan baru prisma, lihat
+ * aturan-acuan.ts), R0 diganti, atau ambangnya diubah.
  */
 export async function POST(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {

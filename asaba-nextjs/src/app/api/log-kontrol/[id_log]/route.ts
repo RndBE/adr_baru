@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { verifikasiKodeAkses } from "@/lib/kode-akses";
 import { cariAcuanR0 } from "@/lib/log-kontrol";
+import { hapusAcuanSite, sesiAcuanPrisma } from "@/lib/acuan-prisma";
 
 /**
  * PATCH /api/log-kontrol/[id_log]
@@ -116,6 +117,10 @@ export async function PATCH(
     try {
       const dibuang = await prisma.statusPrisma.deleteMany({ where: { site: log.site } });
       console.log(`[r0] ${log.site}: acuan -> ${id_log}, ${dibuang.count} keadaan prisma direset`);
+      // Acuan baru per prisma (arah bidik diperbarui) diukur dari R0 lama;
+      // dengan R0 baru semua prisma kembali ke satu acuan yang sama.
+      const acuanDibuang = await hapusAcuanSite(log.site);
+      if (acuanDibuang > 0) console.log(`[r0] ${log.site}: ${acuanDibuang} acuan baru prisma dihapus`);
     } catch (e) {
       console.warn(
         `[r0] ${log.site}: keadaan peringatan tidak direset (diabaikan):`,
@@ -185,6 +190,22 @@ export async function DELETE(
           { status: 409 }
         );
       }
+    }
+
+    // Tembakan acuan baru prisma (Perbarui arah bidik) ada di sesi ini:
+    // menghapusnya membuat prisma itu kembali dihitung terhadap R0 dan
+    // statusnya bisa melompat ke Awas lagi tanpa ada yang mengubah apa pun.
+    const acuanPrismaDiSini = await sesiAcuanPrisma(id_log);
+    if (acuanPrismaDiSini.length > 0) {
+      return NextResponse.json(
+        {
+          success: false,
+          error:
+            `Sesi ini menyimpan tembakan acuan baru ${acuanPrismaDiSini.join(", ")} (arah bidik diperbarui), ` +
+            `jadi tidak bisa dihapus. Pergeseran prisma itu dihitung terhadap tembakan di sesi ini.`,
+        },
+        { status: 409 }
+      );
     }
 
     // Satu transaksi: baris `rts` yang kehilangan induknya tidak bisa ditelusuri

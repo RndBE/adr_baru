@@ -127,12 +127,21 @@ export function bolehVerifikasi(k: { aktif: boolean; dikonfirmasi: boolean }): b
 /**
  * Tingkat tertinggi tiap prisma dari riwayat perubahan tingkatnya
  * (log_peringatan) sejak kejadian dibuka sampai jam konfirmasi.
+ *
+ * `sejak`: waktu acuan baru tiap prisma (acuan_prisma, lihat aturan-acuan.ts).
+ * Riwayat prisma itu dari SEBELUM acuan baru tidak dihitung — pergeserannya
+ * sudah diterima sebagai posisi baru, jadi naik lagi sesudahnya adalah
+ * pergeseran baru yang harus membunyikan alarm. Waktu dalam ms jam dinding,
+ * sama sumbernya dengan `waktuMs` riwayat.
  */
 export function tingkatTercakup(
-  riwayat: ReadonlyArray<{ idPrisma: string; ke: StatusLabel }>
+  riwayat: ReadonlyArray<{ idPrisma: string; ke: StatusLabel; waktuMs?: number }>,
+  sejak?: ReadonlyMap<string, number>
 ): Map<string, StatusLabel> {
   const hasil = new Map<string, StatusLabel>();
   for (const r of riwayat) {
+    const batas = sejak?.get(r.idPrisma);
+    if (batas !== undefined && r.waktuMs !== undefined && r.waktuMs < batas) continue;
     const lama = hasil.get(r.idPrisma);
     if (!lama || indeksStatus(r.ke) > indeksStatus(lama)) hasil.set(r.idPrisma, r.ke);
   }
@@ -175,8 +184,15 @@ export function catatanAlarmUlang(o: {
     o.diverifikasi && o.diverifikasi.hasil
       ? `; diverifikasi ${o.diverifikasi.hasil.toUpperCase()} oleh ${o.diverifikasi.oleh ?? "operator"}, ${fmtWaktuPendek(o.diverifikasi.waktu)}`
       : "";
-  const baris = `[${fmtWaktuPendek(o.waktu)}] Alarm menyala lagi: ${prisma}. Sebelumnya ${konf}${ver}.`;
-  const teks = o.catatan?.trim() ? `${o.catatan.trim()}\n${baris}` : baris;
+  return tambahCatatan(o.catatan, `[${fmtWaktuPendek(o.waktu)}] Alarm menyala lagi: ${prisma}. Sebelumnya ${konf}${ver}.`);
+}
+
+/**
+ * Satu baris riwayat di bawah catatan kejadian. Terlalu panjang: bagian TERTUA
+ * yang dipotong, supaya tetap muat di batas validasi verifikasi.
+ */
+export function tambahCatatan(catatan: string | null, baris: string): string {
+  const teks = catatan?.trim() ? `${catatan.trim()}\n${baris}` : baris;
   return teks.length > CATATAN_MAKS ? `…${teks.slice(-(CATATAN_MAKS - 1))}` : teks;
 }
 
@@ -422,7 +438,7 @@ export function teksKonfirmasi(o: {
     `*[Dikonfirmasi] ${o.namaSite}*`,
     `Alarm ${o.tingkat} sejak ${fmtWaktuPendek(o.mulai)} dikonfirmasi oleh ${o.oleh} pukul ${fmtWaktuPendek(o.waktu)}.`,
     sirene[o.ews],
-    `Status tetap ${o.tingkat} sampai pergeseran turun. Sirene berbunyi lagi bila tingkatnya naik atau ada prisma lain yang menyusul naik.`,
+    `Status tetap ${o.tingkat} sampai pergeseran turun atau arah bidik prismanya diperbarui. Sirene berbunyi lagi bila tingkatnya naik atau ada prisma lain yang menyusul naik.`,
     "Menunggu verifikasi lapangan.",
   ]
     .filter((b): b is string => b !== null)

@@ -29,6 +29,7 @@
  * ingestion; peringatan yang gagal tidak boleh ikut menjatuhkan penerimaan data.
  */
 import { type StatusLabel, statusTerburuk } from "@/lib/ambang";
+import { teksAcuanPrisma } from "@/lib/aturan-acuan";
 
 export interface BarisPerubahan {
   idPrisma: string;
@@ -66,6 +67,12 @@ export interface RingkasanSiklus {
   /** id_log sesi acuan R0, supaya penerima tahu angkanya diukur terhadap apa. */
   acuanR0: string | null;
   waktuAcuanR0: string | null;
+  /**
+   * Prisma yang diukur terhadap acuan baru (arah bidiknya diperbarui), bukan
+   * terhadap R0 — tanpa baris ini penerima tidak tahu kenapa prisma yang
+   * kemarin Awas sekarang Normal. Lihat aturan-acuan.ts.
+   */
+  acuanPrisma?: Array<{ idPrisma: string; waktuTembakan: string }>;
 }
 
 const LEBAR_ID = 4;
@@ -122,6 +129,11 @@ export function susunTeks(r: RingkasanSiklus): string {
   if (r.acuanR0) {
     baris.push("");
     baris.push(`Acuan R0: sesi ${r.acuanR0}${r.waktuAcuanR0 ? ` · ${r.waktuAcuanR0}` : ""}`);
+  }
+  const acuanBaru = teksAcuanPrisma(r.acuanPrisma ?? []);
+  if (acuanBaru) {
+    if (!r.acuanR0) baris.push("");
+    baris.push(acuanBaru);
   }
 
   return baris.join("\n").trim();
@@ -380,6 +392,8 @@ export function susunHtml(r: RingkasanSiklus): string {
       `Acuan R0: sesi ${esc(r.acuanR0)}${r.waktuAcuanR0 ? ` · ${esc(r.waktuAcuanR0)}` : ""}`
     );
   }
+  const acuanBaru = teksAcuanPrisma(r.acuanPrisma ?? []);
+  if (acuanBaru) catatan.push(esc(acuanBaru));
   if (catatan.length > 0) {
     bagian.push(
       `<div style="padding:12px 12px 14px;font-size:13px;color:#6b7280;line-height:1.6">` +
