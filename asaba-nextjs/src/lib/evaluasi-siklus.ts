@@ -287,6 +287,9 @@ export async function evaluasiSiklus(opsi: {
     // yang menyatakan sesuatu tidak terjadi tanpa memberi tahu prisma mana,
     // sedang di tingkat apa, dan bergeser berapa.
     const semua: BarisPrisma[] = [];
+    // Ambang Waspada tiap prisma (plus toleransi alat) untuk aturan "bergeser lagi
+    // sesudah konfirmasi"; hanya prisma yang terbaca siklus ini.
+    const batasGeser = new Map<string, number>();
     const dicatat: Array<{ idPrisma: string; dari: StatusLabel; ke: StatusLabel; nilaiMm: number; kirim: boolean }> = [];
 
     for (const { id_prisma: idPrisma } of prismaSite) {
@@ -343,6 +346,7 @@ export async function evaluasiSiklus(opsi: {
         nfloat(sekarang.get(idPrisma)?.sensor7) || nfloat(acuanUntuk(idPrisma)?.sensor7);
       const toleransi = toleransiMm(jarakM, cfg.akurasiRts);
       const ambangPrisma = ambangDenganToleransi(ambang, toleransi);
+      batasGeser.set(idPrisma, ambangPrisma.geser.normalMax);
 
       const hasil = nilaiPeredam({ keadaan: lama, nilaiMm: mm, ambang: ambangPrisma, sekarangMs });
       // Tingkat yang DIAKUI, bukan yang barusan terukur — sama dengan yang
@@ -407,7 +411,14 @@ export async function evaluasiSiklus(opsi: {
       waktuMs: sekarangMs,
       // Prisma yang naik sesudah konfirmasi membatalkan senyapnya, jadi
       // sinkronEws di bawah langsung menyalakan sirene lagi.
-      prisma: semua.map((p) => ({ idPrisma: p.idPrisma, tingkat: p.tingkat })),
+      prisma: semua.map((p) => ({
+        idPrisma: p.idPrisma,
+        tingkat: p.tingkat,
+        // Hanya bacaan yang sah dan wajar (sama dengan yang menentukan tingkat).
+        bacaan: bacaanSah(sekarang.get(p.idPrisma), p.idPrisma) !== null ? sekarang.get(p.idPrisma) : undefined,
+        batasMm: batasGeser.get(p.idPrisma),
+      })),
+      rotasi: cfg.rotation,
     });
     await sinkronEws(site, cfg.idLoggerEws, tingkatNow);
 

@@ -164,6 +164,38 @@ export function naikSesudahKonfirmasi<T extends { idPrisma: string; tingkat: Sta
 }
 
 /**
+ * Posisi tiap prisma saat konfirmasi: {"P1": rts.id, ...} sebagai teks JSON
+ * (kolom posisi_dikonfirmasi). Isi rusak = tidak ada.
+ */
+export function uraiPosisiDikonfirmasi(teks: string | null): Record<string, number> {
+  if (!teks) return {};
+  try {
+    const j: unknown = JSON.parse(teks);
+    if (!j || typeof j !== "object" || Array.isArray(j)) return {};
+    const hasil: Record<string, number> = {};
+    for (const [k, v] of Object.entries(j as Record<string, unknown>)) {
+      if (typeof v === "number" && Number.isInteger(v) && v > 0) hasil[k] = v;
+    }
+    return hasil;
+  } catch {
+    return {};
+  }
+}
+
+/**
+ * Prisma yang bergeser lagi sesudah konfirmasi: jaraknya dari posisi saat
+ * konfirmasi mencapai `batasMm` (ambang Waspada site plus toleransi alat).
+ * Tingkat tidak ikut menentukan — prisma yang sudah Awas pun tidak boleh
+ * bergeser diam-diam. Jarak null (bacaan tidak sah atau tak ada posisi
+ * pembanding) tidak dihitung.
+ */
+export function bergeserSesudahKonfirmasi<T extends { idPrisma: string; geserMm: number | null; batasMm: number }>(
+  prisma: readonly T[]
+): T[] {
+  return prisma.filter((p) => p.geserMm !== null && p.geserMm >= p.batasMm);
+}
+
+/**
  * Catatan kejadian setelah alarmnya menyala lagi. Konfirmasi dan verifikasi
  * lama dikosongkan supaya diulang, jadi siapa dan kapan dicatat di sini —
  * catatan itu juga yang mengisi kolom catatan dialog verifikasi berikutnya.
@@ -173,10 +205,15 @@ export function catatanAlarmUlang(o: {
   catatan: string | null;
   waktu: string;
   naik: ReadonlyArray<{ idPrisma: string; tingkat: StatusLabel }>;
+  /** Prisma yang bergeser lagi sesudah konfirmasi (bergeserSesudahKonfirmasi). */
+  bergeser?: ReadonlyArray<{ idPrisma: string; geserMm: number | null }>;
   dikonfirmasi: { oleh: string | null; waktu: string | null; tingkat: StatusLabel | null };
   diverifikasi: { hasil: HasilLapangan | null; oleh: string | null; waktu: string | null } | null;
 }): string {
-  const prisma = o.naik.map((p) => `${p.idPrisma} naik ke ${p.tingkat}`).join(", ");
+  const prisma = [
+    ...o.naik.map((p) => `${p.idPrisma} naik ke ${p.tingkat}`),
+    ...(o.bergeser ?? []).map((p) => `${p.idPrisma} bergeser lagi${p.geserMm === null ? "" : ` ${Math.round(p.geserMm)} mm`}`),
+  ].join(", ");
   const konf = `dikonfirmasi${o.dikonfirmasi.tingkat ? ` ${o.dikonfirmasi.tingkat}` : ""} oleh ${
     o.dikonfirmasi.oleh ?? "operator"
   }, ${fmtWaktuPendek(o.dikonfirmasi.waktu)}`;

@@ -3,7 +3,7 @@ import { prisma } from "@/lib/prisma";
 import { asStatusLabel } from "@/lib/ambang";
 import { getSite } from "@/lib/sites";
 import { perluKonfirmasi, teksKonfirmasi } from "@/lib/aturan-kejadian";
-import { sekarangDb, sinkronEws, teksWaktuDb } from "@/lib/kejadian-alarm";
+import { posisiPrismaSekarang, sekarangDb, sinkronEws, teksWaktuDb } from "@/lib/kejadian-alarm";
 import { kirimKabar } from "@/lib/kirim-peringatan";
 import { bacaId, gagal, namaOperator, tolakAksesKejadian } from "@/lib/api-kejadian";
 
@@ -52,7 +52,13 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     // saling menimpa diam-diam.
     const ubah = await prisma.kejadianAlarm.updateMany({
       where: { id, pulih: null, tingkat_terakhir: k.tingkat_terakhir, tingkat_dikonfirmasi: k.tingkat_dikonfirmasi },
-      data: { dikonfirmasi: waktu, dikonfirmasi_oleh: oleh, tingkat_dikonfirmasi: tingkat },
+      data: {
+        dikonfirmasi: waktu,
+        dikonfirmasi_oleh: oleh,
+        tingkat_dikonfirmasi: tingkat,
+        // Posisi prisma saat ini: bergeser lagi dari sini membunyikan alarm lagi.
+        posisi_dikonfirmasi: await posisiPrismaSekarang(k.site).catch(() => null),
+      },
     });
     if (ubah.count === 0) {
       return gagal(409, "Keadaan alarm berubah saat dikonfirmasi. Muat ulang lalu coba lagi.");

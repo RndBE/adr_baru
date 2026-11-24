@@ -725,6 +725,9 @@ model KejadianAlarm {
   dikonfirmasi_oleh    String?   @db.VarChar(100)
   /// Tingkat yang disenyapkan. Naik melewatinya = bunyi lagi.
   tingkat_dikonfirmasi String?   @db.VarChar(10)
+  /// JSON {"P1": rts.id, ...}: tembakan terakhir tiap prisma saat konfirmasi.
+  /// Bergeser lagi dari sini = bunyi lagi (bergeserSesudahKonfirmasi).
+  posisi_dikonfirmasi  String?   @db.Text
   diverifikasi         DateTime? @db.DateTime(0)
   diverifikasi_oleh    String?   @db.VarChar(100)
   /// "benar" (pergeseran nyata) atau "palsu".

@@ -6,18 +6,22 @@
  * level ke logger EWS. Dipakai oleh evaluasi-siklus.ts di akhir siklus dan
  * oleh API konfirmasi/verifikasi.
  */
-import type { KejadianAlarm } from "@prisma/client";
+import { Prisma, type KejadianAlarm } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { waktuDateLokal } from "@/components/monitoring/format";
 import { type StatusLabel, asStatusLabel } from "@/lib/ambang";
 import {
   type HasilEws,
   type KejadianRingkas,
+  bergeserSesudahKonfirmasi,
   catatanAlarmUlang,
   langkahKejadian,
   naikSesudahKonfirmasi,
   tingkatTercakup,
+  uraiPosisiDikonfirmasi,
 } from "@/lib/aturan-kejadian";
+import { type BarisRts, pergeseranMm } from "@/lib/pergeseran";
+import type { rotateEN } from "@/lib/coordinates";
 import { type EwsTerkirim, perluKirimEws, tingkatUntukEws } from "@/lib/ews";
 import { sendEwsLevel } from "@/lib/mqtt";
 
@@ -96,7 +100,16 @@ export async function catatKejadian(opsi: {
   idLog: string;
   waktuMs: number;
   /** Tingkat setiap prisma terdaftar di siklus ini, untuk naikSesudahKonfirmasi(). */
-  prisma?: ReadonlyArray<{ idPrisma: string; tingkat: StatusLabel }>;
+  prisma?: ReadonlyArray<{
+    idPrisma: string;
+    tingkat: StatusLabel;
+    /** Tembakan prisma ini di siklus ini, untuk bergeserSesudahKonfirmasi(). */
+    bacaan?: BarisRts;
+    /** Ambang Waspada prisma ini plus toleransi alat, mm. */
+    batasMm?: number;
+  }>;
+  /** Rotasi site, sama dengan yang dipakai menghitung pergeseran. */
+  rotasi?: Parameters<typeof rotateEN>[2] | null;
 }): Promise<void> {
   const { site, tingkat, puncak, idLog, waktuMs } = opsi;
   const aktif = await kejadianAktif(site);
@@ -140,7 +153,7 @@ export async function catatKejadian(opsi: {
             : {}),
         },
       });
-      await batalkanKonfirmasiBilaNaik(aktif!, opsi.prisma ?? [], waktu, idLog);
+      await batalkanKonfirmasiBilaNaik(aktif!, opsi.prisma ?? [], opsi.rotasi ?? null, waktu, idLog);
       return;
     case "pulih":
       await prisma.kejadianAlarm.update({
@@ -165,7 +178,8 @@ export async function catatKejadian(opsi: {
  */
 async function batalkanKonfirmasiBilaNaik(
   aktif: KejadianAlarm,
-  prismaSiklus: ReadonlyArray<{ idPrisma: string; tingkat: StatusLabel }>,
+  prismaSiklus: ReadonlyArray<{ idPrisma: string; tingkat: StatusLabel; bacaan?: BarisRts; batasMm?: number }>,
+  rotasi: Parameters<typeof rotateEN>[2] | null,
   waktu: Date,
   idLog: string
 ): Promise<void> {
@@ -193,12 +207,14 @@ async function batalkanKonfirmasiBilaNaik(
       sejak
     )
   );
-  if (naik.length === 0) return;
+  const bergeser = await bergeserLagi(aktif, prismaSiklus, rotasi);
+  if (naik.length === 0 && bergeser.length === 0) return;
 
   const catatan = catatanAlarmUlang({
     catatan: aktif.catatan,
     waktu: teksWaktuDb(waktu) ?? "",
     naik,
+    bergeser,
     dikonfirmasi: {
       oleh: aktif.dikonfirmasi_oleh,
       waktu: teksWaktuDb(aktif.dikonfirmasi),
@@ -218,6 +234,7 @@ async function batalkanKonfirmasiBilaNaik(
       dikonfirmasi: null,
       dikonfirmasi_oleh: null,
       tingkat_dikonfirmasi: null,
+      posisi_dikonfirmasi: null,
       diverifikasi: null,
       diverifikasi_oleh: null,
       hasil: null,
@@ -228,10 +245,56 @@ async function batalkanKonfirmasiBilaNaik(
   if (ubah.count > 0) {
     console.log(
       `[peringatan][kejadian] ${aktif.site} #${aktif.id}: ` +
-        naik.map((p) => `${p.idPrisma} ${p.tingkat}`).join(", ") +
-        ` naik sesudah konfirmasi — alarm menyala lagi, konfirmasi dan verifikasi diulang (siklus ${idLog})`
+        [
+          ...naik.map((p) => `${p.idPrisma} naik ke ${p.tingkat}`),
+          ...bergeser.map((p) => `${p.idPrisma} bergeser lagi ${Math.round(p.geserMm ?? 0)} mm`),
+        ].join(", ") +
+        ` sesudah konfirmasi — alarm menyala lagi, konfirmasi dan verifikasi diulang (siklus ${idLog})`
     );
   }
+}
+
+/**
+ * Prisma yang bergeser lagi sejak konfirmasi: jarak tembakan siklus ini dari
+ * tembakan yang tersimpan saat konfirmasi (posisi_dikonfirmasi) mencapai batas.
+ * Kosong bila kejadiannya dikonfirmasi sebelum kolomnya ada.
+ */
+async function bergeserLagi(
+  aktif: KejadianAlarm,
+  prismaSiklus: ReadonlyArray<{ idPrisma: string; bacaan?: BarisRts; batasMm?: number }>,
+  rotasi: Parameters<typeof rotateEN>[2] | null
+): Promise<Array<{ idPrisma: string; geserMm: number | null; batasMm: number }>> {
+  const posisi = uraiPosisiDikonfirmasi(aktif.posisi_dikonfirmasi);
+  const ids = Object.values(posisi);
+  if (ids.length === 0) return [];
+  const baris = await prisma.$queryRaw<Array<{ id: number } & BarisRts>>`
+    SELECT id, sensor1, sensor7, sensor8, sensor9, sensor10 FROM rts WHERE id IN (${Prisma.join(ids)})
+  `;
+  const peta = new Map(baris.map((b) => [Number(b.id), b]));
+  const hitung = prismaSiklus.flatMap((p) => {
+    const acuan = peta.get(posisi[p.idPrisma]);
+    if (!acuan || !p.bacaan || p.batasMm === undefined) return [];
+    return [{ idPrisma: p.idPrisma, geserMm: pergeseranMm(p.bacaan, acuan, rotasi), batasMm: p.batasMm }];
+  });
+  return bergeserSesudahKonfirmasi(hitung);
+}
+
+/**
+ * Tembakan sah terakhir tiap prisma site ini sebagai {"P1": rts.id, ...}, untuk
+ * posisi_dikonfirmasi. Tembakan gagal (koordinat nol) dilewati.
+ */
+export async function posisiPrismaSekarang(site: string): Promise<string | null> {
+  const baris = await prisma.$queryRaw<Array<{ id: number; sensor1: string }>>`
+    SELECT r.id, r.sensor1
+    FROM rts r JOIN log_kontrol l ON l.id_log = r.id_kontrol
+    WHERE l.site = ${site} AND r.sensor16 = 1 AND r.sensor1 LIKE 'P%'
+      AND (r.sensor8 NOT IN ('0', '') OR r.sensor9 NOT IN ('0', '') OR r.sensor10 NOT IN ('0', ''))
+    ORDER BY r.id DESC
+    LIMIT 3000
+  `;
+  const hasil: Record<string, number> = {};
+  for (const b of baris) if (!(b.sensor1 in hasil)) hasil[b.sensor1] = Number(b.id);
+  return Object.keys(hasil).length > 0 ? JSON.stringify(hasil) : null;
 }
 
 /**

@@ -19,6 +19,8 @@ import {
   teksVerifikasi,
   tersembunyiDariBanner,
   lencanaRiwayat,
+  bergeserSesudahKonfirmasi,
+  uraiPosisiDikonfirmasi,
   tingkatLencana,
   uraiCatatanModal,
   validasiVerifikasi,
@@ -264,5 +266,40 @@ const ver = teksVerifikasi({
 });
 assert.match(ver, /PALSU — Prisma terhalang atau kotor/);
 assert.match(ver, /Catatan: tertutup daun/);
+
+// ── Bergeser lagi sesudah konfirmasi ─────────────────────────────────────────
+assert.deepEqual(uraiPosisiDikonfirmasi(null), {});
+assert.deepEqual(uraiPosisiDikonfirmasi("rusak"), {});
+assert.deepEqual(uraiPosisiDikonfirmasi("[1]"), {});
+assert.deepEqual(
+  uraiPosisiDikonfirmasi('{"P1":15527,"P2":"x","P3":-4,"P4":1.5}'),
+  { P1: 15527 },
+  "hanya id bulat positif"
+);
+{
+  const ada = bergeserSesudahKonfirmasi([
+    { idPrisma: "P1", geserMm: 3, batasMm: 12 },
+    { idPrisma: "P2", geserMm: 105, batasMm: 12 },
+    { idPrisma: "P3", geserMm: null, batasMm: 12 },
+    { idPrisma: "P4", geserMm: 12, batasMm: 12 },
+  ]);
+  assert.deepEqual(ada.map((p) => p.idPrisma), ["P2", "P4"], "di bawah batas dan tak terbaca tidak dihitung; tepat di batas dihitung");
+  assert.deepEqual(bergeserSesudahKonfirmasi([]), []);
+}
+const catBergeser = catatanAlarmUlang({
+  catatan: null, waktu: "2026-11-24 13:58:24", naik: [],
+  bergeser: [{ idPrisma: "P2", geserMm: 104.6 }],
+  dikonfirmasi: { oleh: "Andi", waktu: "2026-11-24 11:54:44", tingkat: "Awas" },
+  diverifikasi: { hasil: "palsu", oleh: "Budi", waktu: "2026-11-24 11:55:07" },
+});
+assert.equal(
+  catBergeser,
+  "[24 Nov 13:58] Alarm menyala lagi: P2 bergeser lagi 105 mm. Sebelumnya dikonfirmasi Awas oleh Andi, 24 Nov 11:54; diverifikasi PALSU oleh Budi, 24 Nov 11:55."
+);
+assert.match(
+  catatanAlarmUlang({ catatan: null, waktu: "2026-11-24 13:58:24", naik: [{ idPrisma: "P1", tingkat: "Awas" }], bergeser: [{ idPrisma: "P2", geserMm: null }], dikonfirmasi: { oleh: null, waktu: null, tingkat: null }, diverifikasi: null }),
+  /P1 naik ke Awas, P2 bergeser lagi./,
+  "naik dan bergeser digabung"
+);
 
 console.log("aturan-kejadian.test.ts: semua lolos");
