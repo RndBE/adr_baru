@@ -268,7 +268,8 @@ export function ModalAlarm({
             <span>
               {adaSirene && "Sirene dan lampu rotary menyala di lapangan. "}
               Konfirmasi {adaSirene ? "mematikannya dan " : ""}membungkam suara di semua layar. Status
-              tetap {tingkat} dan alarm berbunyi lagi bila tingkatnya naik. Kabar dikirim ke WhatsApp.
+              tetap {tingkat} dan alarm berbunyi lagi bila tingkatnya naik atau ada prisma lain yang
+              menyusul naik. Kabar dikirim ke WhatsApp.
             </span>
           </p>
 

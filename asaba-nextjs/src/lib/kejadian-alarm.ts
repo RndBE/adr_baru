@@ -10,7 +10,14 @@ import type { KejadianAlarm } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { waktuDateLokal } from "@/components/monitoring/format";
 import { type StatusLabel, asStatusLabel } from "@/lib/ambang";
-import { type HasilEws, type KejadianRingkas, langkahKejadian } from "@/lib/aturan-kejadian";
+import {
+  type HasilEws,
+  type KejadianRingkas,
+  catatanAlarmUlang,
+  langkahKejadian,
+  naikSesudahKonfirmasi,
+  tingkatTercakup,
+} from "@/lib/aturan-kejadian";
 import { type EwsTerkirim, perluKirimEws, tingkatUntukEws } from "@/lib/ews";
 import { sendEwsLevel } from "@/lib/mqtt";
 
@@ -88,6 +95,8 @@ export async function catatKejadian(opsi: {
   puncak: { idPrisma: string; nilaiMm: number | null } | null;
   idLog: string;
   waktuMs: number;
+  /** Tingkat setiap prisma terdaftar di siklus ini, untuk naikSesudahKonfirmasi(). */
+  prisma?: ReadonlyArray<{ idPrisma: string; tingkat: StatusLabel }>;
 }): Promise<void> {
   const { site, tingkat, puncak, idLog, waktuMs } = opsi;
   const aktif = await kejadianAktif(site);
@@ -131,6 +140,7 @@ export async function catatKejadian(opsi: {
             : {}),
         },
       });
+      await batalkanKonfirmasiBilaNaik(aktif!, opsi.prisma ?? [], waktu, idLog);
       return;
     case "pulih":
       await prisma.kejadianAlarm.update({
@@ -139,6 +149,73 @@ export async function catatKejadian(opsi: {
       });
       console.log(`[peringatan][kejadian] ${site}: pulih (siklus ${idLog})`);
       return;
+  }
+}
+
+/**
+ * Konfirmasi hanya mencakup yang sudah terjadi saat tombolnya ditekan. Prisma
+ * yang sekarang melewati tingkat tertinggi yang dicapainya sampai saat itu
+ * (lihat naikSesudahKonfirmasi) membatalkan konfirmasi DAN verifikasi
+ * kejadiannya: sirene (sinkronEws, dipanggil sesudah ini), suara, banner, dan
+ * modal menyala lagi, dan prisma itu harus dicek ke lapangan. Siapa dan kapan
+ * mengonfirmasi/memverifikasi sebelumnya dicatat di `catatan`.
+ *
+ * Bersyarat pada `dikonfirmasi` yang barusan dibaca: konfirmasi ulang yang
+ * masuk di antaranya tidak ikut terhapus.
+ */
+async function batalkanKonfirmasiBilaNaik(
+  aktif: KejadianAlarm,
+  prismaSiklus: ReadonlyArray<{ idPrisma: string; tingkat: StatusLabel }>,
+  waktu: Date,
+  idLog: string
+): Promise<void> {
+  if (!aktif.dikonfirmasi || prismaSiklus.length === 0) return;
+  const riwayat = await prisma.logPeringatan.findMany({
+    where: { site: aktif.site, waktu: { gte: aktif.mulai, lte: aktif.dikonfirmasi } },
+    select: { id_prisma: true, ke: true },
+  });
+  const naik = naikSesudahKonfirmasi(
+    prismaSiklus,
+    tingkatTercakup(riwayat.map((r) => ({ idPrisma: r.id_prisma, ke: asStatusLabel(r.ke) ?? "Normal" })))
+  );
+  if (naik.length === 0) return;
+
+  const catatan = catatanAlarmUlang({
+    catatan: aktif.catatan,
+    waktu: teksWaktuDb(waktu) ?? "",
+    naik,
+    dikonfirmasi: {
+      oleh: aktif.dikonfirmasi_oleh,
+      waktu: teksWaktuDb(aktif.dikonfirmasi),
+      tingkat: asStatusLabel(aktif.tingkat_dikonfirmasi),
+    },
+    diverifikasi: aktif.diverifikasi
+      ? {
+          hasil: aktif.hasil === "benar" || aktif.hasil === "palsu" ? aktif.hasil : null,
+          oleh: aktif.diverifikasi_oleh,
+          waktu: teksWaktuDb(aktif.diverifikasi),
+        }
+      : null,
+  });
+  const ubah = await prisma.kejadianAlarm.updateMany({
+    where: { id: aktif.id, pulih: null, dikonfirmasi: aktif.dikonfirmasi },
+    data: {
+      dikonfirmasi: null,
+      dikonfirmasi_oleh: null,
+      tingkat_dikonfirmasi: null,
+      diverifikasi: null,
+      diverifikasi_oleh: null,
+      hasil: null,
+      penyebab: null,
+      catatan,
+    },
+  });
+  if (ubah.count > 0) {
+    console.log(
+      `[peringatan][kejadian] ${aktif.site} #${aktif.id}: ` +
+        naik.map((p) => `${p.idPrisma} ${p.tingkat}`).join(", ") +
+        ` naik sesudah konfirmasi — alarm menyala lagi, konfirmasi dan verifikasi diulang (siklus ${idLog})`
+    );
   }
 }
 

@@ -436,6 +436,9 @@ export async function evaluasiSiklus(opsi: {
       puncak: puncak && puncak.tingkat !== "Normal" ? { idPrisma: puncak.idPrisma, nilaiMm: puncak.nilaiMm } : null,
       idLog,
       waktuMs: sekarangMs,
+      // Prisma yang naik sesudah konfirmasi membatalkan senyapnya, jadi
+      // sinkronEws di bawah langsung menyalakan sirene lagi.
+      prisma: semua.map((p) => ({ idPrisma: p.idPrisma, tingkat: p.tingkat })),
     });
     await sinkronEws(site, cfg.idLoggerEws, tingkatNow);
 

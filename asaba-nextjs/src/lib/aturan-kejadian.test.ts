@@ -3,8 +3,12 @@
  */
 import assert from "node:assert/strict";
 import {
+  CATATAN_MAKS,
   bolehVerifikasi,
   catatTutupModal,
+  catatanAlarmUlang,
+  naikSesudahKonfirmasi,
+  tingkatTercakup,
   kejadianUntukModal,
   langkahKejadian,
   perluKonfirmasi,
@@ -101,6 +105,66 @@ assert.equal(
   false,
   "sudah pulih: bukan urusan banner aktif"
 );
+
+// ── naik sesudah konfirmasi ─────────────────────────────────────────────────
+// 23 Nov 2026: P2 Awas dikonfirmasi 16:21, P1 menyusul Awas 16:59.
+const tercakup = tingkatTercakup([
+  { idPrisma: "P2", ke: "Siaga" },
+  { idPrisma: "P2", ke: "Awas" },
+  { idPrisma: "P3", ke: "Waspada" },
+  { idPrisma: "P3", ke: "Normal" },
+]);
+assert.deepEqual(Object.fromEntries(tercakup), { P2: "Awas", P3: "Waspada" }, "tertinggi, bukan terakhir");
+assert.deepEqual(
+  naikSesudahKonfirmasi(
+    [
+      { idPrisma: "P1", tingkat: "Awas" },
+      { idPrisma: "P2", tingkat: "Awas" },
+    ],
+    tercakup
+  ).map((p) => p.idPrisma),
+  ["P1"],
+  "prisma lain menyusul: kabar baru"
+);
+assert.equal(naikSesudahKonfirmasi([{ idPrisma: "P2", tingkat: "Awas" }], tercakup).length, 0, "tetap: senyap");
+assert.equal(
+  naikSesudahKonfirmasi([{ idPrisma: "P3", tingkat: "Waspada" }], tercakup).length,
+  0,
+  "turun lalu kembali ke tingkat yang pernah dikonfirmasi: bukan kabar baru"
+);
+assert.equal(naikSesudahKonfirmasi([{ idPrisma: "P3", tingkat: "Siaga" }], tercakup).length, 1, "melewati tingkat tertingginya");
+assert.equal(naikSesudahKonfirmasi([{ idPrisma: "P4", tingkat: "Normal" }], tercakup).length, 0);
+
+const ulang = catatanAlarmUlang({
+  catatan: "P2 digeser untuk uji",
+  waktu: "2026-11-23 16:59:55",
+  naik: [{ idPrisma: "P1", tingkat: "Awas" }],
+  dikonfirmasi: { oleh: "Andi", waktu: "2026-11-23 16:21:35", tingkat: "Awas" },
+  diverifikasi: { hasil: "benar", oleh: "Budi", waktu: "2026-11-23 16:34:56" },
+});
+assert.equal(
+  ulang,
+  "P2 digeser untuk uji\n[23 Nov 16:59] Alarm menyala lagi: P1 naik ke Awas. Sebelumnya dikonfirmasi Awas oleh Andi, 23 Nov 16:21; diverifikasi BENAR oleh Budi, 23 Nov 16:34."
+);
+assert.match(
+  catatanAlarmUlang({
+    catatan: null,
+    waktu: "2026-11-23 16:59:55",
+    naik: [{ idPrisma: "P1", tingkat: "Siaga" }],
+    dikonfirmasi: { oleh: "Andi", waktu: "2026-11-23 16:21:35", tingkat: "Siaga" },
+    diverifikasi: null,
+  }),
+  /^\[23 Nov 16:59\] Alarm menyala lagi: P1 naik ke Siaga\. Sebelumnya dikonfirmasi Siaga oleh Andi, 23 Nov 16:21\.$/
+);
+const panjang = catatanAlarmUlang({
+  catatan: "x".repeat(CATATAN_MAKS),
+  waktu: "2026-11-23 16:59:55",
+  naik: [{ idPrisma: "P1", tingkat: "Awas" }],
+  dikonfirmasi: { oleh: "Andi", waktu: "2026-11-23 16:21:35", tingkat: "Awas" },
+  diverifikasi: null,
+});
+assert.equal(panjang.length, CATATAN_MAKS, "dipotong ke batas catatan");
+assert.ok(panjang.startsWith("…") && panjang.endsWith("23 Nov 16:21."), "yang dipotong bagian tertua");
 
 // ── validasiVerifikasi ──────────────────────────────────────────────────────
 assert.equal(validasiVerifikasi({}).ok, false);

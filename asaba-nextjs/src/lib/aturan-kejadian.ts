@@ -19,7 +19,9 @@
  *
  * Senyap hanya berlaku sampai tingkat yang dikonfirmasi. Konfirmasi Siaga
  * TIDAK boleh ikut membungkam Awas: begitu naik melewatinya, sirene berbunyi
- * lagi dan kejadian itu meminta konfirmasi ulang.
+ * lagi dan kejadian itu meminta konfirmasi ulang. Begitu juga prisma yang naik
+ * sesudah konfirmasi (lihat naikSesudahKonfirmasi): konfirmasi DAN verifikasi
+ * diulang.
  */
 import { type StatusLabel, asStatusLabel, indeksStatus } from "@/lib/ambang";
 
@@ -109,6 +111,73 @@ export function perluKonfirmasi(
  */
 export function bolehVerifikasi(k: { aktif: boolean; dikonfirmasi: boolean }): boolean {
   return !k.aktif || k.dikonfirmasi;
+}
+
+// ─── Naik sesudah konfirmasi ────────────────────────────────────────────────
+//
+// Konfirmasi hanya mencakup yang sudah terjadi saat tombolnya ditekan. Senyap
+// per SITE (senyapBerlaku) tidak cukup: P2 Awas dikonfirmasi, lalu P1 menyusul
+// ke Awas — tingkat site tetap Awas, dan tanpa aturan ini pergeseran P1
+// tenggelam diam-diam (23 Nov 2026 16:59). Setiap siklus, tingkat tiap prisma
+// dibandingkan dengan tingkat tertinggi yang dicapainya sampai saat konfirmasi.
+// Kalau ada yang melewatinya, konfirmasi dan verifikasi kejadian dibatalkan:
+// sirene, suara, banner, dan modal menyala lagi lewat aturan yang sudah ada,
+// dan prisma itu harus dicek ke lapangan.
+
+/**
+ * Tingkat tertinggi tiap prisma dari riwayat perubahan tingkatnya
+ * (log_peringatan) sejak kejadian dibuka sampai jam konfirmasi.
+ */
+export function tingkatTercakup(
+  riwayat: ReadonlyArray<{ idPrisma: string; ke: StatusLabel }>
+): Map<string, StatusLabel> {
+  const hasil = new Map<string, StatusLabel>();
+  for (const r of riwayat) {
+    const lama = hasil.get(r.idPrisma);
+    if (!lama || indeksStatus(r.ke) > indeksStatus(lama)) hasil.set(r.idPrisma, r.ke);
+  }
+  return hasil;
+}
+
+/**
+ * Prisma yang sekarang di atas tingkat yang tercakup konfirmasi: prisma lain
+ * yang baru bergeser, atau prisma yang sama naik melewati tingkat
+ * tertingginya. Prisma yang turun lalu kembali ke tingkat yang pernah
+ * dikonfirmasi tidak dihitung — itu bukan kabar baru.
+ */
+export function naikSesudahKonfirmasi<T extends { idPrisma: string; tingkat: StatusLabel }>(
+  sekarang: readonly T[],
+  tercakup: ReadonlyMap<string, StatusLabel>
+): T[] {
+  return sekarang.filter(
+    (p) => p.tingkat !== "Normal" && indeksStatus(p.tingkat) > indeksStatus(tercakup.get(p.idPrisma) ?? "Normal")
+  );
+}
+
+/**
+ * Catatan kejadian setelah alarmnya menyala lagi. Konfirmasi dan verifikasi
+ * lama dikosongkan supaya diulang, jadi siapa dan kapan dicatat di sini —
+ * catatan itu juga yang mengisi kolom catatan dialog verifikasi berikutnya.
+ * Terlalu panjang: bagian TERTUA yang dipotong.
+ */
+export function catatanAlarmUlang(o: {
+  catatan: string | null;
+  waktu: string;
+  naik: ReadonlyArray<{ idPrisma: string; tingkat: StatusLabel }>;
+  dikonfirmasi: { oleh: string | null; waktu: string | null; tingkat: StatusLabel | null };
+  diverifikasi: { hasil: HasilLapangan | null; oleh: string | null; waktu: string | null } | null;
+}): string {
+  const prisma = o.naik.map((p) => `${p.idPrisma} naik ke ${p.tingkat}`).join(", ");
+  const konf = `dikonfirmasi${o.dikonfirmasi.tingkat ? ` ${o.dikonfirmasi.tingkat}` : ""} oleh ${
+    o.dikonfirmasi.oleh ?? "operator"
+  }, ${fmtWaktuPendek(o.dikonfirmasi.waktu)}`;
+  const ver =
+    o.diverifikasi && o.diverifikasi.hasil
+      ? `; diverifikasi ${o.diverifikasi.hasil.toUpperCase()} oleh ${o.diverifikasi.oleh ?? "operator"}, ${fmtWaktuPendek(o.diverifikasi.waktu)}`
+      : "";
+  const baris = `[${fmtWaktuPendek(o.waktu)}] Alarm menyala lagi: ${prisma}. Sebelumnya ${konf}${ver}.`;
+  const teks = o.catatan?.trim() ? `${o.catatan.trim()}\n${baris}` : baris;
+  return teks.length > CATATAN_MAKS ? `…${teks.slice(-(CATATAN_MAKS - 1))}` : teks;
 }
 
 // ─── Verifikasi ─────────────────────────────────────────────────────────────
@@ -353,7 +422,7 @@ export function teksKonfirmasi(o: {
     `*[Dikonfirmasi] ${o.namaSite}*`,
     `Alarm ${o.tingkat} sejak ${fmtWaktuPendek(o.mulai)} dikonfirmasi oleh ${o.oleh} pukul ${fmtWaktuPendek(o.waktu)}.`,
     sirene[o.ews],
-    `Status tetap ${o.tingkat} sampai pergeseran turun. Sirene berbunyi lagi bila tingkatnya naik.`,
+    `Status tetap ${o.tingkat} sampai pergeseran turun. Sirene berbunyi lagi bila tingkatnya naik atau ada prisma lain yang menyusul naik.`,
     "Menunggu verifikasi lapangan.",
   ]
     .filter((b): b is string => b !== null)
