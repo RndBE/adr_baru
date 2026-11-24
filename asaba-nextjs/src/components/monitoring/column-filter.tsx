@@ -32,7 +32,10 @@ export const KOLOM_LENGKAP: ColumnVisibility = {
   awal: { X: true, Y: true, Z: true, HA: true, VA: true, SD: true },
   hasil: { X: true, Y: true, Z: true, HA: true, VA: true, SD: true },
   pergeseran: { DX: true, DY: true, DZ: true, Linier: true },
-  arah: true,
+  // Kolom Arah disembunyikan sementara (diminta 24 Nov 2026). Untuk
+  // menampilkannya lagi: ubah ke true, buka komentar pilihan "Arah pergeseran"
+  // di ColumnFilter, dan kembalikan TOTAL_KOLOM ke 17.
+  arah: false,
 };
 
 const NAMA_SUB: Record<keyof SubKolom, string> = {
@@ -67,7 +70,8 @@ export function totalAktif(v: ColumnVisibility): number {
   return jumlahAktif(v.awal) + jumlahAktif(v.hasil) + jumlahAktif(v.pergeseran) + (v.arah ? 1 : 0);
 }
 
-const TOTAL_KOLOM = 17;
+// 17 bila kolom Arah ditampilkan lagi (lihat KOLOM_LENGKAP).
+const TOTAL_KOLOM = 16;
 
 function Kotak({ state }: { state: boolean | "sebagian" }) {
   return (
@@ -248,12 +252,14 @@ export function ColumnFilter({
             ))}
           </div>
 
+          {/* Disembunyikan sementara bersama kolom Arah (lihat KOLOM_LENGKAP).
           <Baris
             label="Arah pergeseran"
             kelompok
             state={draft.arah}
             onToggle={() => setDraft((p) => ({ ...p, arah: !p.arah }))}
           />
+          */}
         </div>
 
         <div className="flex shrink-0 items-center justify-between gap-2 border-t border-(--line) px-3 py-2.5">
