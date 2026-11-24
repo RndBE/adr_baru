@@ -11,6 +11,7 @@ import {
   useSyncExternalStore,
 } from "react";
 import Link from "next/link";
+import { usePathname } from "next/navigation";
 import useSWR, { useSWRConfig } from "swr";
 import { BellOff, ClipboardCheck, Volume2, VolumeX } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -32,9 +33,11 @@ import {
   catatTutupModal,
   fmtWaktuPendek,
   kejadianUntukModal,
+  lencanaRiwayat,
   senyapBerlaku,
   statusKejadian,
   tersembunyiDariBanner,
+  tingkatLencana,
   uraiCatatanModal,
   type KejadianRingkas,
 } from "@/lib/aturan-kejadian";
@@ -74,6 +77,8 @@ const KUNCI_SUARA = "adr-alarm-suara";
 const KUNCI_DIAKUI = "adr-alarm-diakui";
 /** Kapan modal tiap kejadian terakhir ditutup di peramban ini. Lihat catatTutupModal(). */
 const KUNCI_MODAL = "adr-alarm-modal";
+/** Id kejadian terbesar saat halaman Riwayat Alarm terakhir dibuka di peramban ini. */
+const KUNCI_RIWAYAT_DIBACA = "adr-riwayat-alarm-dibaca";
 const LAMA_TES_MS = 3000;
 /** Seberapa sering jam dibaca ulang untuk menentukan pengingat modal. */
 const TIK_MODAL_MS = 5_000;
@@ -124,6 +129,8 @@ interface NilaiAlarm {
   daftar: PrismaAlarm[];
   /** Kejadian yang masih butuh operator: aktif, atau pulih tapi belum diverifikasi. */
   kejadian: KejadianRingkas[];
+  /** Kejadian 24 jam terakhir, selesai maupun belum — untuk lencana menu Riwayat Alarm. */
+  terbaru: KejadianRingkas[];
   muatUlang: () => void;
   /** Buka modal alarm (konfirmasi) / dialog verifikasi untuk satu kejadian. */
   bukaKonfirmasi: (k: KejadianRingkas) => void;
@@ -145,7 +152,7 @@ interface NilaiAlarm {
 const KonteksAlarm = createContext<NilaiAlarm | null>(null);
 
 export function AlarmAmbangProvider({ children }: { children: React.ReactNode }) {
-  const { data, mutate } = useSWR<{ success: boolean; data?: PrismaAlarm[]; kejadian?: KejadianRingkas[] }>(
+  const { data, mutate } = useSWR<{ success: boolean; data?: PrismaAlarm[]; kejadian?: KejadianRingkas[]; terbaru?: KejadianRingkas[] }>(
     "/api/alarm-ambang",
     fetcher,
     { refreshInterval: TANYA_TIAP_MS, refreshWhenHidden: true }
@@ -154,6 +161,10 @@ export function AlarmAmbangProvider({ children }: { children: React.ReactNode })
   const daftar = useMemo(() => (sahih ? data!.data! : []), [sahih, data]);
   const kejadian = useMemo(
     () => (sahih && Array.isArray(data!.kejadian) ? data!.kejadian! : []),
+    [sahih, data]
+  );
+  const terbaru = useMemo(
+    () => (sahih && Array.isArray(data!.terbaru) ? data!.terbaru! : []),
     [sahih, data]
   );
   const { mutate: segarkan } = useSWRConfig();
@@ -300,6 +311,7 @@ export function AlarmAmbangProvider({ children }: { children: React.ReactNode })
   const nilai: NilaiAlarm = {
     daftar,
     kejadian,
+    terbaru,
     muatUlang,
     bukaKonfirmasi,
     bukaVerifikasi,
@@ -534,29 +546,52 @@ function AksiKejadian({
  */
 export function LencanaMenuAlarm() {
   const n = useContext(KonteksAlarm);
-  const aktif = useMemo(
-    () =>
-      (n?.kejadian ?? []).filter(
-        (k) => k.pulih === null && (TINGKAT_ALARM as readonly string[]).includes(k.tingkatTerakhir)
-      ),
-    [n?.kejadian]
+  const pathname = usePathname();
+  const teksDibaca = useSyncExternalStore(
+    langganan,
+    () => baca(KUNCI_RIWAYAT_DIBACA),
+    () => null
   );
-  if (aktif.length === 0) return null;
+  const dibaca = Number(teksDibaca) || 0;
+  const terbaru = n?.terbaru;
 
-  const tingkat = aktif
-    .map((k) => k.tingkatTerakhir as TingkatAlarm)
-    .reduce((a, b) => (indeksStatus(b) > indeksStatus(a) ? b : a));
-  const rincian = aktif
+  // Membuka halaman Riwayat Alarm = semua kejadian yang ada sudah dilihat.
+  const diRiwayat = pathname?.startsWith("/riwayat-alarm") ?? false;
+  useEffect(() => {
+    if (!diRiwayat || !terbaru) return;
+    const maks = terbaru.reduce((m, k) => Math.max(m, k.id), 0);
+    if (maks > dibaca) tulis(KUNCI_RIWAYAT_DIBACA, String(maks));
+  }, [diRiwayat, terbaru, dibaca]);
+
+  const hitung = useMemo(
+    () =>
+      lencanaRiwayat(
+        (n?.kejadian ?? []).filter((k) => (TINGKAT_ALARM as readonly string[]).includes(k.tingkatTerakhir)),
+        diRiwayat ? [] : (terbaru ?? []),
+        dibaca
+      ),
+    [n?.kejadian, terbaru, dibaca, diRiwayat]
+  );
+  if (hitung.length === 0) return null;
+
+  const tingkat = hitung
+    .map((k) => tingkatLencana(k))
+    .filter((t): t is TingkatAlarm => (TINGKAT_ALARM as readonly string[]).includes(t))
+    .reduce<TingkatAlarm>((a, b) => (indeksStatus(b) > indeksStatus(a) ? b : a), "Waspada");
+  const rincian = hitung
     .map((k) => {
-      const keadaan = k.hasil
-        ? `terverifikasi ${k.hasil}`
-        : k.dikonfirmasi
-          ? "menunggu verifikasi"
-          : "belum dikonfirmasi";
-      return `${k.namaSite}: ${k.tingkatTerakhir}${k.prismaPuncak ? ` (${k.prismaPuncak})` : ""}, ${keadaan}`;
+      const keadaan =
+        k.pulih !== null
+          ? "selesai, belum dibuka"
+          : k.hasil
+            ? `terverifikasi ${k.hasil}`
+            : k.dikonfirmasi
+              ? "menunggu verifikasi"
+              : "belum dikonfirmasi";
+      return `${k.namaSite}: ${tingkatLencana(k)}${k.prismaPuncak ? ` (${k.prismaPuncak})` : ""}, ${keadaan}`;
     })
     .join("; ");
-  const judul = `${aktif.length} alarm masih aktif — ${rincian}`;
+  const judul = `${hitung.length} alarm — ${rincian}`;
 
   return (
     <>
@@ -565,7 +600,7 @@ export function LencanaMenuAlarm() {
         className="tema-monitoring ml-auto inline-flex h-5 min-w-5 shrink-0 items-center justify-center rounded-full px-1.5 text-[11px] font-bold tabular-nums group-data-[collapsible=icon]:hidden"
         style={{ background: WARNA_STATUS[tingkat], color: tintaDi(tingkat) }}
       >
-        {aktif.length}
+        {hitung.length}
       </span>
       <span
         aria-hidden="true"

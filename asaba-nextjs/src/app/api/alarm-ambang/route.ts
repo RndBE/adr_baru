@@ -1,7 +1,8 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { TINGKAT_ALARM, type PrismaAlarm, type TingkatAlarm } from "@/lib/alarm-ambang";
-import type { KejadianRingkas } from "@/lib/aturan-kejadian";
+import { JENDELA_LENCANA_MS, type KejadianRingkas } from "@/lib/aturan-kejadian";
+import { waktuDateLokal } from "@/components/monitoring/format";
 import { ringkasKejadian } from "@/lib/kejadian-alarm";
 
 export const dynamic = "force-dynamic";
@@ -72,8 +73,23 @@ export async function GET() {
       console.error("[GET /api/alarm-ambang] kejadian:", e instanceof Error ? e.message : e);
     }
 
+    // Kejadian 24 jam terakhir, selesai maupun belum — bahan hitungan "belum
+    // dibuka" di lencana menu Riwayat Alarm (lencanaRiwayat di aturan-kejadian.ts).
+    let terbaru: KejadianRingkas[] = [];
+    try {
+      const sejak = waktuDateLokal(Date.now() - JENDELA_LENCANA_MS);
+      const baris = await prisma.kejadianAlarm.findMany({
+        where: { OR: [{ mulai: { gte: sejak } }, { pulih: { gte: sejak } }] },
+        orderBy: { id: "desc" },
+        take: 20,
+      });
+      terbaru = await ringkasKejadian(baris, true);
+    } catch (e) {
+      console.error("[GET /api/alarm-ambang] terbaru:", e instanceof Error ? e.message : e);
+    }
+
     return NextResponse.json(
-      { success: true, data, kejadian },
+      { success: true, data, kejadian, terbaru },
       { headers: { "Cache-Control": "no-store" } }
     );
   } catch (error) {

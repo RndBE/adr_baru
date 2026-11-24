@@ -18,6 +18,8 @@ import {
   teksKonfirmasi,
   teksVerifikasi,
   tersembunyiDariBanner,
+  lencanaRiwayat,
+  tingkatLencana,
   uraiCatatanModal,
   validasiVerifikasi,
   type KejadianRingkas,
@@ -89,6 +91,18 @@ assert.equal(statusKejadian(senyap), "disenyapkan");
 assert.equal(statusKejadian({ ...senyap, tingkatTerakhir: "Awas" }), "perlu-konfirmasi");
 assert.equal(statusKejadian({ ...dasar, pulih: "2026-11-16 14:00:00", tingkatTerakhir: "Normal" }), "perlu-verifikasi");
 assert.equal(statusKejadian({ ...senyap, diverifikasi: "2026-11-16 14:10:00", hasil: "palsu" }), "selesai");
+
+// ── lencanaRiwayat: aktif + belum dibuka ─────────────────────────────────────
+{
+  const k3 = { ...dasar, id: 3, tingkatPuncak: "Awas" as const, tingkatTerakhir: "Normal" as const, pulih: "2026-11-23 16:34:57", hasil: "benar" as const };
+  const k4 = { ...dasar, id: 4, tingkatPuncak: "Awas" as const, tingkatTerakhir: "Awas" as const, prismaPuncak: "P1" };
+  assert.deepEqual(lencanaRiwayat([k4], [k4, k3], 0).map((k) => k.id), [4, 3], "selesai tapi belum dibuka ikut dihitung");
+  assert.deepEqual(lencanaRiwayat([k4], [k4, k3], 4).map((k) => k.id), [4], "sesudah dibuka: tinggal yang aktif");
+  assert.deepEqual(lencanaRiwayat([], [k3], 3), [], "semua selesai dan sudah dibuka: kosong");
+  assert.deepEqual(lencanaRiwayat([{ ...k4, tingkatTerakhir: "Normal" }], [], 0), [], "aktif tapi Normal tidak dihitung");
+  assert.equal(tingkatLencana(k3), "Awas", "selesai: tingkat puncak");
+  assert.equal(tingkatLencana({ ...k4, tingkatTerakhir: "Siaga" }), "Siaga", "aktif: tingkat sekarang");
+}
 
 // ── tersembunyiDariBanner ───────────────────────────────────────────────────
 const terverifikasi = { ...senyap, diverifikasi: "2026-11-16 14:10:00", hasil: "benar" as const };

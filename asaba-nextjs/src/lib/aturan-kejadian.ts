@@ -298,6 +298,36 @@ export function statusKejadian(k: KejadianRingkas): StatusKejadian {
  * menu Riwayat Alarm. Begitu tingkatnya naik melewati yang dikonfirmasi,
  * statusnya kembali "perlu-konfirmasi" dan banner muncul lagi.
  */
+/** Seberapa jauh ke belakang kejadian selesai masih dihitung "belum dibuka". */
+export const JENDELA_LENCANA_MS = 24 * 60 * 60 * 1000;
+
+/**
+ * Kejadian yang dihitung lencana menu Riwayat Alarm: yang masih aktif di atas
+ * Normal, ditambah kejadian 24 jam terakhir yang belum dilihat di peramban
+ * ini (`dibaca` = id terbesar saat halaman Riwayat Alarm terakhir dibuka).
+ * Kejadian yang sudah selesai tetap terhitung sampai halamannya dibuka —
+ * dua alarm berturut-turut tampil 2, bukan 1 (24 Nov 2026).
+ */
+export function lencanaRiwayat(
+  aktif: readonly KejadianRingkas[],
+  terbaru: readonly KejadianRingkas[],
+  dibaca: number
+): KejadianRingkas[] {
+  const hasil = new Map<number, KejadianRingkas>();
+  for (const k of aktif) {
+    if (k.pulih === null && k.tingkatTerakhir !== "Normal") hasil.set(k.id, k);
+  }
+  for (const k of terbaru) {
+    if (k.id > dibaca && !hasil.has(k.id)) hasil.set(k.id, k);
+  }
+  return [...hasil.values()].sort((a, b) => b.id - a.id);
+}
+
+/** Tingkat yang mewakili kejadian di lencana: sekarang bila aktif, puncaknya bila sudah selesai. */
+export function tingkatLencana(k: KejadianRingkas): StatusLabel {
+  return k.pulih === null ? k.tingkatTerakhir : k.tingkatPuncak;
+}
+
 export function tersembunyiDariBanner(k: KejadianRingkas): boolean {
   return k.pulih === null && statusKejadian(k) === "selesai";
 }
