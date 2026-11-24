@@ -5,7 +5,7 @@ import { getSite } from "@/lib/sites";
 import { bolehVerifikasi, teksVerifikasi, validasiVerifikasi } from "@/lib/aturan-kejadian";
 import { sekarangDb, teksWaktuDb } from "@/lib/kejadian-alarm";
 import { kirimKabar } from "@/lib/kirim-peringatan";
-import { bacaId, gagal, namaOperator, tolakKodeAkses } from "@/lib/api-kejadian";
+import { bacaId, gagal, namaOperator, tolakAksesKejadian } from "@/lib/api-kejadian";
 
 /**
  * POST /api/kejadian-alarm/[id]/verifikasi
@@ -25,7 +25,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     if (!id) return gagal(400, "Id kejadian tidak sah");
 
     const body = (await req.json().catch(() => ({}))) as Record<string, unknown>;
-    const ditolak = await tolakKodeAkses(body.kode_akses);
+    const ditolak = await tolakAksesKejadian(body.kode_akses);
     if (ditolak) return ditolak;
 
     const isi = validasiVerifikasi(body);

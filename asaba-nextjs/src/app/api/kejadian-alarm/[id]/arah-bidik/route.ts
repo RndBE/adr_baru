@@ -3,7 +3,7 @@ import { prisma } from "@/lib/prisma";
 import { kabarkanAcuanBaru, tetapkanAcuanPrisma } from "@/lib/acuan-prisma";
 import { getLoggerForSite, getSite } from "@/lib/sites";
 import { publishMqtt, topikPerintah } from "@/lib/mqtt";
-import { bacaId, gagal, namaOperator, tolakKodeAkses } from "@/lib/api-kejadian";
+import { bacaId, gagal, namaOperator, tolakAksesKejadian } from "@/lib/api-kejadian";
 import { sudutKosong } from "@/lib/koreksi-azimut";
 import { rtsSibuk } from "@/lib/rts-sibuk";
 import {
@@ -163,7 +163,7 @@ export async function GET(_req: NextRequest, { params }: Konteks) {
 export async function POST(req: NextRequest, { params }: Konteks) {
   try {
     const body = (await req.json().catch(() => ({}))) as Record<string, unknown>;
-    const ditolak = await tolakKodeAkses(body.kode_akses);
+    const ditolak = await tolakAksesKejadian(body.kode_akses);
     if (ditolak) return ditolak;
 
     const m = await muatKejadian((await params).id);

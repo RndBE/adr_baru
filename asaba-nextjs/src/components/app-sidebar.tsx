@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { signOut } from "next-auth/react";
+import { signOut, useSession } from "next-auth/react";
 import Image from "next/image";
 import { LogOut, Settings2, Combine, Siren
 } from "lucide-react";
@@ -20,6 +20,7 @@ import {
 } from "@/components/ui/sidebar";
 import { cn } from "@/lib/utils";
 import { LencanaMenuAlarm } from "@/components/alarm-ambang";
+import { LEVEL_GEOTECH, halamanTerlarangGeotech } from "@/lib/akses-level";
 
 type SidebarIconProps = {
   className?: string;
@@ -233,6 +234,14 @@ const navGroups: { label: string; items: NavItem[] }[] = [
  */
 export function AppSidebar() {
   const pathname = usePathname();
+  const { data: sesi } = useSession();
+  // Akun geotech tidak melihat menu kontrol RTS dan master data (akses-level.ts).
+  const geotech = (sesi?.user as { role?: string } | undefined)?.role === LEVEL_GEOTECH;
+  const grupTampil = geotech
+    ? navGroups
+        .map((g) => ({ ...g, items: g.items.filter((i) => !halamanTerlarangGeotech(i.href)) }))
+        .filter((g) => g.items.length > 0)
+    : navGroups;
 
   const isItemActive = (href: string) => pathname.startsWith(href);
 
@@ -336,7 +345,7 @@ export function AppSidebar() {
           </SidebarGroupContent>
         </SidebarGroup>
 
-        {navGroups.map((group) => (
+        {grupTampil.map((group) => (
           <SidebarGroup key={group.label} className="p-0">
             {/* Di mode ringkas label ini disembunyikan penuh. Base-nya hanya
                 meng-nol-kan opacity dan menarik margin (-mt-8) dengan asumsi

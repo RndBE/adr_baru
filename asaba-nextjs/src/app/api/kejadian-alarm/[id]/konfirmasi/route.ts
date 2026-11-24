@@ -5,7 +5,7 @@ import { getSite } from "@/lib/sites";
 import { perluKonfirmasi, teksKonfirmasi } from "@/lib/aturan-kejadian";
 import { sekarangDb, sinkronEws, teksWaktuDb } from "@/lib/kejadian-alarm";
 import { kirimKabar } from "@/lib/kirim-peringatan";
-import { bacaId, gagal, namaOperator, tolakKodeAkses } from "@/lib/api-kejadian";
+import { bacaId, gagal, namaOperator, tolakAksesKejadian } from "@/lib/api-kejadian";
 
 /**
  * POST /api/kejadian-alarm/[id]/konfirmasi
@@ -30,7 +30,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     if (!id) return gagal(400, "Id kejadian tidak sah");
 
     const body = (await req.json().catch(() => ({}))) as { kode_akses?: unknown };
-    const ditolak = await tolakKodeAkses(body.kode_akses);
+    const ditolak = await tolakAksesKejadian(body.kode_akses);
     if (ditolak) return ditolak;
 
     const k = await prisma.kejadianAlarm.findUnique({ where: { id } });

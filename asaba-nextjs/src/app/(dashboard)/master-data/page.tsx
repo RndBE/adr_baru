@@ -204,7 +204,7 @@ function TabLokasi() {
 
 // ─── TAB USER ───────────────────────────────────────────────────────────────
 
-const LEVEL_OPTIONS = ["admin", "operator", "viewer"];
+const LEVEL_OPTIONS = ["admin", "operator", "geotech", "viewer"];
 
 function TabUser() {
   const [data, setData] = useState<UserData[]>([]);

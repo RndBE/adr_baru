@@ -27,6 +27,14 @@ import { type StatusLabel, indeksStatus } from "@/lib/ambang";
 import type { PrismaAlarm } from "@/lib/alarm-ambang";
 import { DialogRekamArah } from "@/components/kejadian-alarm/dialog-rekam-arah";
 import { REKAM_ARAH_AKTIF } from "@/lib/rekam-arah";
+import { useSession } from "next-auth/react";
+import { LEVEL_GEOTECH } from "@/lib/akses-level";
+
+/** Akun geotech menangani alarm dengan login pribadinya, tanpa kode akses (akses-level.ts). */
+function usePerluKode(): boolean {
+  const { data } = useSession();
+  return (data?.user as { role?: string } | undefined)?.role !== LEVEL_GEOTECH;
+}
 
 /**
  * Modal alarm (konfirmasi) dan dialog verifikasi kejadian alarm. Dipasang satu
@@ -178,6 +186,7 @@ export function ModalAlarm({
   onSelesai: (ews: HasilEws | undefined) => void;
 }) {
   const [kode, setKode] = useState("");
+  const perluKode = usePerluKode();
   const [proses, setProses] = useState(false);
   const [galat, setGalat] = useState("");
 
@@ -196,7 +205,7 @@ export function ModalAlarm({
     .sort((a, b) => indeksStatus(b.tingkat) - indeksStatus(a.tingkat) || (b.nilaiMm ?? -1) - (a.nilaiMm ?? -1));
 
   const konfirmasi = async () => {
-    if (proses || !kode.trim()) return;
+    if (proses || (perluKode && !kode.trim())) return;
     setProses(true);
     setGalat("");
     try {
@@ -274,14 +283,14 @@ export function ModalAlarm({
           </p>
 
           {galat && <ModalError>{galat}</ModalError>}
-          <InputKodeAkses nilai={kode} ubah={setKode} onEnter={konfirmasi} autoFocus />
+          {perluKode && <InputKodeAkses nilai={kode} ubah={setKode} onEnter={konfirmasi} autoFocus />}
         </div>
 
         <div className="flex shrink-0 gap-2 px-5 pt-3 pb-3.5">
           <button
             type="button"
             onClick={konfirmasi}
-            disabled={proses || !kode.trim()}
+            disabled={proses || (perluKode && !kode.trim())}
             className={cn(TOMBOL_BAHAYA, "h-10 flex-1")}
           >
             {proses && <Loader2 className="size-4 animate-spin" />}
@@ -338,6 +347,7 @@ export function DialogVerifikasi({
   const [penyebab, setPenyebab] = useState(k.penyebab ?? "");
   const [catatan, setCatatan] = useState(k.catatan ?? "");
   const [kode, setKode] = useState("");
+  const perluKode = usePerluKode();
   const [proses, setProses] = useState(false);
   const [galat, setGalat] = useState("");
   // Pergeseran yang benar membuat arah bidik tersimpan meleset dari prisma.
@@ -350,7 +360,7 @@ export function DialogVerifikasi({
     hasil !== null &&
     (hasil === "benar" || penyebab !== "") &&
     catatan.trim().length >= CATATAN_MIN &&
-    kode.trim() !== "";
+    (!perluKode || kode.trim() !== "");
 
   const simpan = async () => {
     if (proses || !lengkap) return;
@@ -501,7 +511,7 @@ export function DialogVerifikasi({
         </p>
       </div>
 
-      <InputKodeAkses nilai={kode} ubah={setKode} onEnter={simpan} />
+      {perluKode && <InputKodeAkses nilai={kode} ubah={setKode} onEnter={simpan} />}
     </ModalShell>
   );
 }

@@ -22,6 +22,7 @@ import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 import { getToken } from "next-auth/jwt";
 import { tokenDariHeader, verifikasiTokenMobile } from "@/lib/mobile-auth";
+import { LEVEL_GEOTECH, geotechDitolak } from "@/lib/akses-level";
 
 /**
  * Jalur yang WAJIB tetap terbuka.
@@ -94,6 +95,16 @@ export async function proxy(request: NextRequest) {
   }
 
   if (token) {
+    // Akun geotech: lihat semua, tangani alarm, tapi tidak mengontrol RTS.
+    if (token.role === LEVEL_GEOTECH && geotechDitolak(pathname, request.method)) {
+      if (pathname.startsWith("/api/")) {
+        return NextResponse.json(
+          { success: false, error: "Akun geotech tidak boleh menjalankan ini." },
+          { status: 403, headers: { "Cache-Control": "no-store" } }
+        );
+      }
+      return NextResponse.redirect(new URL("/beranda", request.url));
+    }
     const res = NextResponse.next();
     // Tanpa ini, menekan Back sesudah Keluar menampilkan dasbor dari cache
     // peramban — halaman yang sudah ter-render tidak menyentuh server lagi,
