@@ -660,7 +660,8 @@ export function AnalisaGabungan({
           <div className="border-t border-(--line) px-5 py-4">
             <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
               <p className="font-display text-[11px] font-semibold uppercase tracking-[0.14em] text-(--ink-3)">
-                Sepanjang rentang
+                {/* Satuan tidak ikut huruf kapital: "MM" bukan milimeter. */}
+                Pergeseran sepanjang rentang <span className="normal-case">(mm)</span>
               </p>
               <p className="text-[11.5px] text-(--ink-3)">
                 {seri.baris.length} titik · {akhir ? "jarak dari acuan R0" : "gerak dari awal rentang"}, mm
