@@ -306,6 +306,12 @@ export interface KejadianRingkas {
   penyebab: string | null;
   catatan: string | null;
   /**
+   * Bunyi dimatikan otomatis jam malam (belum dikonfirmasi), dan pada tingkat
+   * apa. Lihat aturan-senyap-malam.ts. Kosong = tidak.
+   */
+  dibungkam?: string | null;
+  tingkatDibungkam?: StatusLabel | null;
+  /**
    * Site punya logger EWS (sirene + lampu). Tampilan memakainya untuk tidak
    * menjanjikan "sirene dimatikan" di site yang tidak punya sirene. Kosong
    * (tidak diisi) diperlakukan sebagai ada.

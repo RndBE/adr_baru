@@ -17,6 +17,7 @@ import {
   statusKecepatan as aturanKecepatan,
 } from "@/lib/ambang";
 import { AKURASI_BAWAAN, type AkurasiRts } from "@/lib/akurasi-rts";
+import { SENYAP_MALAM_BAWAAN, type SenyapMalam } from "@/lib/aturan-senyap-malam";
 
 // ─── Tipe ───────────────────────────────────────────────────────────────────
 
@@ -120,6 +121,8 @@ export interface SiteConfig {
   idLogger: string | null;
   /** Kode logger EWS (sirene) site ini. Null bila site tidak punya EWS. */
   idLoggerEws: string | null;
+  /** Bunyi alarm dimatikan otomatis jam malam — lihat @/lib/aturan-senyap-malam. */
+  senyapMalam: SenyapMalam;
   terkalibrasi: boolean;
   /** True bila koordinat/ambang site ini masih nilai contoh, bukan hasil survei. */
   dataDummy: boolean;
@@ -157,6 +160,7 @@ export function fallbackSite(slug: string): SiteConfig {
     rotation: null,
     idLogger: null,
     idLoggerEws: null,
+    senyapMalam: SENYAP_MALAM_BAWAAN,
     terkalibrasi: false,
     dataDummy: false,
     aktif: true,
@@ -214,6 +218,10 @@ type SiteRow = {
   ukur_lng: number | null;
   id_logger: string | null;
   id_logger_ews: string | null;
+  senyap_malam?: boolean;
+  senyap_malam_mulai?: string;
+  senyap_malam_selesai?: string;
+  senyap_malam_menit?: number;
   terkalibrasi: boolean;
   data_dummy: boolean;
   aktif: boolean;
@@ -323,6 +331,12 @@ export function toSiteConfig(row: SiteRow): SiteConfig {
       : null,
     idLogger: row.id_logger,
     idLoggerEws: row.id_logger_ews ?? null,
+    senyapMalam: {
+      aktif: Boolean(row.senyap_malam),
+      mulai: row.senyap_malam_mulai ?? SENYAP_MALAM_BAWAAN.mulai,
+      selesai: row.senyap_malam_selesai ?? SENYAP_MALAM_BAWAAN.selesai,
+      menit: row.senyap_malam_menit ?? SENYAP_MALAM_BAWAAN.menit,
+    },
     terkalibrasi: row.terkalibrasi,
     dataDummy: row.data_dummy,
     aktif: row.aktif,

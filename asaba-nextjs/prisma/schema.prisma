@@ -649,6 +649,15 @@ model Site {
   /// tidak punya EWS, perintah dilewati. Lihat migrasi 022 dan src/lib/ews.ts.
   id_logger_ews String? @db.VarChar(10)
 
+  /// Bunyi alarm (sirene + lampu EWS + peramban) dimatikan otomatis bila
+  /// berbunyi pada jam malam tanpa konfirmasi selama senyap_malam_menit.
+  /// Jam "HH:MM" waktu lokal; mulai > selesai = melewati tengah malam.
+  /// Lihat migrasi 027 dan src/lib/aturan-senyap-malam.ts.
+  senyap_malam         Boolean @default(false)
+  senyap_malam_mulai   String  @default("17:00") @db.Char(5)
+  senyap_malam_selesai String  @default("08:00") @db.Char(5)
+  senyap_malam_menit   Int     @default(10)
+
   /// Dihitung otomatis oleh API: true bila rts_* dan map_* sudah terisi.
   terkalibrasi Boolean @default(false)
   /// Ditandai manual: koordinat/ambang site ini masih nilai contoh, bukan hasil
@@ -728,6 +737,12 @@ model KejadianAlarm {
   /// JSON {"P1": rts.id, ...}: tembakan terakhir tiap prisma saat konfirmasi.
   /// Bergeser lagi dari sini = bunyi lagi (bergeserSesudahKonfirmasi).
   posisi_dikonfirmasi  String?   @db.Text
+  /// Bunyi terakhir menyala sejak kapan. NULL = sejak `mulai`.
+  berbunyi_sejak       DateTime? @db.DateTime(0)
+  /// Bunyi dimatikan otomatis jam malam (bukan konfirmasi). Lihat migrasi 027.
+  dibungkam            DateTime? @db.DateTime(0)
+  tingkat_dibungkam    String?   @db.VarChar(10)
+  posisi_dibungkam     String?   @db.Text
   diverifikasi         DateTime? @db.DateTime(0)
   diverifikasi_oleh    String?   @db.VarChar(100)
   /// "benar" (pergeseran nyata) atau "palsu".

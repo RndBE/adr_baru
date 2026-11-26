@@ -17,9 +17,18 @@ import {
   catatanAlarmUlang,
   langkahKejadian,
   naikSesudahKonfirmasi,
+  tambahCatatan,
   tingkatTercakup,
   uraiPosisiDikonfirmasi,
 } from "@/lib/aturan-kejadian";
+import {
+  barisCatatanBungkam,
+  barisCatatanBunyiLagi,
+  perluBungkamMalam,
+  teksBungkamMalam,
+  tingkatTersenyap,
+} from "@/lib/aturan-senyap-malam";
+import { getSite } from "@/lib/sites";
 import { type BarisRts, pergeseranMm } from "@/lib/pergeseran";
 import type { rotateEN } from "@/lib/coordinates";
 import { type EwsTerkirim, perluKirimEws, tingkatUntukEws } from "@/lib/ews";
@@ -55,6 +64,8 @@ export function keRingkas(k: KejadianAlarm, namaSite: string, adaEws?: boolean):
     hasil: k.hasil === "benar" || k.hasil === "palsu" ? k.hasil : null,
     penyebab: k.penyebab,
     catatan: k.catatan,
+    dibungkam: teksWaktuDb(k.dibungkam),
+    tingkatDibungkam: asStatusLabel(k.tingkat_dibungkam),
     adaEws,
   };
 }
@@ -135,6 +146,7 @@ export async function catatKejadian(opsi: {
           tingkat_terakhir: tingkat,
           prisma_puncak: puncak?.idPrisma ?? null,
           nilai_puncak_mm: puncak?.nilaiMm ?? null,
+          berbunyi_sejak: waktu,
         },
       });
       console.log(`[peringatan][kejadian] ${site}: dibuka, ${tingkat} (siklus ${idLog})`);
@@ -153,7 +165,7 @@ export async function catatKejadian(opsi: {
             : {}),
         },
       });
-      await batalkanKonfirmasiBilaNaik(aktif!, opsi.prisma ?? [], opsi.rotasi ?? null, waktu, idLog);
+      await bunyikanLagiBilaMemburuk(aktif!, opsi.prisma ?? [], opsi.rotasi ?? null, waktu, idLog);
       return;
     case "pulih":
       await prisma.kejadianAlarm.update({
@@ -176,17 +188,23 @@ export async function catatKejadian(opsi: {
  * Bersyarat pada `dikonfirmasi` yang barusan dibaca: konfirmasi ulang yang
  * masuk di antaranya tidak ikut terhapus.
  */
-async function batalkanKonfirmasiBilaNaik(
+type PrismaSiklus = ReadonlyArray<{ idPrisma: string; tingkat: StatusLabel; bacaan?: BarisRts; batasMm?: number }>;
+
+/**
+ * Yang memburuk sejak `batas` (jam konfirmasi atau jam bunyi dibungkam):
+ * prisma yang naik melewati tingkat tertinggi yang dicapainya sampai saat itu,
+ * dan prisma yang bergeser lagi dari posisinya saat itu (`posisiTeks`).
+ */
+async function memburukSejak(
   aktif: KejadianAlarm,
-  prismaSiklus: ReadonlyArray<{ idPrisma: string; tingkat: StatusLabel; bacaan?: BarisRts; batasMm?: number }>,
-  rotasi: Parameters<typeof rotateEN>[2] | null,
-  waktu: Date,
-  idLog: string
-): Promise<void> {
-  if (!aktif.dikonfirmasi || prismaSiklus.length === 0) return;
+  batas: Date,
+  posisiTeks: string | null,
+  prismaSiklus: PrismaSiklus,
+  rotasi: Parameters<typeof rotateEN>[2] | null
+) {
   const [riwayat, acuan] = await Promise.all([
     prisma.logPeringatan.findMany({
-      where: { site: aktif.site, waktu: { gte: aktif.mulai, lte: aktif.dikonfirmasi } },
+      where: { site: aktif.site, waktu: { gte: aktif.mulai, lte: batas } },
       select: { id_prisma: true, ke: true, waktu: true },
     }),
     // Prisma yang diberi acuan baru selama kejadian ini: riwayatnya sebelum
@@ -207,7 +225,67 @@ async function batalkanKonfirmasiBilaNaik(
       sejak
     )
   );
-  const bergeser = await bergeserLagi(aktif, prismaSiklus, rotasi);
+  const bergeser = await bergeserLagi(posisiTeks, prismaSiklus, rotasi);
+  return { naik, bergeser };
+}
+
+/**
+ * Bunyi kejadian ini menyala lagi bila keadaannya memburuk sejak bunyinya
+ * didiamkan — oleh konfirmasi, atau oleh senyap jam malam bila belum
+ * dikonfirmasi (aturan-senyap-malam.ts). sinkronEws, dipanggil sesudah ini,
+ * lalu menyalakan sirene; peramban menyusul lewat /api/alarm-ambang.
+ */
+async function bunyikanLagiBilaMemburuk(
+  aktif: KejadianAlarm,
+  prismaSiklus: PrismaSiklus,
+  rotasi: Parameters<typeof rotateEN>[2] | null,
+  waktu: Date,
+  idLog: string
+): Promise<void> {
+  if (prismaSiklus.length === 0) return;
+  if (aktif.dikonfirmasi) {
+    await batalkanKonfirmasiBilaNaik(aktif, prismaSiklus, rotasi, waktu, idLog);
+    return;
+  }
+  if (!aktif.dibungkam) return;
+  const { naik, bergeser } = await memburukSejak(aktif, aktif.dibungkam, aktif.posisi_dibungkam, prismaSiklus, rotasi);
+  if (naik.length === 0 && bergeser.length === 0) return;
+  const ubah = await prisma.kejadianAlarm.updateMany({
+    where: { id: aktif.id, pulih: null, dikonfirmasi: null, dibungkam: aktif.dibungkam },
+    data: {
+      dibungkam: null,
+      tingkat_dibungkam: null,
+      posisi_dibungkam: null,
+      berbunyi_sejak: waktu,
+      catatan: tambahCatatan(aktif.catatan, barisCatatanBunyiLagi(teksWaktuDb(waktu) ?? "", naik, bergeser)),
+    },
+  });
+  if (ubah.count > 0) {
+    console.log(
+      `[peringatan][kejadian] ${aktif.site} #${aktif.id}: memburuk sesudah bunyi dimatikan jam malam — bunyi menyala lagi (siklus ${idLog})`
+    );
+  }
+}
+
+/**
+ * Konfirmasi hanya mencakup yang sudah terjadi saat tombolnya ditekan; lihat
+ * catatan di atas memburukSejak().
+ */
+async function batalkanKonfirmasiBilaNaik(
+  aktif: KejadianAlarm,
+  prismaSiklus: PrismaSiklus,
+  rotasi: Parameters<typeof rotateEN>[2] | null,
+  waktu: Date,
+  idLog: string
+): Promise<void> {
+  if (!aktif.dikonfirmasi) return;
+  const { naik, bergeser } = await memburukSejak(
+    aktif,
+    aktif.dikonfirmasi,
+    aktif.posisi_dikonfirmasi,
+    prismaSiklus,
+    rotasi
+  );
   if (naik.length === 0 && bergeser.length === 0) return;
 
   const catatan = catatanAlarmUlang({
@@ -239,6 +317,11 @@ async function batalkanKonfirmasiBilaNaik(
       diverifikasi_oleh: null,
       hasil: null,
       penyebab: null,
+      // Berbunyi lagi dari awal: hitungan senyap jam malam juga mulai lagi.
+      berbunyi_sejak: waktu,
+      dibungkam: null,
+      tingkat_dibungkam: null,
+      posisi_dibungkam: null,
       catatan,
     },
   });
@@ -260,11 +343,11 @@ async function batalkanKonfirmasiBilaNaik(
  * Kosong bila kejadiannya dikonfirmasi sebelum kolomnya ada.
  */
 async function bergeserLagi(
-  aktif: KejadianAlarm,
+  posisiTeks: string | null,
   prismaSiklus: ReadonlyArray<{ idPrisma: string; bacaan?: BarisRts; batasMm?: number }>,
   rotasi: Parameters<typeof rotateEN>[2] | null
 ): Promise<Array<{ idPrisma: string; geserMm: number | null; batasMm: number }>> {
-  const posisi = uraiPosisiDikonfirmasi(aktif.posisi_dikonfirmasi);
+  const posisi = uraiPosisiDikonfirmasi(posisiTeks);
   const ids = Object.values(posisi);
   if (ids.length === 0) return [];
   const baris = await prisma.$queryRaw<Array<{ id: number } & BarisRts>>`
@@ -277,6 +360,75 @@ async function bergeserLagi(
     return [{ idPrisma: p.idPrisma, geserMm: pergeseranMm(p.bacaan, acuan, rotasi), batasMm: p.batasMm }];
   });
   return bergeserSesudahKonfirmasi(hitung);
+}
+
+/**
+ * Matikan bunyi kejadian yang berbunyi pada jam malam terlalu lama tanpa
+ * konfirmasi (perluBungkamMalam). Dipanggil cron tiap menit lewat
+ * POST /api/jadwal-running/senyap-malam. Kejadiannya tetap belum dikonfirmasi;
+ * yang berubah hanya sirene (level 0 lewat sinkronEws) dan suara peramban.
+ *
+ * Mengembalikan kejadian yang barusan dibungkam beserta teks kabarnya; pemanggil
+ * yang mengirim kabar. Galat satu kejadian tidak menghentikan yang lain.
+ */
+export async function jalankanSenyapMalam(
+  sekarang: Date = sekarangDb()
+): Promise<Array<{ id: number; site: string; ews: HasilEws; teks: string }>> {
+  const hasil: Array<{ id: number; site: string; ews: HasilEws; teks: string }> = [];
+  const calon = await prisma.kejadianAlarm.findMany({
+    where: { pulih: null, dikonfirmasi: null, dibungkam: null, NOT: { tingkat_terakhir: "Normal" } },
+  });
+  for (const k of calon) {
+    try {
+      const cfg = await getSite(k.site);
+      const tingkat = asStatusLabel(k.tingkat_terakhir) ?? "Normal";
+      const perlu = perluBungkamMalam(
+        {
+          aktif: true,
+          tingkatTerakhir: tingkat,
+          dikonfirmasi: false,
+          dibungkam: false,
+          // getTime() di kedua sisi: keduanya jam dinding, selisihnya benar.
+          berbunyiSejakMs: (k.berbunyi_sejak ?? k.mulai).getTime(),
+        },
+        cfg.senyapMalam,
+        sekarang.getTime()
+      );
+      if (!perlu) continue;
+
+      const waktu = teksWaktuDb(sekarang) ?? "";
+      const ubah = await prisma.kejadianAlarm.updateMany({
+        where: { id: k.id, pulih: null, dikonfirmasi: null, dibungkam: null, tingkat_terakhir: k.tingkat_terakhir },
+        data: {
+          dibungkam: sekarang,
+          tingkat_dibungkam: tingkat,
+          // Bergeser lagi dari posisi ini membunyikannya lagi.
+          posisi_dibungkam: await posisiPrismaSekarang(k.site).catch(() => null),
+          catatan: tambahCatatan(k.catatan, barisCatatanBungkam(waktu, cfg.senyapMalam.menit)),
+        },
+      });
+      if (ubah.count === 0) continue;
+
+      const ews = await sinkronEws(k.site, cfg.idLoggerEws, tingkat);
+      console.log(`[peringatan][senyap-malam] ${k.site} #${k.id}: ${tingkat} dibungkam, ews=${ews}`);
+      hasil.push({
+        id: k.id,
+        site: k.site,
+        ews,
+        teks: teksBungkamMalam({
+          namaSite: cfg.nama,
+          tingkat,
+          mulai: teksWaktuDb(k.mulai) ?? "",
+          waktu,
+          menit: cfg.senyapMalam.menit,
+          ews,
+        }),
+      });
+    } catch (e) {
+      console.error(`[peringatan][senyap-malam] #${k.id} ${k.site}: gagal (diabaikan):`, e instanceof Error ? e.message : e);
+    }
+  }
+  return hasil;
 }
 
 /**
@@ -325,7 +477,14 @@ export async function sinkronEws(
   let dikonfirmasi: StatusLabel | null = null;
   if (tingkat !== "Normal") {
     try {
-      dikonfirmasi = asStatusLabel((await kejadianAktif(site))?.tingkat_dikonfirmasi);
+      // Konfirmasi, atau bila belum dikonfirmasi, senyap jam malam.
+      const k = await kejadianAktif(site);
+      dikonfirmasi = k
+        ? tingkatTersenyap({
+            tingkatDikonfirmasi: asStatusLabel(k.tingkat_dikonfirmasi),
+            tingkatDibungkam: asStatusLabel(k.tingkat_dibungkam),
+          })
+        : null;
     } catch (e) {
       console.error(`${tag} ${site}: baca kejadian gagal, senyap diabaikan:`, e instanceof Error ? e.message : e);
     }
@@ -341,7 +500,7 @@ export async function sinkronEws(
 
     const ok = await sendEwsLevel(idLoggerEws, tujuan);
     const dari = terakhir ? `${terakhir.tingkat}@${terakhir.idLoggerEws}` : "belum pernah";
-    const senyap = tujuan !== tingkat ? ` (${tingkat} disenyapkan konfirmasi)` : "";
+    const senyap = tujuan !== tingkat ? ` (${tingkat} disenyapkan konfirmasi atau jam malam)` : "";
     console.log(
       `${tag} ${site}: ${dari} → ${tujuan}${senyap} ke sub_${idLoggerEws} ` +
         (ok ? "terkirim" : "GAGAL terbit — diulang di siklus berikutnya")

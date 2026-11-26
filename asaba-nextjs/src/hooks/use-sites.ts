@@ -47,6 +47,11 @@ export interface SiteRow {
   id_logger?: string | null;
   /** Logger EWS (sirene) site ini — kolom asli t_site, selalu ikut. */
   id_logger_ews?: string | null;
+  /** Bunyi alarm dimatikan otomatis jam malam — lihat @/lib/aturan-senyap-malam. */
+  senyap_malam?: boolean;
+  senyap_malam_mulai?: string;
+  senyap_malam_selesai?: string;
+  senyap_malam_menit?: number;
   /** Nama logger dari t_logger — hanya ada bila diminta with_logger=1. */
   nama_logger?: string | null;
   /**

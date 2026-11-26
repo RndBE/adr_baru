@@ -13,6 +13,7 @@ import {
 } from "@/components/ui/table";
 import type { SiteRow } from "@/hooks/use-sites";
 import { AKURASI_BAWAAN, toleransiMm } from "@/lib/akurasi-rts";
+import { SENYAP_MALAM_BAWAAN } from "@/lib/aturan-senyap-malam";
 
 /** Form memakai string untuk semua field angka supaya input bisa dikosongkan.
  *  String kosong dikirim apa adanya dan diterjemahkan jadi null oleh API. */
@@ -25,6 +26,10 @@ const KOSONG: FormState = {
   rts_akurasi_sudut_detik: String(AKURASI_BAWAAN.sudutDetik),
   rts_akurasi_jarak_mm: String(AKURASI_BAWAAN.jarakMm),
   rts_akurasi_jarak_ppm: String(AKURASI_BAWAAN.jarakPpm),
+  senyap_malam: false,
+  senyap_malam_mulai: SENYAP_MALAM_BAWAAN.mulai,
+  senyap_malam_selesai: SENYAP_MALAM_BAWAAN.selesai,
+  senyap_malam_menit: String(SENYAP_MALAM_BAWAAN.menit),
   rts_e: "", rts_n: "", rts_z: "",
   utm_zone: "50", utm_north: true,
   map_lat: "", map_lng: "", map_zoom: "16",
@@ -48,6 +53,10 @@ function toForm(row: SiteRow): FormState {
     rts_akurasi_sudut_detik: s(row.rts_akurasi_sudut_detik),
     rts_akurasi_jarak_mm: s(row.rts_akurasi_jarak_mm),
     rts_akurasi_jarak_ppm: s(row.rts_akurasi_jarak_ppm),
+    senyap_malam: row.senyap_malam === true,
+    senyap_malam_mulai: row.senyap_malam_mulai ?? SENYAP_MALAM_BAWAAN.mulai,
+    senyap_malam_selesai: row.senyap_malam_selesai ?? SENYAP_MALAM_BAWAAN.selesai,
+    senyap_malam_menit: String(row.senyap_malam_menit ?? SENYAP_MALAM_BAWAAN.menit),
     rts_e: s(row.rts_e), rts_n: s(row.rts_n), rts_z: s(row.rts_z),
     utm_zone: s(row.utm_zone), utm_north: row.utm_north,
     map_lat: s(row.map_lat), map_lng: s(row.map_lng), map_zoom: s(row.map_zoom),
@@ -406,6 +415,25 @@ export function TabSite() {
                 <F label="Jarak (ppm)"><Input type="number" step="any" value={form.rts_akurasi_jarak_ppm as string} onChange={(e) => set("rts_akurasi_jarak_ppm", e.target.value)} className="font-mono" /></F>
               </div>
               <ContohToleransi form={form} />
+            </Seksi>
+
+            <Seksi
+              judul="Senyap Malam"
+              hint="Alarm yang berbunyi pada jam ini dan belum dikonfirmasi selama N menit: sirene, lampu EWS, dan suara di website dimatikan. Alarm tetap tampil dan tetap menunggu konfirmasi; bunyi menyala lagi bila tingkatnya naik atau prisma bergeser lagi."
+            >
+              <label className="flex w-fit cursor-pointer items-center gap-2 text-[13px]">
+                <input
+                  type="checkbox"
+                  checked={form.senyap_malam === true}
+                  onChange={(e) => set("senyap_malam", e.target.checked)}
+                />
+                Matikan bunyi otomatis pada jam malam
+              </label>
+              <div className="grid grid-cols-3 gap-3">
+                <F label="Mulai"><Input type="time" value={form.senyap_malam_mulai as string} onChange={(e) => set("senyap_malam_mulai", e.target.value)} disabled={form.senyap_malam !== true} className="font-mono" /></F>
+                <F label="Selesai"><Input type="time" value={form.senyap_malam_selesai as string} onChange={(e) => set("senyap_malam_selesai", e.target.value)} disabled={form.senyap_malam !== true} className="font-mono" /></F>
+                <F label="Sesudah (menit)" hint="1–120"><Input type="number" min={1} max={120} value={form.senyap_malam_menit as string} onChange={(e) => set("senyap_malam_menit", e.target.value)} disabled={form.senyap_malam !== true} /></F>
+              </div>
             </Seksi>
 
             <Seksi judul="Koordinat Referensi RTS (UTM)" hint="Kosongkan bila belum disurvei">

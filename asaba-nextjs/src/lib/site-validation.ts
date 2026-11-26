@@ -8,6 +8,7 @@
 import { hitungTerkalibrasi } from "@/lib/sites";
 import { validasiAmbang } from "@/lib/ambang-kolom";
 import { AKURASI_BAWAAN, validasiAkurasi } from "@/lib/akurasi-rts";
+import { SENYAP_MALAM_BAWAAN, validasiSenyapMalam } from "@/lib/aturan-senyap-malam";
 
 /** Angka opsional: "" dan null → null, sisanya divalidasi sebagai angka. */
 function optNum(v: unknown): number | null {
@@ -75,6 +76,12 @@ export function normalizeBody(body: Record<string, unknown>) {
         ? null
         : String(body.id_logger_ews).trim(),
 
+    // Bunyi alarm dimatikan otomatis jam malam — lihat @/lib/aturan-senyap-malam.
+    senyap_malam: Boolean(body.senyap_malam),
+    senyap_malam_mulai: String(body.senyap_malam_mulai ?? "").trim() || SENYAP_MALAM_BAWAAN.mulai,
+    senyap_malam_selesai: String(body.senyap_malam_selesai ?? "").trim() || SENYAP_MALAM_BAWAAN.selesai,
+    senyap_malam_menit: reqNum(body.senyap_malam_menit, SENYAP_MALAM_BAWAAN.menit),
+
     rotasi_deg: optNum(body.rotasi_deg),
     pivot_e: optNum(body.pivot_e),
     pivot_n: optNum(body.pivot_n),
@@ -111,6 +118,13 @@ export function validate(d: SitePayload): string | null {
     jarakPpm: d.rts_akurasi_jarak_ppm,
   });
   if (errAkurasi) return errAkurasi;
+  const errSenyap = validasiSenyapMalam({
+    aktif: d.senyap_malam,
+    mulai: d.senyap_malam_mulai,
+    selesai: d.senyap_malam_selesai,
+    menit: d.senyap_malam_menit,
+  });
+  if (errSenyap) return errSenyap;
 
   if (d.utm_zone < 1 || d.utm_zone > 60) return "Zona UTM harus antara 1 dan 60";
   if (d.map_lat !== null && (d.map_lat < -90 || d.map_lat > 90))

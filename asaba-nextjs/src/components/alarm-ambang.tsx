@@ -41,6 +41,7 @@ import {
   uraiCatatanModal,
   type KejadianRingkas,
 } from "@/lib/aturan-kejadian";
+import { tingkatTersenyap } from "@/lib/aturan-senyap-malam";
 import {
   DialogVerifikasi,
   ModalAlarm,
@@ -199,10 +200,16 @@ export function AlarmAmbangProvider({ children }: { children: React.ReactNode })
   }, [sahih, daftar, diakui]);
 
   // Prisma yang sudah dikonfirmasi operator (di peramban mana pun) tidak lagi
-  // berbunyi, selama tingkatnya tidak melebihi yang dikonfirmasi.
+  // berbunyi, selama tingkatnya tidak melebihi yang dikonfirmasi. Begitu pula
+  // yang bunyinya dimatikan otomatis jam malam — banner dan modalnya tetap.
   const baru = useMemo(() => {
     const senyap = new Map(
-      kejadian.filter((k) => k.pulih === null).map((k) => [k.site, k.tingkatDikonfirmasi])
+      kejadian
+        .filter((k) => k.pulih === null)
+        .map((k) => [
+          k.site,
+          tingkatTersenyap({ tingkatDikonfirmasi: k.tingkatDikonfirmasi, tingkatDibungkam: k.tingkatDibungkam ?? null }),
+        ])
     );
     return belumDiakui(daftar, diakui).filter(
       (p) => !senyapBerlaku(p.tingkat, senyap.get(p.site) ?? null)
@@ -721,6 +728,11 @@ export function BannerAlarm() {
                       Lihat
                     </Link>
                     {k && <AksiKejadian k={k} bukaKonfirmasi={bukaKonfirmasi} bukaVerifikasi={bukaVerifikasi} />}
+                    {k && k.dibungkam && !k.dikonfirmasi && (
+                      <span className="whitespace-nowrap text-xs text-[#4f5374]">
+                        Bunyi dimatikan otomatis {fmtWaktuPendek(k.dibungkam)} (jam malam) — belum dikonfirmasi
+                      </span>
+                    )}
                   </div>
                 );
               })}

@@ -275,7 +275,10 @@ export function ModalAlarm({
           <p className="mb-3 flex gap-2 text-[12.5px] leading-relaxed text-(--ink-2)">
             <BellRing className="mt-0.5 size-4 shrink-0" aria-hidden="true" />
             <span>
-              {adaSirene && "Sirene dan lampu rotary menyala di lapangan. "}
+              {adaSirene &&
+                (k.dibungkam
+                  ? `Bunyi sudah dimatikan otomatis ${fmtWaktuPendek(k.dibungkam)} (jam malam), tapi alarm belum dikonfirmasi. `
+                  : "Sirene dan lampu rotary menyala di lapangan. ")}
               Konfirmasi {adaSirene ? "mematikannya dan " : ""}membungkam suara di semua layar. Status
               tetap {tingkat} dan alarm berbunyi lagi bila tingkatnya naik atau ada prisma lain yang
               menyusul naik. Kabar dikirim ke WhatsApp.
