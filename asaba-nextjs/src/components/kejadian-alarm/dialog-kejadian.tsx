@@ -277,7 +277,7 @@ export function ModalAlarm({
             <span>
               {adaSirene &&
                 (k.dibungkam
-                  ? `Bunyi sudah dimatikan otomatis ${fmtWaktuPendek(k.dibungkam)} (jam malam), tapi alarm belum dikonfirmasi. `
+                  ? `Bunyi sudah dimatikan otomatis ${fmtWaktuPendek(k.dibungkam)}, tapi alarm belum dikonfirmasi. `
                   : "Sirene dan lampu rotary menyala di lapangan. ")}
               Konfirmasi {adaSirene ? "mematikannya dan " : ""}membungkam suara di semua layar. Status
               tetap {tingkat} dan alarm berbunyi lagi bila tingkatnya naik atau ada prisma lain yang

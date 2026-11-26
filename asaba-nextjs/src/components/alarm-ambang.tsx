@@ -730,7 +730,7 @@ export function BannerAlarm() {
                     {k && <AksiKejadian k={k} bukaKonfirmasi={bukaKonfirmasi} bukaVerifikasi={bukaVerifikasi} />}
                     {k && k.dibungkam && !k.dikonfirmasi && (
                       <span className="whitespace-nowrap text-xs text-[#4f5374]">
-                        Bunyi dimatikan otomatis {fmtWaktuPendek(k.dibungkam)} (jam malam) — belum dikonfirmasi
+                        Bunyi dimatikan otomatis {fmtWaktuPendek(k.dibungkam)} — belum dikonfirmasi
                       </span>
                     )}
                   </div>

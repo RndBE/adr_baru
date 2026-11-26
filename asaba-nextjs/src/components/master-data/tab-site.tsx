@@ -418,7 +418,7 @@ export function TabSite() {
             </Seksi>
 
             <Seksi
-              judul="Senyap Malam"
+              judul="Senyap"
               hint="Alarm yang berbunyi pada jam ini dan belum dikonfirmasi selama N menit: sirene, lampu EWS, dan suara di website dimatikan. Alarm tetap tampil dan tetap menunggu konfirmasi; bunyi menyala lagi bila tingkatnya naik atau prisma bergeser lagi."
             >
               <label className="flex w-fit cursor-pointer items-center gap-2 text-[13px]">
@@ -427,7 +427,7 @@ export function TabSite() {
                   checked={form.senyap_malam === true}
                   onChange={(e) => set("senyap_malam", e.target.checked)}
                 />
-                Matikan bunyi otomatis pada jam malam
+                Matikan bunyi otomatis
               </label>
               <div className="grid grid-cols-3 gap-3">
                 <F label="Mulai"><Input type="time" value={form.senyap_malam_mulai as string} onChange={(e) => set("senyap_malam_mulai", e.target.value)} disabled={form.senyap_malam !== true} className="font-mono" /></F>

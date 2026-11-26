@@ -77,7 +77,8 @@ const teks = teksBungkamMalam({
   namaSite: "Kolam BPP 1-4", tingkat: "Awas", mulai: "2026-11-26 22:37:00", waktu: "2026-11-26 22:47:00", menit: 10, ews: "terkirim",
 });
 assert.match(teks, /^\*\[Bunyi dimatikan otomatis\] Kolam BPP 1-4\*/);
-assert.match(teks, /belum dikonfirmasi 10 menit pada jam malam/);
+assert.match(teks, /belum dikonfirmasi selama 10 menit\./);
+assert.doesNotMatch(teks, /jam malam/, "rentangnya bisa sore sampai pagi");
 assert.match(teks, /MENUNGGU KONFIRMASI/);
 assert.doesNotMatch(
   teksBungkamMalam({ namaSite: "X", tingkat: "Awas", mulai: "", waktu: "", menit: 10, ews: "tanpa-ews" }),

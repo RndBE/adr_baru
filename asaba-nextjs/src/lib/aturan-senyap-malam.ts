@@ -109,7 +109,7 @@ export function tingkatTersenyap(k: {
 
 /** Baris catatan kejadian saat bunyi dimatikan. */
 export function barisCatatanBungkam(waktu: string, menit: number): string {
-  return `[${fmtWaktuPendek(waktu)}] Bunyi dimatikan otomatis (jam malam, ${menit} menit tanpa konfirmasi). Alarm belum dikonfirmasi.`;
+  return `[${fmtWaktuPendek(waktu)}] Bunyi dimatikan otomatis (${menit} menit tanpa konfirmasi). Alarm belum dikonfirmasi.`;
 }
 
 /** Baris catatan kejadian saat bunyi menyala lagi karena keadaannya memburuk. */
@@ -142,7 +142,7 @@ export function teksBungkamMalam(o: {
   };
   return [
     `*[Bunyi dimatikan otomatis] ${o.namaSite}*`,
-    `Alarm ${o.tingkat} sejak ${fmtWaktuPendek(o.mulai)} belum dikonfirmasi ${o.menit} menit pada jam malam.`,
+    `Alarm ${o.tingkat} sejak ${fmtWaktuPendek(o.mulai)} belum dikonfirmasi selama ${o.menit} menit.`,
     sirene[o.ews],
     "Bunyi di website juga berhenti, tapi alarm tetap tampil dan masih MENUNGGU KONFIRMASI.",
     "Bunyi menyala lagi bila tingkatnya naik, ada prisma lain yang menyusul naik, atau prisma bergeser lagi.",

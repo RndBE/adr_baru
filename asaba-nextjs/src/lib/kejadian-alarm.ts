@@ -262,7 +262,7 @@ async function bunyikanLagiBilaMemburuk(
   });
   if (ubah.count > 0) {
     console.log(
-      `[peringatan][kejadian] ${aktif.site} #${aktif.id}: memburuk sesudah bunyi dimatikan jam malam — bunyi menyala lagi (siklus ${idLog})`
+      `[peringatan][kejadian] ${aktif.site} #${aktif.id}: memburuk sesudah bunyi dimatikan otomatis — bunyi menyala lagi (siklus ${idLog})`
     );
   }
 }
@@ -500,7 +500,7 @@ export async function sinkronEws(
 
     const ok = await sendEwsLevel(idLoggerEws, tujuan);
     const dari = terakhir ? `${terakhir.tingkat}@${terakhir.idLoggerEws}` : "belum pernah";
-    const senyap = tujuan !== tingkat ? ` (${tingkat} disenyapkan konfirmasi atau jam malam)` : "";
+    const senyap = tujuan !== tingkat ? ` (${tingkat} disenyapkan konfirmasi atau senyap otomatis)` : "";
     console.log(
       `${tag} ${site}: ${dari} → ${tujuan}${senyap} ke sub_${idLoggerEws} ` +
         (ok ? "terkirim" : "GAGAL terbit — diulang di siklus berikutnya")
