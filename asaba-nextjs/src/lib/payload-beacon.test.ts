@@ -149,6 +149,34 @@ cek("nilai boolean → 422", (beaconKePayloadAdr({ id_alat: "1", sensor2: { nila
 cek("array berisi → 422", (beaconKePayloadAdr({ id_alat: "1", sensor2: [1] }) as { status?: number }).status, 422);
 cek("slot 26+ yang rusak tidak mengganggu", beaconKePayloadAdr({ id_alat: "1", sensor30: { nilai: { a: 1 } } }).ok, true);
 
+// ── Firmware BL1100-v2.9.1: sudut desimal lewat MAP_DATA s26/s27 ───────────
+{
+  const v291 = {
+    id_alat: "30002", hari: "2026-11-28", jam: "09:00:21",
+    sensor1: { nama: "ADR.ID_Target", nilai: "P1", satuan: "-" },
+    sensor5: { nama: "ADR.HA", nilai: "089,98,22", satuan: "gon" },
+    sensor6: { nama: "ADR.VA", nilai: "101,82,14", satuan: "gon" },
+    sensor7: { nama: "ADR.SD", nilai: 197.5544, satuan: "m" },
+    sensor8: {}, sensor9: {}, sensor10: {},
+    sensor26: { nama: "ADR.HA_des", nilai: 89.9822, satuan: "gon" },
+    sensor27: { nama: "ADR.VA_des", nilai: 101.8214, satuan: "gon" },
+  };
+  const h = beaconKePayloadAdr(v291);
+  cek("v2.9.1: ha_des dari sensor26", h.ok ? h.payload.ha_des : null, "89.9822");
+  cek("v2.9.1: va_des dari sensor27", h.ok ? h.payload.va_des : null, "101.8214");
+  cek("v2.9.1: sensor8-10 {} tetap kosong", h.ok ? [h.payload.sensor8 ?? null, h.payload.sensor9 ?? null, h.payload.sensor10 ?? null] : "x", [null, null, null]);
+  cek("v2.9.1: sensor26 tidak ikut sebagai slot rts", h.ok ? h.payload.sensor26 ?? null : "x", null);
+  cek("v2.9.1: lolos filter teks-objek", h.ok ? sensorBerisiTeksObjek(h.payload) : "x", null);
+
+  // Dipetakan ke slot lain pun tetap dikenali dari namanya.
+  const lain = beaconKePayloadAdr({ ...v291, sensor26: {}, sensor27: {}, sensor30: { nama: "ADR.HA_des", nilai: "89.9822" } });
+  cek("v2.9.1: nama di slot 30", lain.ok ? [lain.payload.ha_des ?? null, lain.payload.va_des ?? null] : "x", ["89.9822", null]);
+
+  // Slot 26 berisi hal lain: tidak terbaca sebagai sudut.
+  const bukan = beaconKePayloadAdr({ ...v291, sensor26: { nama: "Suhu_Box", nilai: 41.2 }, sensor27: {} });
+  cek("v2.9.1: slot 26 bernama lain diabaikan", bukan.ok ? bukan.payload.ha_des ?? null : "x", null);
+}
+
 if (gagal) {
   console.log(`\n${gagal} GAGAL`);
   process.exit(1);

@@ -14,7 +14,8 @@ import { waktuDbLokal, waktuMsLokal } from "@/components/monitoring/format";
 import { prisma } from "@/lib/prisma";
 import { publishMqtt } from "@/lib/mqtt";
 import { getSite, offsetLogger } from "@/lib/sites";
-import { sudutKosong, perbaikiTembakan, tulisKoordinat } from "@/lib/koreksi-azimut";
+import { bacaSudut, sudutKosong, perbaikiTembakan, tulisKoordinat } from "@/lib/koreksi-azimut";
+import { jenisKiriman, pilihSudut } from "@/lib/kiriman-adr";
 import { sesiTerakhirLogger, sesiUntukSiklus } from "@/lib/log-kontrol";
 import { awalSiklus, langkahKontrol } from "@/lib/sesi-kontrol";
 import { evaluasiBilaSesiLengkap, evaluasiSiklus } from "@/lib/evaluasi-siklus";
@@ -134,6 +135,10 @@ export async function prosesDataMasukAdr(
 
     const waktu = await getWaktu(payload, idAlat);
     const sensorData = buildSensorPayload(payload);
+    // Tembakan, tembakan gagal (SD 0), atau bukan tembakan (ID "0": laporan
+    // menit). Lihat kiriman-adr.ts — firmware BL1100-v2.9.1 tidak lagi
+    // mengulang tembakan di laporan menit.
+    const jenis = jenisKiriman(sensorData.sensor1, sensorData.sensor7);
     let idLog = "";
     let mqttPrismaSent = false;
     let mqttKontrolSent = false;
@@ -207,7 +212,7 @@ export async function prosesDataMasukAdr(
     //
     // Site tanpa parameter koreksi lewat tanpa tersentuh, begitu juga tembakan
     // gagal yang sudut atau jaraknya nol.
-    if (siteAktif) {
+    if (siteAktif && jenis === "tembakan") {
       const cfg = await getSite(siteAktif);
       if (cfg.koreksiAzimut && cfg.rts) {
         // Sebagian kiriman adalah SALINAN tembakan yang sama tanpa membawa
@@ -215,8 +220,18 @@ export async function prosesDataMasukAdr(
         // Sekitar 3% baris kolam_bpp berbentuk begitu. Sudutnya dipinjam dari
         // baris saudara yang sudah masuk lebih dulu di sesi dan slot prisma
         // yang sama. Query tambahan ini hanya jalan pada kiriman tanpa sudut.
-        let ha: unknown = sensorData.sensor5;
-        let va: unknown = sensorData.sensor6;
+        // Sudut desimal ADR.HA_des / ADR.VA_des (gon) lebih dulu; teks HA/VA
+        // cadangan untuk firmware lama. Lihat kiriman-adr.ts.
+        const pHa = pilihSudut(sensorData.sensor5, payload.ha_des, bacaSudut);
+        const pVa = pilihSudut(sensorData.sensor6, payload.va_des, bacaSudut);
+        if (pHa.beda !== null || pVa.beda !== null) {
+          console.warn(
+            `[datamasuk/${sumber}] ${idAlat} ${sensorData.sensor1}: teks sudut beda dari desimal ` +
+              `(HA ${sensorData.sensor5} vs ${payload.ha_des}, VA ${sensorData.sensor6} vs ${payload.va_des}) — desimal dipakai`
+          );
+        }
+        let ha: unknown = pHa.nilai;
+        let va: unknown = pVa.nilai;
         if ((sudutKosong(ha) || sudutKosong(va)) && idLog && sensorData.sensor1) {
           const saudara = await prisma.$queryRaw<Array<{ sensor5: string; sensor6: string }>>`
             SELECT sensor5, sensor6 FROM rts
@@ -248,7 +263,16 @@ export async function prosesDataMasukAdr(
       }
     }
 
-    if (sensorData.sensor1) {
+    // Target gagal (SD 0) tidak boleh membawa koordinat: seluruh pembaca
+    // (penilaian, deformasi, 3D) mengenali gagal dari N/E/Z nol. Firmware yang
+    // berhenti mengirim E/N/Z (MAP_DATA s8-s10 "none") meninggalkan slot
+    // kosong; kosong juga dibakukan jadi "0".
+    for (const k of ["sensor8", "sensor9", "sensor10"] as const) {
+      if (jenis === "gagal" || String(sensorData[k] ?? "").trim() === "") sensorData[k] = "0";
+    }
+
+    // Laporan menit (ID "0") bukan tembakan: tidak menyentuh prisma maupun sesi.
+    if (jenis !== "bukan-tembakan") {
       if (idLog) {
         await prisma.$executeRaw`
           UPDATE log_kontrol
@@ -331,7 +355,7 @@ export async function prosesDataMasukAdr(
     // evaluasiBilaSesiLengkap(). Hanya payload tembakan dalam sesi yang
     // berjalan; laporan menit di luar sesi berisi sensor1 = 0 dan sensor16 = 0.
     // Barisnya sudah ditulis ke `rts` di atas, jadi tembakan ini ikut terhitung.
-    if (siteAktif && idLog && sensorData.sensor1 && sensorData.sensor16 === "1") {
+    if (siteAktif && idLog && jenis !== "bukan-tembakan" && sensorData.sensor16 === "1") {
       after(() => evaluasiBilaSesiLengkap({ site: siteAktif, idLog, waktuDb: waktu }));
     }
 
@@ -472,7 +496,7 @@ export async function prosesDataMasukAdr(
         id_alat: idAlat,
         id_log: idLog,
         waktu,
-        prisma: sensorData.sensor1 || null,
+        prisma: jenis !== "bukan-tembakan" ? sensorData.sensor1 : null,
         mqtt_prisma_sent: mqttPrismaSent,
         mqtt_prisma_topic: mqttPrismaTopic,
         mqtt_kontrol_sent: mqttKontrolSent,

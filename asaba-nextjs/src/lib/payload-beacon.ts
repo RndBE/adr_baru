@@ -23,8 +23,13 @@
  * cukup ambil `nilai`. `nama` dan `satuan` tidak dipakai: semua tujuan
  * Integration lain juga membaca per slot, bukan per nama.
  *
- * Slot 26 ke atas diabaikan. 26–43 kosong, 44–50 kesehatan logger yang tidak
- * punya kolom di `rts`.
+ * Slot 26 ke atas tidak masuk `rts` (26–43 biasanya kosong, 44–50 kesehatan
+ * logger yang tidak punya kolom di sana). Pengecualiannya sudut desimal
+ * firmware BL1100-v2.9.1: slot mana pun yang bernama `ADR.HA_des` /
+ * `ADR.VA_des` (dipetakan ke 26/27 lewat MAP_DATA) diteruskan sebagai
+ * `ha_des` / `va_des`, dipakai menghitung koordinat (lihat kiriman-adr.ts).
+ * Di sini justru NAMA yang dipakai, bukan nomor slot: slot 26/27 tidak boleh
+ * terbaca sebagai sudut kalau suatu hari dipetakan ke hal lain.
  *
  * Jalankan tes: npx tsx src/lib/payload-beacon.test.ts
  */
@@ -96,6 +101,16 @@ export function beaconKePayloadAdr(json: unknown): HasilKonversiBeacon {
       return { ok: false, status: 422, galat: `${kunci}: ${isi.galat}` };
     }
     if (isi.nilai !== undefined) payload[kunci] = isi.nilai;
+  }
+
+  // Sudut desimal (gon), dicari dari namanya di slot mana pun.
+  for (const [kunci, v] of Object.entries(o)) {
+    if (!/^sensor\d+$/.test(kunci) || v === null || typeof v !== "object" || Array.isArray(v)) continue;
+    const s = v as Record<string, unknown>;
+    const tujuan = s.nama === "ADR.HA_des" ? "ha_des" : s.nama === "ADR.VA_des" ? "va_des" : null;
+    if (!tujuan) continue;
+    const isi = isiSlot(v);
+    if (isi.nilai !== undefined && isi.nilai !== "") payload[tujuan] = isi.nilai;
   }
 
   return { ok: true, payload };

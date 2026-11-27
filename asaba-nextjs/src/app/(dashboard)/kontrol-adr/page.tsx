@@ -98,6 +98,7 @@ import {
   validasiSearchArea,
   type BalasanSearchArea,
   bacaBalasanRtsConfig,
+  bacaGalatBsSlot,
   validasiTrackRest,
   RENTANG_TRACK_REST_MENIT,
   type BalasanRtsConfig,
@@ -400,6 +401,12 @@ type ProgresTracking = {
   total: number;
   status: string;
   retries?: number;
+  /**
+   * Kunjungan ke-berapa dari berapa (BL1100-v2.9.1, saat bsSlot aktif).
+   * `current` tetap nomor SLOT — slot backsight muncul dua kali per putaran.
+   */
+  urut?: number;
+  urutTotal?: number;
   urutan: number;
   /** true = sudah melewati BATAS_DIAM_TRACKING_MS tanpa balasan baru. */
   diam?: boolean;
@@ -597,6 +604,12 @@ export default function KontrolAdrPage() {
   const [fwIstirahat, setFwIstirahat] = useState<boolean | null>(null);
   /** Detik tersisa sampai siklus istirahat berikutnya, dari get_config. */
   const [trackSisaDetik, setTrackSisaDetik] = useState<number | null>(null);
+  /**
+   * bsSlot yang dilaporkan logger (get_config): undefined = belum dibaca,
+   * null = firmware tidak mengenalnya (sebelum BL1100-v2.9.1), [] = mati.
+   */
+  const [bsSlotLogger, setBsSlotLogger] = useState<number[] | null | undefined>(undefined);
+  const [bsSlotKirim, setBsSlotKirim] = useState<{ jalan: boolean; ok?: boolean; pesan: string } | null>(null);
 
   // ── Uji sapuan custom ─────────────────────────────────────────────────────
   // Keadaannya dipegang di sini, bukan di modal: sapuan bisa berjalan lama dan
@@ -1131,6 +1144,9 @@ export default function KontrolAdrPage() {
                 current: bTrack.ke ?? prev?.current ?? 0,
                 status: bTrack.status,
                 retries: bTrack.retries ?? prev?.retries,
+                // Kunjungan baru dimulai dari "start": angka putaran lalu dibuang.
+                urut: bTrack.urut ?? (nilai === "start" || nilai === "scheduled" ? undefined : prev?.urut),
+                urutTotal: bTrack.urutTotal ?? (nilai === "start" || nilai === "scheduled" ? undefined : prev?.urutTotal),
                 urutan: urutanStage.current,
               }));
             }
@@ -1176,6 +1192,13 @@ export default function KontrolAdrPage() {
           // {"error_langkahHA":"…"} — penolakan per kunci sapuan custom. Datang
           // TANPA array `updated`, jadi blok di atas tidak mengenalinya; tanpa
           // ini langkahnya menunggu sampai habis waktu padahal alat sudah menolak.
+          // {"error_bsSlot":"slot ganda"} — penolakan bsSlot (BL1100-v2.9.1).
+          const galatBs = bacaGalatBsSlot(data);
+          if (galatBs) {
+            console.log("[KontrolADR] galat bsSlot:", galatBs);
+            setBsSlotKirim({ jalan: false, ok: false, pesan: `Logger menolak: ${galatBs}` });
+          }
+
           const galatSapuCustom = bacaGalatSapuanGlobal(data);
           if (galatSapuCustom && langkahAktifRef.current === "custom") {
             console.log("[KontrolADR] galat sapuan custom:", galatSapuCustom);
@@ -1720,6 +1743,52 @@ export default function KontrolAdrPage() {
   };
 
   /**
+   * Backsight di awal DAN akhir putaran (bsSlot, BL1100-v2.9.1). Slotnya dari
+   * Prism Config (jenis Backsight), dipilih server. Sesudah terkirim setelannya
+   * dibaca ulang lewat get_config — itulah satu-satunya bukti alat memakainya.
+   * Penolakan (error_bsSlot) ditangkap handler MQTT.
+   */
+  const kirimBsSlot = async (aktif: boolean) => {
+    setBsSlotKirim({ jalan: true, pesan: aktif ? "Mengirim slot backsight…" : "Mematikan ulang backsight…" });
+    try {
+      const res = await fetch("/api/kontrol/bs-slot", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ site: selectedSite, aktif }),
+      });
+      const json = await res.json();
+      if (!json.success) {
+        setBsSlotKirim({ jalan: false, ok: false, pesan: json.error ?? "Gagal mengirim" });
+        return;
+      }
+      if (!json.data?.mqtt_sent) {
+        setBsSlotKirim({ jalan: false, ok: false, pesan: "Perintah tidak terkirim ke broker MQTT" });
+        return;
+      }
+      const dikirim: number[] = json.data.slot ?? [];
+      const teksDikirim = dikirim.length ? `slot ${dikirim.join(", ")}` : "mati";
+      const c = await bacaDariLogger();
+      if (!c) {
+        setBsSlotKirim({ jalan: false, ok: false, pesan: `Terkirim (${teksDikirim}), tapi logger tidak menjawab get_config` });
+        return;
+      }
+      setBsSlotLogger(c.bsSlot);
+      if (c.bsSlot === null) {
+        setBsSlotKirim({ jalan: false, ok: false, pesan: "Firmware logger belum mengenal bsSlot (perlu BL1100-v2.9.1)" });
+        return;
+      }
+      const sama = c.bsSlot.length === dikirim.length && c.bsSlot.every((s, i) => s === dikirim[i]);
+      setBsSlotKirim(
+        sama
+          ? { jalan: false, ok: true, pesan: dikirim.length ? `Logger memakai ${teksDikirim}` : "Logger: backsight tidak diulang" }
+          : { jalan: false, ok: false, pesan: `Logger melaporkan [${c.bsSlot.join(", ")}], bukan ${teksDikirim}` }
+      );
+    } catch {
+      setBsSlotKirim({ jalan: false, ok: false, pesan: "Gagal mengirim" });
+    }
+  };
+
+  /**
    * Isi seluruh form dari balasan logger. Kolom yang tak dilaporkan tidak disentuh.
    *
    * Step record di form diganti jumlah slot Prism Config, tapi dasarnya tetap
@@ -1757,6 +1826,7 @@ export default function KontrolAdrPage() {
     // Mode jadwal hanya dilaporkan BL1100. Adanya medan itu = buktinya.
     const bl1100 = c.trackMode !== null;
     setFwIstirahat(bl1100);
+    setBsSlotLogger(c.bsSlot);
     setTrackSisaDetik(c.trackSisaDetik);
     if (c.trackMode !== null) setTrackMode(c.trackMode);
     if (c.trackRest !== null) setTrackRest(String(c.trackRest));
@@ -2970,7 +3040,11 @@ export default function KontrolAdrPage() {
                         ? "AutoTracking tidak merespons"
                         : LABEL_NILAI_TRACKING[progresTracking.nilai] ?? progresTracking.nilai}
                     </span>
-                    {progresTracking.nilai === "target" && progresTracking.total > 0 && (
+                    {progresTracking.nilai === "target" && progresTracking.urutTotal ? (
+                      <span className="font-mono text-[11.5px] tabular-nums text-(--ink-3)">
+                        {progresTracking.urut ?? 0} / {progresTracking.urutTotal}
+                      </span>
+                    ) : progresTracking.nilai === "target" && progresTracking.total > 0 && (
                       <span className="font-mono text-[11.5px] tabular-nums text-(--ink-3)">
                         {progresTracking.current} / {progresTracking.total}
                       </span>
@@ -2978,7 +3052,7 @@ export default function KontrolAdrPage() {
                   </div>
                   {progresTracking.nilai === "target" && progresTracking.status && (
                     <p className="mt-0.5 text-[11.5px] text-(--ink-3)">
-                      Target {progresTracking.current}:{" "}
+                      {progresTracking.urutTotal ? "Slot" : "Target"} {progresTracking.current}:{" "}
                       {LABEL_STATUS_TARGET[progresTracking.status] ?? progresTracking.status}
                       {progresTracking.retries ? ` · ${progresTracking.retries}× percobaan` : ""}
                     </p>
@@ -2993,7 +3067,14 @@ export default function KontrolAdrPage() {
                       <div
                         className="h-full rounded-full bg-(--navy) transition-[width] duration-300"
                         style={{
-                          width: `${Math.min(100, Math.round((progresTracking.current / progresTracking.total) * 100))}%`,
+                          width: `${Math.min(
+                            100,
+                            Math.round(
+                              progresTracking.urutTotal
+                                ? ((progresTracking.urut ?? 0) / progresTracking.urutTotal) * 100
+                                : (progresTracking.current / progresTracking.total) * 100
+                            )
+                          )}%`,
                         }}
                       />
                     </div>
@@ -3852,6 +3933,66 @@ export default function KontrolAdrPage() {
                     </p>
                   )}
 
+                </div>
+              </fieldset>
+
+              {/* ── Backsight awal & akhir (bsSlot, BL1100-v2.9.1) ──────────
+                  Bukan bagian antrean Simpan: perintahnya berdiri sendiri dan
+                  hasilnya dibaca ulang lewat get_config. Slotnya tidak diketik:
+                  prisma berjenis Backsight di Prism Config. */}
+              <fieldset>
+                <legend className="mb-2 inline-flex items-center gap-2 font-display text-[12px] font-semibold uppercase tracking-[0.1em] text-(--ink-2)">
+                  <Crosshair className="size-3.5" /> Backsight awal &amp; akhir
+                </legend>
+                <div className="rounded-[10px] border border-dashed border-(--line) px-3.5 py-3">
+                  <p className="text-[13px] font-semibold text-(--ink)">Ulang backsight di akhir putaran</p>
+                  <p className="mt-0.5 text-[11.5px] text-(--ink-2)">
+                    Prisma berjenis Backsight di Prism Config diukur di awal dan di akhir tiap putaran,
+                    mis. 9, 10, 1 … 8, 9, 10.
+                  </p>
+                  <p className="mt-2 text-[12px] text-(--ink-2)">
+                    Logger:{" "}
+                    <span className="font-semibold text-(--ink)">
+                      {bsSlotLogger === undefined
+                        ? "belum dibaca (Sinkronkan dulu)"
+                        : bsSlotLogger === null
+                          ? "firmware belum mendukung (perlu BL1100-v2.9.1)"
+                          : bsSlotLogger.length
+                            ? `aktif, slot ${bsSlotLogger.join(", ")}`
+                            : "mati"}
+                    </span>
+                  </p>
+                  <div className="mt-2.5 grid grid-cols-2 gap-2">
+                    {([
+                      [true, "Aktifkan", "slot BS dari Prism Config"],
+                      [false, "Matikan", "BS hanya sekali per putaran"],
+                    ] as const).map(([nilai, label, arti]) => (
+                      <button
+                        key={String(nilai)}
+                        type="button"
+                        disabled={!selectedSite || bsSlotKirim?.jalan === true}
+                        onClick={() => void kirimBsSlot(nilai)}
+                        className={cn(
+                          "flex cursor-pointer flex-col items-start rounded-[9px] px-3 py-2 text-left outline-none ring-1 transition-colors focus-visible:ring-2 disabled:cursor-not-allowed disabled:opacity-60",
+                          "bg-white text-(--ink-2) ring-(--line) hover:text-(--ink)"
+                        )}
+                      >
+                        <span className="text-[13px] font-semibold">{label}</span>
+                        <span className="text-[11px] text-(--ink-3)">{arti}</span>
+                      </button>
+                    ))}
+                  </div>
+                  {bsSlotKirim && (
+                    <p
+                      role="status"
+                      className={cn(
+                        "mt-2 text-[12px]",
+                        bsSlotKirim.ok === false ? "text-amber-900" : bsSlotKirim.ok ? "text-emerald-700" : "text-(--ink-2)"
+                      )}
+                    >
+                      {bsSlotKirim.pesan}
+                    </p>
+                  )}
                 </div>
               </fieldset>
 

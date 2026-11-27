@@ -146,11 +146,19 @@ export type BalasanTracking = {
   dari: number | null;
   status: string;
   retries: number | null;
+  /**
+   * Kunjungan ke-berapa dalam putaran, dan jumlah kunjungannya (BL1100-v2.9.1,
+   * hanya saat bsSlot aktif). Dengan bsSlot [9,10] urutannya 9,10,1…8,9,10:
+   * `ke` tetap nomor SLOT (9 muncul dua kali), `urut` 1…12. Null = tidak ada.
+   */
+  urut: number | null;
+  urutTotal: number | null;
 };
 
 export function bacaBalasanTracking(paket: unknown): BalasanTracking {
   const kosong: BalasanTracking = {
     ada: false, nilai: "", kelas: "kemajuan", ke: null, dari: null, status: "", retries: null,
+    urut: null, urutTotal: null,
   };
   if (paket === null || typeof paket !== "object") return kosong;
   const o = paket as Record<string, unknown>;
@@ -168,18 +176,20 @@ export function bacaBalasanTracking(paket: unknown): BalasanTracking {
   const dari = n("dari", "total");
   const status = o.status === undefined || o.status === null ? "" : String(o.status);
   const retries = n("retries");
+  const urut = n("urut");
+  const urutTotal = n("urutTotal");
 
   const v = o.value ?? o.stage;
   if (v !== undefined && v !== null) {
     const nilai = String(v);
-    return { ada: true, nilai, kelas: klasifikasiTracking(nilai), ke, dari, status, retries };
+    return { ada: true, nilai, kelas: klasifikasiTracking(nilai), ke, dari, status, retries, urut, urutTotal };
   }
 
   // Tanpa `value`: kemajuan per target. Dikenali dari `ke`/`dari`/`status`,
   // bukan dari "objeknya tidak kosong" — paket asing tidak boleh ikut terbaca
   // sebagai kemajuan tracking.
   if (ke === null && dari === null && status === "") return kosong;
-  return { ada: true, nilai: "target", kelas: "kemajuan", ke, dari, status, retries };
+  return { ada: true, nilai: "target", kelas: "kemajuan", ke, dari, status, retries, urut, urutTotal };
 }
 
 // ── setHome (Bagian C.6) ─────────────────────────────────────────────────────
@@ -1798,6 +1808,11 @@ export type BalasanRtsConfig = {
   sapuRentangVA: string;
   sapuRehat: string;
   versi: string;
+  /**
+   * Slot backsight yang diukur di awal DAN akhir putaran (BL1100-v2.9.1).
+   * null = firmware tidak melaporkannya (versi lama); [] = mati.
+   */
+  bsSlot: number[] | null;
 };
 
 const KOSONG_RTS_CONFIG: BalasanRtsConfig = {
@@ -1824,6 +1839,7 @@ const KOSONG_RTS_CONFIG: BalasanRtsConfig = {
   sapuRentangVA: "",
   sapuRehat: "",
   versi: "",
+  bsSlot: null,
 };
 
 /**
@@ -1886,7 +1902,47 @@ export function bacaBalasanRtsConfig(paket: unknown): BalasanRtsConfig {
     sapuRentangVA: sudut(sapu.rentangVA),
     sapuRehat: teks(sapu.rehat),
     versi: teks(o.versi),
+    bsSlot: Array.isArray(o.bsSlot)
+      ? o.bsSlot.map((x) => Number(x)).filter((x) => Number.isInteger(x))
+      : null,
   };
+}
+
+// ── bsSlot — backsight di awal DAN akhir putaran (BL1100-v2.9.1) ─────────────
+//
+//   {"set_30002":{"command":"set_rts","bsSlot":[9,10]}}   aktif
+//   {"set_30002":{"command":"set_rts","bsSlot":[]}}       mati
+//
+// Urutan satu putaran jadi 9,10,1,2,…,8,9,10: BS muncul dua kali dengan jam
+// berbeda. get_config melaporkan "bsSlot":[…]. Penolakan datang sebagai
+// {"error_bsSlot":"array 0..4 nomor slot" | "slot 1..50" | "slot ganda"}.
+
+export const MAKS_BS_SLOT = 4;
+
+/** null = sah; selain itu pesan siap tampil. Aturan sama dengan firmware. */
+export function validasiBsSlot(slot: unknown): string | null {
+  if (!Array.isArray(slot)) return "bsSlot harus berupa daftar nomor slot";
+  if (slot.length > MAKS_BS_SLOT) return `Paling banyak ${MAKS_BS_SLOT} slot backsight`;
+  for (const s of slot) {
+    if (!Number.isInteger(s) || s < 1 || s > 50) return "Nomor slot backsight harus 1–50";
+  }
+  if (new Set(slot).size !== slot.length) return "Slot backsight tidak boleh ganda";
+  return null;
+}
+
+/** Nomor slot dari id_prisma "P9" → 9. Null bila bukan bentuk itu. */
+export function nomorSlot(idPrisma: string): number | null {
+  const m = /^P(\d{1,2})$/.exec(idPrisma.trim());
+  if (!m) return null;
+  const n = Number(m[1]);
+  return n >= 1 && n <= 50 ? n : null;
+}
+
+/** Pesan `error_bsSlot` di tingkat atas balasan, atau null. */
+export function bacaGalatBsSlot(data: unknown): string | null {
+  if (data === null || typeof data !== "object") return null;
+  const v = (data as Record<string, unknown>).error_bsSlot;
+  return v === undefined || v === null ? null : String(v);
 }
 
 // ── trackMode / trackRest — jadwal "istirahat" (hanya BL1100) ────────────────
