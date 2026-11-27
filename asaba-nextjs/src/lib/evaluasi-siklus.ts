@@ -40,15 +40,8 @@ import { type AmbangSite, type StatusLabel, indeksStatus } from "@/lib/ambang";
 import { tingkatSite } from "@/lib/ews";
 import { catatKejadian, sinkronEws } from "@/lib/kejadian-alarm";
 import { prismaPuncak } from "@/lib/aturan-kejadian";
-import {
-  JENDELA_SIKLUS,
-  UMUR_JENDELA_MS,
-  batasTakWajarMm,
-  keadaanAwal,
-  nilaiPemicu,
-  nilaiPeredam,
-  type KeadaanPrisma,
-} from "@/lib/peredam";
+import { batasTakWajarMm, keadaanAwal, nilaiPeredam, type KeadaanPrisma } from "@/lib/peredam";
+import { pemicuKonfirmasi, sesiSebelumnyaPerlu } from "@/lib/aturan-konfirmasi-sesi";
 import {
   kirimPeringatan,
   type BarisPerubahan,
@@ -77,13 +70,16 @@ async function acuanR0Bertanda(site: string) {
   });
 }
 
+/** Baris rts beserta rts.id-nya (dipakai aturan "bergeser lagi"). */
+type BarisTembakan = BarisRts & { id: number };
+
 /** Baris rts satu sesi, dipetakan per id_prisma. */
 async function barisSesi(idKontrol: string, ambilTerakhir: boolean) {
-  const rows = await prisma.$queryRaw<BarisRts[]>`
-    SELECT sensor1, sensor7, sensor8, sensor9, sensor10
+  const rows = await prisma.$queryRaw<BarisTembakan[]>`
+    SELECT id, sensor1, sensor7, sensor8, sensor9, sensor10
     FROM rts WHERE id_kontrol = ${idKontrol} ORDER BY id ASC
   `;
-  const peta = new Map<string, BarisRts>();
+  const peta = new Map<string, BarisTembakan>();
   for (const r of rows) {
     const id = String(r.sensor1 ?? "").trim();
     if (!id) continue;
@@ -91,7 +87,7 @@ async function barisSesi(idKontrol: string, ambilTerakhir: boolean) {
     // Siklus berjalan: bacaan TERAKHIR, karena percobaan ulang menimpa yang
     // gagal — deformasi memakai LIMIT 1 tanpa ORDER BY di sini, jadi pilihannya
     // sebenarnya tak tentu; mengambil yang terakhir setidaknya menentu.
-    if (ambilTerakhir || !peta.has(id)) peta.set(id, r);
+    if (ambilTerakhir || !peta.has(id)) peta.set(id, { ...r, id: Number(r.id) });
   }
   return peta;
 }
@@ -134,27 +130,45 @@ function sudahDinilai(
 const sedangDinilai = new Set<string>();
 
 /**
- * Bacaan siklus-siklus SEBELUM siklus ini, terbaru dulu — bahan nilaiPemicu().
- *
- * Paling banyak JENDELA_SIKLUS − 1 siklus, tidak lebih tua dari UMUR_JENDELA_MS
- * terhadap siklus ini, dan bukan sesi acuan R0 (pergeserannya nol menurut
- * definisi, bukan hasil ukur yang bisa dibandingkan). Diurutkan menurut
- * `log_kontrol.datetime`, sama dengan urutan siklus di layar.
+ * Sesi tambahan yang dibaca di luar N−1: sesi yang tidak menembak prisma itu
+ * (sesi terhenti, gagal bidik) dilewati per prisma, jadi perlu cadangan.
  */
-async function sesiSebelumnya(site: string, idLog: string, idR0: string) {
+const CADANGAN_SESI_LALU = 10;
+
+/**
+ * Sesi-sesi SEBELUM sesi ini, terbaru dulu — bahan tembakanLalu().
+ *
+ * Hanya sesi SESUDAH acuan R0 yang punya tembakan; sesi R0 sendiri tidak
+ * (pergeserannya nol menurut definisi). Tanpa batas umur: pergeseran diukur
+ * kumulatif dari R0, jadi dua tembakan yang berjauhan tetap sah saling memastikan.
+ * Diurutkan menurut `log_kontrol.datetime`, sama dengan urutan siklus di layar.
+ *
+ * `acuan` = acuan per prisma yang berlaku untuk sesi itu. Bacaan prisma yang
+ * acuannya berganti sesudah sesi itu tidak bisa dibandingkan dan tidak dipakai.
+ */
+async function sesiSebelumnya(site: string, idLog: string, idR0: string, perlu: number) {
+  if (perlu <= 0) return [];
+  const n = perlu + CADANGAN_SESI_LALU;
   const sesi = await prisma.$queryRaw<Array<{ id_log: string }>>`
     SELECT l.id_log
     FROM log_kontrol l
     JOIN log_kontrol k ON k.id_log = ${idLog}
+    JOIN log_kontrol r ON r.id_log = ${idR0}
     WHERE l.site = ${site}
       AND l.id_log <> ${idLog}
       AND l.id_log <> ${idR0}
       AND l.datetime < k.datetime
-      AND l.datetime >= k.datetime - INTERVAL ${Math.round(UMUR_JENDELA_MS / 1000)} SECOND
+      AND l.datetime > r.datetime
+      AND EXISTS (SELECT 1 FROM rts t WHERE t.id_kontrol = l.id_log)
     ORDER BY l.datetime DESC
-    LIMIT ${JENDELA_SIKLUS - 1}
+    LIMIT ${n}
   `;
-  return Promise.all(sesi.map((s) => barisSesi(s.id_log, true)));
+  return Promise.all(
+    sesi.map(async (s) => {
+      const [peta, acuan] = await Promise.all([barisSesi(s.id_log, true), acuanBerlaku(site, s.id_log)]);
+      return { idLog: s.id_log, peta, acuan };
+    })
+  );
 }
 
 export { pergeseranMm };
@@ -239,8 +253,8 @@ export async function evaluasiSiklus(opsi: {
       // Prisma yang arah bidiknya diperbarui diukur terhadap acuan barunya.
       acuanBerlaku(site, idLog),
       barisSesi(idLog, true),
-      // Jendela 1: hanya sesi ini yang menentukan, riwayat tidak perlu dibaca.
-      JENDELA_SIKLUS > 1 ? sesiSebelumnya(site, idLog, r0.id_log) : Promise.resolve([]),
+      // Konfirmasi N sesi: tembakan sesi-sesi sebelumnya ikut menentukan (aturan-konfirmasi-sesi.ts).
+      sesiSebelumnya(site, idLog, r0.id_log, sesiSebelumnyaPerlu(cfg.konfirmasiSesi)),
       prisma.$queryRaw<Array<{ id_prisma: string }>>`
         SELECT id_prisma FROM t_prisma WHERE site = ${site} ORDER BY id_prisma
       `,
@@ -259,6 +273,26 @@ export async function evaluasiSiklus(opsi: {
       console.log(`${tag} ${site}: siklus ${idLog} sudah dinilai — dilewati`);
       return;
     }
+
+    const perluLalu = sesiSebelumnyaPerlu(cfg.konfirmasiSesi);
+    /**
+     * N−1 tembakan SAH terakhir prisma ini sebelum sesi ini, terbaru dulu.
+     * Sesi yang tidak menembak prisma ini (atau tembakannya gagal/tak wajar)
+     * dilewati; berhenti di sesi yang acuannya lain dari sekarang, karena
+     * bacaan sebelum acuan baru tidak bisa dibandingkan.
+     */
+    const tembakanLalu = (idPrisma: string): Array<{ mm: number; baris: BarisTembakan }> => {
+      const idAcuan = acuanPrisma.get(idPrisma)?.id ?? null;
+      const hasil: Array<{ mm: number; baris: BarisTembakan }> = [];
+      for (const s of lampau) {
+        if (hasil.length >= perluLalu) break;
+        if ((s.acuan.get(idPrisma)?.id ?? null) !== idAcuan) break;
+        const b = s.peta.get(idPrisma);
+        const mm = bacaanSah(b, idPrisma);
+        if (b && mm !== null) hasil.push({ mm, baris: b });
+      }
+      return hasil;
+    };
 
     /** Acuan prisma ini di siklus ini: acuan baru bila ada (aturan-acuan.ts), selain itu R0. */
     const acuanUntuk = (idPrisma: string): BarisRts | undefined =>
@@ -328,14 +362,16 @@ export async function evaluasiSiklus(opsi: {
 
       // ── Nilai pemicu ──────────────────────────────────────────────────────
       //
-      // Dengan JENDELA_SIKLUS 1 (bawaan sejak 23 Nov 2026) ini bacaan sesi ini
-      // sendiri: satu sesi pengukuran langsung menentukan tingkat. Dengan
-      // jendela 3 jadi median sesi ini dan dua sebelumnya — lihat peredam.ts.
-      // Nilai inilah yang disimpan, dikirim, dan dibunyikan dasbor.
-      const sebelumnya = lampau
-        .map((peta) => bacaanSah(peta.get(idPrisma), idPrisma))
-        .filter((v): v is number => v !== null);
-      const mm = nilaiPemicu(mmSekarang, sebelumnya);
+      // Terkecil dari tembakan ini dan N−1 tembakan sah sebelumnya prisma ini
+      // (konfirmasi_sesi site, bawaan 2): tingkat naik hanya bila semuanya
+      // melewati ambang. Belum ada N−1 tembakan sah sebelumnya = kenaikan
+      // ditahan (bolehNaik false). Nilai inilah yang disimpan, dikirim, dan
+      // dibunyikan dasbor.
+      const lalu = tembakanLalu(idPrisma);
+      // Kurang dari N−1 tembakan sah = sisanya null: kenaikan ditahan.
+      const sebelumnya = Array.from({ length: perluLalu }, (_, i) => lalu[i]?.mm ?? null);
+      const pemicu = pemicuKonfirmasi(mmSekarang, sebelumnya, cfg.konfirmasiSesi);
+      const mm = pemicu.nilaiMm;
 
       // ── Toleransi akurasi RTS ─────────────────────────────────────────────
       //
@@ -348,7 +384,13 @@ export async function evaluasiSiklus(opsi: {
       const ambangPrisma = ambangDenganToleransi(ambang, toleransi);
       batasGeser.set(idPrisma, ambangPrisma.geser.normalMax);
 
-      const hasil = nilaiPeredam({ keadaan: lama, nilaiMm: mm, ambang: ambangPrisma, sekarangMs });
+      const hasil = nilaiPeredam({
+        keadaan: lama,
+        nilaiMm: mm,
+        ambang: ambangPrisma,
+        sekarangMs,
+        bolehNaik: pemicu.bolehNaik,
+      });
       // Tingkat yang DIAKUI, bukan yang barusan terukur — sama dengan yang
       // dipakai memutuskan pesan, supaya daftar dan judulnya tidak bercerita beda.
       semua.push({ idPrisma, tingkat: hasil.keadaan.tingkat, nilaiMm: mm });
@@ -416,6 +458,12 @@ export async function evaluasiSiklus(opsi: {
         tingkat: p.tingkat,
         // Hanya bacaan yang sah dan wajar (sama dengan yang menentukan tingkat).
         bacaan: bacaanSah(sekarang.get(p.idPrisma), p.idPrisma) !== null ? sekarang.get(p.idPrisma) : undefined,
+        // N−1 tembakan sah sebelumnya (terbaru dulu, undefined = tidak ada),
+        // supaya "bergeser lagi" juga harus terlihat di N tembakan.
+        bacaanLalu: (() => {
+          const lalu = tembakanLalu(p.idPrisma);
+          return Array.from({ length: perluLalu }, (_, i) => lalu[i]?.baris);
+        })(),
         batasMm: batasGeser.get(p.idPrisma),
       })),
       rotasi: cfg.rotation,

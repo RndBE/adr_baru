@@ -30,6 +30,7 @@ import {
 } from "@/lib/aturan-senyap-malam";
 import { getSite } from "@/lib/sites";
 import { type BarisRts, pergeseranMm } from "@/lib/pergeseran";
+import { geserTerkonfirmasi } from "@/lib/aturan-konfirmasi-sesi";
 import type { rotateEN } from "@/lib/coordinates";
 import { type EwsTerkirim, perluKirimEws, tingkatUntukEws } from "@/lib/ews";
 import { sendEwsLevel } from "@/lib/mqtt";
@@ -116,6 +117,11 @@ export async function catatKejadian(opsi: {
     tingkat: StatusLabel;
     /** Tembakan prisma ini di siklus ini, untuk bergeserSesudahKonfirmasi(). */
     bacaan?: BarisRts;
+    /**
+     * Tembakan prisma ini di N−1 sesi sebelumnya (terbaru dulu; undefined = tidak
+     * ada), untuk aturan konfirmasi beberapa sesi. Tidak diisi = satu sesi cukup.
+     */
+    bacaanLalu?: ReadonlyArray<(BarisRts & { id: number }) | undefined>;
     /** Ambang Waspada prisma ini plus toleransi alat, mm. */
     batasMm?: number;
   }>;
@@ -188,7 +194,13 @@ export async function catatKejadian(opsi: {
  * Bersyarat pada `dikonfirmasi` yang barusan dibaca: konfirmasi ulang yang
  * masuk di antaranya tidak ikut terhapus.
  */
-type PrismaSiklus = ReadonlyArray<{ idPrisma: string; tingkat: StatusLabel; bacaan?: BarisRts; batasMm?: number }>;
+type PrismaSiklus = ReadonlyArray<{
+  idPrisma: string;
+  tingkat: StatusLabel;
+  bacaan?: BarisRts;
+  bacaanLalu?: ReadonlyArray<(BarisRts & { id: number }) | undefined>;
+  batasMm?: number;
+}>;
 
 /**
  * Yang memburuk sejak `batas` (jam konfirmasi atau jam bunyi dibungkam):
@@ -341,10 +353,19 @@ async function batalkanKonfirmasiBilaNaik(
  * Prisma yang bergeser lagi sejak konfirmasi: jarak tembakan siklus ini dari
  * tembakan yang tersimpan saat konfirmasi (posisi_dikonfirmasi) mencapai batas.
  * Kosong bila kejadiannya dikonfirmasi sebelum kolomnya ada.
+ *
+ * Dengan konfirmasi N sesi (aturan-konfirmasi-sesi.ts) jaraknya terkecil dari
+ * sesi ini dan N−1 sebelumnya; tembakan yang lebih tua dari posisi tersimpan
+ * tidak dihitung, jadi yang menentukan hanya sesi-sesi SESUDAH konfirmasi.
  */
 async function bergeserLagi(
   posisiTeks: string | null,
-  prismaSiklus: ReadonlyArray<{ idPrisma: string; bacaan?: BarisRts; batasMm?: number }>,
+  prismaSiklus: ReadonlyArray<{
+    idPrisma: string;
+    bacaan?: BarisRts;
+    bacaanLalu?: ReadonlyArray<(BarisRts & { id: number }) | undefined>;
+    batasMm?: number;
+  }>,
   rotasi: Parameters<typeof rotateEN>[2] | null
 ): Promise<Array<{ idPrisma: string; geserMm: number | null; batasMm: number }>> {
   const posisi = uraiPosisiDikonfirmasi(posisiTeks);
@@ -355,9 +376,16 @@ async function bergeserLagi(
   `;
   const peta = new Map(baris.map((b) => [Number(b.id), b]));
   const hitung = prismaSiklus.flatMap((p) => {
-    const acuan = peta.get(posisi[p.idPrisma]);
+    const idPosisi = posisi[p.idPrisma];
+    const acuan = peta.get(idPosisi);
     if (!acuan || !p.bacaan || p.batasMm === undefined) return [];
-    return [{ idPrisma: p.idPrisma, geserMm: pergeseranMm(p.bacaan, acuan, rotasi), batasMm: p.batasMm }];
+    const lalu = p.bacaanLalu ?? [];
+    const geserMm = geserTerkonfirmasi(
+      pergeseranMm(p.bacaan, acuan, rotasi),
+      lalu.map((b) => (b && b.id >= idPosisi ? pergeseranMm(b, acuan, rotasi) : null)),
+      lalu.length + 1
+    );
+    return [{ idPrisma: p.idPrisma, geserMm, batasMm: p.batasMm }];
   });
   return bergeserSesudahKonfirmasi(hitung);
 }

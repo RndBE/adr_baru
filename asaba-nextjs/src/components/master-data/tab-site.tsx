@@ -14,6 +14,7 @@ import {
 import type { SiteRow } from "@/hooks/use-sites";
 import { AKURASI_BAWAAN, toleransiMm } from "@/lib/akurasi-rts";
 import { SENYAP_MALAM_BAWAAN } from "@/lib/aturan-senyap-malam";
+import { KONFIRMASI_SESI_BAWAAN } from "@/lib/aturan-konfirmasi-sesi";
 
 /** Form memakai string untuk semua field angka supaya input bisa dikosongkan.
  *  String kosong dikirim apa adanya dan diterjemahkan jadi null oleh API. */
@@ -26,6 +27,7 @@ const KOSONG: FormState = {
   rts_akurasi_sudut_detik: String(AKURASI_BAWAAN.sudutDetik),
   rts_akurasi_jarak_mm: String(AKURASI_BAWAAN.jarakMm),
   rts_akurasi_jarak_ppm: String(AKURASI_BAWAAN.jarakPpm),
+  konfirmasi_sesi: String(KONFIRMASI_SESI_BAWAAN),
   senyap_malam: false,
   senyap_malam_mulai: SENYAP_MALAM_BAWAAN.mulai,
   senyap_malam_selesai: SENYAP_MALAM_BAWAAN.selesai,
@@ -53,6 +55,7 @@ function toForm(row: SiteRow): FormState {
     rts_akurasi_sudut_detik: s(row.rts_akurasi_sudut_detik),
     rts_akurasi_jarak_mm: s(row.rts_akurasi_jarak_mm),
     rts_akurasi_jarak_ppm: s(row.rts_akurasi_jarak_ppm),
+    konfirmasi_sesi: String(row.konfirmasi_sesi ?? KONFIRMASI_SESI_BAWAAN),
     senyap_malam: row.senyap_malam === true,
     senyap_malam_mulai: row.senyap_malam_mulai ?? SENYAP_MALAM_BAWAAN.mulai,
     senyap_malam_selesai: row.senyap_malam_selesai ?? SENYAP_MALAM_BAWAAN.selesai,
@@ -388,12 +391,17 @@ export function TabSite() {
 
             <Seksi
               judul="Ambang Pergeseran (mm)"
-              hint="Pergeseran dari acuan R0 tempat tiap tingkat dimulai — harus menaik. Ini yang memicu WhatsApp dan alarm."
+              hint="Pergeseran dari acuan R0 tempat tiap tingkat dimulai — harus menaik. Ini yang memicu WhatsApp dan alarm. Tingkat baru naik bila sekian sesi beruntun semuanya melewati ambang."
             >
               <div className="grid grid-cols-3 gap-3">
                 <F label="Waspada mulai"><Input type="number" value={form.geser_normal_max as string} onChange={(e) => set("geser_normal_max", e.target.value)} /></F>
                 <F label="Siaga mulai"><Input type="number" value={form.geser_waspada_max as string} onChange={(e) => set("geser_waspada_max", e.target.value)} /></F>
                 <F label="Awas mulai"><Input type="number" value={form.geser_siaga_max as string} onChange={(e) => set("geser_siaga_max", e.target.value)} /></F>
+              </div>
+              <div className="grid grid-cols-3 gap-3">
+                <F label="Konfirmasi (sesi beruntun)" hint="1–5; 1 = langsung dari satu sesi">
+                  <Input type="number" min={1} max={5} value={form.konfirmasi_sesi as string} onChange={(e) => set("konfirmasi_sesi", e.target.value)} />
+                </F>
               </div>
             </Seksi>
 

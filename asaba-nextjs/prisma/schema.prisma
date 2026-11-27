@@ -649,6 +649,11 @@ model Site {
   /// tidak punya EWS, perintah dilewati. Lihat migrasi 022 dan src/lib/ews.ts.
   id_logger_ews String? @db.VarChar(10)
 
+  /// Tingkat baru diakui hanya bila sekian sesi berturut-turut semuanya
+  /// mencapainya (1 = tiap sesi langsung menentukan). Lihat migrasi 028 dan
+  /// src/lib/aturan-konfirmasi-sesi.ts.
+  konfirmasi_sesi Int @default(2)
+
   /// Bunyi alarm (sirene + lampu EWS + peramban) dimatikan otomatis bila
   /// berbunyi pada jam malam tanpa konfirmasi selama senyap_malam_menit.
   /// Jam "HH:MM" waktu lokal; mulai > selesai = melewati tengah malam.

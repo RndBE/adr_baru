@@ -179,6 +179,12 @@ export function nilaiPeredam(opsi: {
   ambang: AmbangSite;
   sekarangMs: number;
   kebijakan?: Partial<KebijakanPeredam>;
+  /**
+   * False bila sesi-sesi sebelumnya belum lengkap untuk memastikan kenaikan
+   * (aturan-konfirmasi-sesi.ts): tingkat tidak boleh naik di siklus ini.
+   * Turun tetap boleh. Bawaan true.
+   */
+  bolehNaik?: boolean;
 }): HasilPeredam {
   const k: KebijakanPeredam = { ...KEBIJAKAN_BAWAAN, ...opsi.kebijakan };
   const { keadaan, nilaiMm, ambang, sekarangMs } = opsi;
@@ -194,6 +200,16 @@ export function nilaiPeredam(opsi: {
       diakui: null,
       kirim: false,
       alasan: terukur === keadaan.tingkat ? "tidak-berubah" : "tertahan-histeresis",
+    };
+  }
+
+  // Kenaikan yang belum bisa dipastikan sesi-sesi sebelumnya: ditahan.
+  if (opsi.bolehNaik === false && lebihGawat(efektif, keadaan.tingkat)) {
+    return {
+      keadaan: { ...keadaan, tingkatCalon: null, hitungCalon: 0 },
+      diakui: null,
+      kirim: false,
+      alasan: "belum-konfirmasi",
     };
   }
 
@@ -272,28 +288,10 @@ export function nilaiPeredam(opsi: {
 // sejenisnya), jadi derau hanya bisa disaring dari bacaannya sendiri.
 
 /**
- * Banyak siklus terakhir — termasuk siklus ini — yang ikut menentukan nilai pemicu.
- *
- * 1 sejak 23 Nov 2026: satu sesi pengukuran langsung jadi satu keputusan, jadi
- * sirene menyala di akhir sesi pertama yang melewati ambang. Site dengan 1 prisma
- * diputuskan setelah 1 tembakan, 2 prisma setelah 2 tembakan, dan seterusnya.
- * Sebelumnya 3 (median, perlu 2 dari 3 sesi), yang menunda sirene satu sesi.
- *
- * Harganya derau: diputar ulang pada data Kolam BPP 16–18 Sep (348 sesi), sirene
- * berpindah dari Aman ke menyala 16 kali dengan jendela 1, 5 kali dengan jendela
- * 3. Loncatan tunggal kini padam sendiri di sesi berikutnya yang tenang, dan
- * operator bisa mendiamkannya lewat Konfirmasi. Kembalikan ke 3 untuk menyaring
- * loncatan tunggal lagi; nilaiPemicu() dan sesi-sesi sebelumnya ikut dengan
- * sendirinya.
+ * Bacaan beberapa sesi: lihat aturan-konfirmasi-sesi.ts. Sejak 27 Nov 2026 nilai
+ * pemicu = pergeseran TERKECIL dari N sesi terakhir (N per site, bawaan 2),
+ * menggantikan JENDELA_SIKLUS / nilaiPemicu() (median, lalu 1 sesi sejak 23 Nov).
  */
-export const JENDELA_SIKLUS = 1;
-
-/**
- * Siklus sebelumnya hanya ikut bila tidak lebih tua dari ini terhadap siklus
- * sekarang. Setelah jeda panjang (Kolam BPP pernah diam 45 hari) bacaan lama
- * tidak boleh ikut memutuskan keadaan hari ini.
- */
-export const UMUR_JENDELA_MS = 6 * 60 * 60 * 1000;
 
 /**
  * Pergeseran (mm) di atas mana bacaan dianggap salah tembak, bukan tanah yang
@@ -301,35 +299,10 @@ export const UMUR_JENDELA_MS = 6 * 60 * 60 * 1000;
  * sama dengan prisma yang gagal ditembak — tingkatnya tidak diubah, dan setelah
  * BATAS_GAGAL_BERUNTUN siklus dilaporkan sebagai tidak terbaca.
  *
- * Median saja tidak cukup untuk ini, karena bacaan sampah datang beruntun.
- * Pergeseran sungguhan tidak tersaring diam-diam: jauh sebelum mencapai 10×
+ * Konfirmasi beberapa sesi saja tidak cukup untuk ini, karena bacaan sampah
+ * datang beruntun. Pergeseran sungguhan tidak tersaring diam-diam: jauh sebelum mencapai 10×
  * batas Awas, Awas sudah diakui dan dikirim.
  */
 export function batasTakWajarMm(ambang: AmbangSite): number {
   return Math.max(1000, 10 * ambang.geser.siagaMax);
-}
-
-/**
- * Nilai yang dibandingkan dengan ambang, dari bacaan siklus sekarang dan
- * bacaan sah siklus-siklus sebelumnya (paling banyak `jendela` − 1). Dengan
- * jendela 1 (bawaan sekarang) hasilnya selalu bacaan siklus ini sendiri.
- *
- * Untuk jendela 3:
- *
- *   3 bacaan → median: perlu 2 dari 3 di atas batas untuk naik tingkat.
- *   2 bacaan → yang terkecil: keduanya harus di atas batas.
- *   1 bacaan → bacaan itu sendiri (belum ada riwayat untuk membandingkan).
- *
- * Ketiganya sama dengan "nilai terbesar kedua", dan itu disengaja: satu loncatan
- * sendirian tidak pernah memicu, sedangkan pergeseran sungguhan terlambat
- * paling lama satu siklus. Penurunan justru diakui lebih cepat bila hanya ada
- * dua bacaan — salah ke arah tenang di sini hanya menunda pesan pulih.
- */
-export function nilaiPemicu(
-  sekarang: number,
-  sebelumnya: readonly number[],
-  jendela: number = JENDELA_SIKLUS
-): number {
-  const urut = [sekarang, ...sebelumnya.slice(0, Math.max(0, jendela - 1))].sort((a, b) => b - a);
-  return urut.length >= 2 ? urut[1] : urut[0];
 }

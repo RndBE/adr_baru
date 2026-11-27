@@ -18,6 +18,7 @@ import {
 } from "@/lib/ambang";
 import { AKURASI_BAWAAN, type AkurasiRts } from "@/lib/akurasi-rts";
 import { SENYAP_MALAM_BAWAAN, type SenyapMalam } from "@/lib/aturan-senyap-malam";
+import { KONFIRMASI_SESI_BAWAAN } from "@/lib/aturan-konfirmasi-sesi";
 
 // ─── Tipe ───────────────────────────────────────────────────────────────────
 
@@ -123,6 +124,8 @@ export interface SiteConfig {
   idLoggerEws: string | null;
   /** Bunyi alarm dimatikan otomatis jam malam — lihat @/lib/aturan-senyap-malam. */
   senyapMalam: SenyapMalam;
+  /** Banyak sesi beruntun untuk mengakui tingkat baru — lihat @/lib/aturan-konfirmasi-sesi. */
+  konfirmasiSesi: number;
   terkalibrasi: boolean;
   /** True bila koordinat/ambang site ini masih nilai contoh, bukan hasil survei. */
   dataDummy: boolean;
@@ -161,6 +164,7 @@ export function fallbackSite(slug: string): SiteConfig {
     idLogger: null,
     idLoggerEws: null,
     senyapMalam: SENYAP_MALAM_BAWAAN,
+    konfirmasiSesi: KONFIRMASI_SESI_BAWAAN,
     terkalibrasi: false,
     dataDummy: false,
     aktif: true,
@@ -218,6 +222,7 @@ type SiteRow = {
   ukur_lng: number | null;
   id_logger: string | null;
   id_logger_ews: string | null;
+  konfirmasi_sesi?: number;
   senyap_malam?: boolean;
   senyap_malam_mulai?: string;
   senyap_malam_selesai?: string;
@@ -337,6 +342,7 @@ export function toSiteConfig(row: SiteRow): SiteConfig {
       selesai: row.senyap_malam_selesai ?? SENYAP_MALAM_BAWAAN.selesai,
       menit: row.senyap_malam_menit ?? SENYAP_MALAM_BAWAAN.menit,
     },
+    konfirmasiSesi: row.konfirmasi_sesi ?? KONFIRMASI_SESI_BAWAAN,
     terkalibrasi: row.terkalibrasi,
     dataDummy: row.data_dummy,
     aktif: row.aktif,

@@ -8,11 +8,9 @@
  */
 import { type AmbangSite } from "./ambang";
 import {
-  JENDELA_SIKLUS,
   KEBIJAKAN_BAWAAN,
   batasTakWajarMm,
   keadaanAwal,
-  nilaiPemicu,
   nilaiPeredam,
   tingkatEfektif,
   type KeadaanPrisma,
@@ -295,68 +293,20 @@ cek("bawaan jedaMs = 0", KEBIJAKAN_BAWAAN.jedaMs, 0);
   cek("turun ke 99 mm dari Siaga masih ditahan histeresis", keadaan.tingkat, "Siaga");
 }
 
-// ── Penyaring derau: nilai pemicu ───────────────────────────────────────────
-// Bawaan sekarang: satu sesi langsung menentukan.
-cek("jendela bawaan = 1 sesi", JENDELA_SIKLUS, 1);
-cek("jendela 1: bacaan sesi ini sendiri", nilaiPemicu(161, [3, 4]), 161);
-cek("jendela 1: riwayat tinggi tidak ikut", nilaiPemicu(5, [140, 4]), 5);
-
-// Jendela 3 (median) tetap tersedia bila nanti diperketat lagi.
-cek("satu loncatan di antara bacaan tenang tidak memicu", nilaiPemicu(161, [3, 4], 3), 4);
-cek("loncatan di siklus sebelumnya juga tersaring", nilaiPemicu(5, [140, 4], 3), 5);
-cek("pergeseran sungguhan: 2 dari 3 di atas batas", nilaiPemicu(60, [58, 4], 3), 58);
-cek("tiga-tiganya naik → median", nilaiPemicu(90, [70, 80], 3), 80);
-cek("dua bacaan → yang terkecil", nilaiPemicu(161, [3], 3), 3);
-cek("dua bacaan sama-sama tinggi → tetap tinggi", nilaiPemicu(160, [155], 3), 155);
-cek("satu bacaan → dirinya sendiri", nilaiPemicu(42, [], 3), 42);
-cek("riwayat lebih dari jendela dipotong", nilaiPemicu(10, [500, 500, 1, 1], 3), 500);
-
 const KOLAM: AmbangSite = {
   geser: { normalMax: 35, waspadaMax: 80, siagaMax: 150 },
   laju: { waspadaMin: 35, siagaMin: 80, awasMin: 150 },
 };
 
-/** Jalankan deret bacaan (terlama dulu) lewat penyaring + peredam, 10 menit per siklus. */
-function jalankanDenganPenyaring(bacaan: number[], jendela: number = JENDELA_SIKLUS) {
-  let keadaan = keadaanAwal();
-  const riwayat: number[] = [];
-  const kirim: Array<{ siklus: number; tingkat: string }> = [];
-  bacaan.forEach((mm, i) => {
-    const h = nilaiPeredam({ keadaan, nilaiMm: nilaiPemicu(mm, riwayat, jendela), ambang: KOLAM, sekarangMs: i * 600_000 });
-    keadaan = h.keadaan;
-    if (h.kirim) kirim.push({ siklus: i, tingkat: h.keadaan.tingkat });
-    riwayat.unshift(mm);
-  });
-  return { keadaan, kirim };
-}
-
-// Satu sesi menentukan: pergeseran langsung diakui di sesi pertama yang melewati ambang.
+// ── Kenaikan yang belum dipastikan sesi sebelumnya (aturan-konfirmasi-sesi.ts)
 {
-  const { kirim } = jalankanDenganPenyaring([10, 12, 40, 44, 47]);
-  cek("1 sesi: Waspada dikirim di sesi pertama yang di atas batas", kirim, [{ siklus: 2, tingkat: "Waspada" }]);
-}
-
-// Loncatan tunggal kini membunyikan alarm, tapi padam sendiri di sesi tenang berikutnya.
-{
-  const { keadaan, kirim } = jalankanDenganPenyaring([12, 15, 161, 14, 13]);
-  cek("1 sesi: loncatan 161 mm langsung Awas, lalu pulih di sesi berikutnya", kirim, [
-    { siklus: 2, tingkat: "Awas" },
-    { siklus: 3, tingkat: "Normal" },
-  ]);
-  cek("1 sesi: dan berakhir Normal", keadaan.tingkat, "Normal");
-}
-
-// Dengan jendela 3 — urutan dari data nyata P5 (966 m dari RTS).
-{
-  const { keadaan, kirim } = jalankanDenganPenyaring([12, 15, 161, 14, 13], 3);
-  cek("jendela 3: loncatan tunggal 161 mm di P5 tidak mengirim apa pun", kirim, []);
-  cek("jendela 3: dan tingkatnya tetap Normal", keadaan.tingkat, "Normal");
-}
-
-// Jendela 3: pergeseran sungguhan tetap sampai, terlambat paling lama satu siklus.
-{
-  const { kirim } = jalankanDenganPenyaring([10, 12, 40, 44, 47], 3);
-  cek("jendela 3: Waspada dikirim di siklus kedua yang di atas batas", kirim, [{ siklus: 3, tingkat: "Waspada" }]);
+  const h = nilaiPeredam({ keadaan: keadaanAwal(), nilaiMm: 60, ambang: KOLAM, sekarangMs: 0, bolehNaik: false });
+  cek("bolehNaik false: Waspada tidak diakui", [h.keadaan.tingkat, h.diakui, h.kirim, h.alasan], ["Normal", null, false, "belum-konfirmasi"]);
+  const w: KeadaanPrisma = { ...keadaanAwal(), tingkat: "Waspada" };
+  const turun = nilaiPeredam({ keadaan: w, nilaiMm: 10, ambang: KOLAM, sekarangMs: 0, bolehNaik: false });
+  cek("bolehNaik false: turun tetap boleh", [turun.keadaan.tingkat, turun.kirim], ["Normal", true]);
+  const tetap = nilaiPeredam({ keadaan: w, nilaiMm: 100, ambang: KOLAM, sekarangMs: 0, bolehNaik: false });
+  cek("bolehNaik false: Siaga ditahan di Waspada", tetap.keadaan.tingkat, "Waspada");
 }
 
 // ── Penyaring derau: batas bacaan tak wajar ─────────────────────────────────

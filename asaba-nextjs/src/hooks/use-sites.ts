@@ -47,6 +47,8 @@ export interface SiteRow {
   id_logger?: string | null;
   /** Logger EWS (sirene) site ini — kolom asli t_site, selalu ikut. */
   id_logger_ews?: string | null;
+  /** Sesi beruntun untuk mengakui tingkat baru — lihat @/lib/aturan-konfirmasi-sesi. */
+  konfirmasi_sesi?: number;
   /** Bunyi alarm dimatikan otomatis jam malam — lihat @/lib/aturan-senyap-malam. */
   senyap_malam?: boolean;
   senyap_malam_mulai?: string;
