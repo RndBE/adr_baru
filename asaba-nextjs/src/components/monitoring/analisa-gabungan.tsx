@@ -331,6 +331,8 @@ export function AnalisaGabungan({
   const [mengunduh, setMengunduh] = useState(false);
   const [unduhError, setUnduhError] = useState("");
   const [basis, setBasis] = useState<BasisGabungan>("akhir");
+  /** Garis rata-rata antar-prisma di grafik sepanjang rentang. Bawaan tampil. */
+  const [tampilRata, setTampilRata] = useState(true);
   const { ringkas, seri: seriBasis } = useMemo(
     () => olahRentang(prisma, basis, ambang),
     [prisma, basis, ambang]
@@ -663,10 +665,33 @@ export function AnalisaGabungan({
                 {/* Satuan tidak ikut huruf kapital: "MM" bukan milimeter. */}
                 Pergeseran sepanjang rentang <span className="normal-case">(mm)</span>
               </p>
-              <p className="text-[11.5px] text-(--ink-3)">
-                {seri.baris.length} titik · {akhir ? "jarak dari acuan R0" : "gerak dari awal rentang"}, mm
-                {` · ${KETERANGAN_RAPAT[interval]}`}
-              </p>
+              <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+                <p className="text-[11.5px] text-(--ink-3)">
+                  {seri.baris.length} titik · {akhir ? "jarak dari acuan R0" : "gerak dari awal rentang"}, mm
+                  {` · ${KETERANGAN_RAPAT[interval]}`}
+                </p>
+                {/* Garis rata-rata bisa disembunyikan supaya garis tiap prisma
+                    terbaca tanpa tertutup ringkasannya. */}
+                <button
+                  type="button"
+                  role="checkbox"
+                  aria-checked={tampilRata}
+                  onClick={() => setTampilRata((v) => !v)}
+                  title="Tampilkan atau sembunyikan garis rata-rata prisma terpilih"
+                  className={cn(
+                    "inline-flex h-7 shrink-0 cursor-pointer items-center gap-1.5 rounded-full px-2.5 text-[12px] font-medium outline-none transition-colors focus-visible:ring-2 focus-visible:ring-(--navy)/40",
+                    tampilRata
+                      ? "bg-(--navy) text-white"
+                      : "bg-white text-(--ink-2) ring-1 ring-(--line) hover:text-(--ink)"
+                  )}
+                >
+                  <span
+                    aria-hidden="true"
+                    className={cn("h-0.5 w-3 rounded-full", tampilRata ? "bg-white" : "bg-(--ink)")}
+                  />
+                  Rata-rata
+                </button>
+              </div>
             </div>
             {seri.baris.length === 0 ? (
               <p className="py-10 text-center text-[12.5px] text-(--ink-3)">
@@ -738,20 +763,22 @@ export function AnalisaGabungan({
                       {/* Rata-rata digambar terakhir supaya berada di atas seri
                           prisma, dan tebal supaya terbaca sebagai ringkasan —
                           bukan sebagai prisma kesekian. */}
-                      <Line
-                        type="monotone"
-                        dataKey="rata"
-                        stroke="var(--ink)"
-                        strokeWidth={2.5}
-                        dot={false}
-                        activeDot={{ r: 4.5 }}
-                        isAnimationActive={false}
-                        connectNulls={false}
-                      />
+                      {tampilRata && (
+                        <Line
+                          type="monotone"
+                          dataKey="rata"
+                          stroke="var(--ink)"
+                          strokeWidth={2.5}
+                          dot={false}
+                          activeDot={{ r: 4.5 }}
+                          isAnimationActive={false}
+                          connectNulls={false}
+                        />
+                      )}
                     </LineChart>
                   </ResponsiveContainer>
                 </div>
-                {seri.tidakLengkap > 0 && (
+                {tampilRata && seri.tidakLengkap > 0 && (
                   <p className="mt-1.5 text-[11.5px] leading-relaxed text-(--ink-3)">
                     {seri.tidakLengkap} dari {seri.baris.length} titik tidak memuat seluruh prisma
                     terpilih. Garis rata-rata di titik itu dihitung dari prisma yang terbaca saja,
