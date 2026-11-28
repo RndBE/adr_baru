@@ -253,6 +253,21 @@ const RENTANG = [
 }
 
 {
+  // Toleransi alat ikut ambang, sama dengan penilaian alarm: DF7 Kolam BPP
+  // (924 m, toleransi 13,8 mm) di 29,1 mm masih Normal terhadap ambang 20 mm.
+  const ambang20: AmbangSite = { ...AMBANG_R, geser: { normalMax: 20, waspadaMax: 60, siagaMax: 150 } };
+  const df7 = (tol: number | undefined) =>
+    olahRentang(
+      [{ id_prisma: "P6", nama_prisma: "DF7", acuan_sah: true, toleransi_mm: tol, titik: [{ t: "2026-11-28 15:00:00", dnMm: 0, deMm: 29.1, dzMm: 0 }] }],
+      "akhir",
+      ambang20
+    ).ringkas[0];
+  cek("dengan toleransi 13,8: 29,1 mm Normal", df7(13.8).status, "Normal");
+  cek("toleransi dibawa ke ringkasan", df7(13.8).toleransiMm, 13.8);
+  cek("tanpa toleransi (data lama): 29,1 mm Waspada", df7(undefined).status, "Waspada");
+}
+
+{
   // Prisma tanpa bacaan di jendela, dan prisma tanpa acuan R0 yang sah.
   const { ringkas } = olahRentang(
     [

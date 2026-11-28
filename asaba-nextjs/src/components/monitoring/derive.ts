@@ -103,6 +103,12 @@ export interface PrismaRingkas {
   lajuMmd: number | null;
   status: StatusLabel | null;
   statusLaju: StatusLabel | null;
+  /**
+   * Toleransi alat prisma ini (mm), ditambahkan ke ambang pergeseran site —
+   * aturan yang sama dengan penilaian alarm (@/lib/akurasi-rts). Hanya diisi
+   * Analisa Gabungan.
+   */
+  toleransiMm?: number;
   /** Koordinat UTM terkoreksi untuk denah. */
   e: number | null;
   n: number | null;

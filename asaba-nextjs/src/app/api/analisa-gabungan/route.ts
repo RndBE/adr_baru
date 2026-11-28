@@ -3,6 +3,7 @@ import { prisma } from "@/lib/prisma";
 import { cariAcuanR0 } from "@/lib/log-kontrol";
 import { nfloat, rotateEN } from "@/lib/coordinates";
 import { getSite } from "@/lib/sites";
+import { toleransiMm } from "@/lib/akurasi-rts";
 import {
   bacaInterval,
   FORMAT_STEMPEL,
@@ -145,14 +146,15 @@ export async function GET(request: NextRequest) {
     // Satu kueri untuk semua, bukan satu per prisma: pada sesi acuan yang sama
     // itu perjalanan bolak-balik yang sia-sia.
     const barisR0 = await prisma.$queryRawUnsafe<Array<Record<string, unknown>>>(
-      `SELECT sensor1, sensor8, sensor9, sensor10
+      `SELECT sensor1, sensor7, sensor8, sensor9, sensor10
        FROM rts WHERE id_kontrol = ? AND sensor1 IN (${slot})
        ORDER BY waktu ASC`,
       idR0,
       ...idSlot
     );
 
-    type Acuan = { N: number; E: number; Z: number };
+    /** `jarakM`: jarak miring di R0 — dasar toleransi alat prisma ini. */
+    type Acuan = { N: number; E: number; Z: number; jarakM: number };
     const acuan = new Map<string, Acuan>();
     for (const b of barisR0) {
       const id = String(b.sensor1);
@@ -178,7 +180,7 @@ export async function GET(request: NextRequest) {
         E = rE;
         N = rN;
       }
-      acuan.set(id, { N, E, Z });
+      acuan.set(id, { N, E, Z, jarakM: nfloat(b.sensor7) });
     }
 
     // ── Pembacaan pada rentang ──
@@ -260,6 +262,10 @@ export async function GET(request: NextRequest) {
         id_prisma: p.id_prisma,
         nama_prisma: p.nama_prisma || p.id_prisma,
         acuan_sah: adaAcuan,
+        // Ditambahkan ke ambang pergeseran site, sama dengan penilaian alarm
+        // (evaluasi-siklus.ts) — supaya status dan garis ambang di halaman ini
+        // tidak berbeda dari peringatan yang sebenarnya.
+        toleransi_mm: adaAcuan ? toleransiMm(acuan.get(p.id_prisma)!.jarakM, siteConfig.akurasiRts) : null,
         titik: t,
       };
     });

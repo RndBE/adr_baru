@@ -362,6 +362,32 @@ export function AnalisaGabungan({
 
   const namaSeri = useMemo(() => new Map(seri.prisma.map((p) => [p.kunci, p.nama])), [seri]);
 
+  // Garis Waspada di grafik mengikuti aturan alarm: ambang site ditambah
+  // toleransi alat tiap prisma (makin jauh prismanya, makin besar). Satu prisma
+  // dipilih = garis di ambang prisma itu; beberapa = garis dasar site dengan
+  // daftar ambang tiap prisma di bawah grafik.
+  const garisWaspada = useMemo(() => {
+    if (!ambang) return null;
+    const dasar = ambang.geser.normalMax;
+    const dipakai = hasil?.dipakai ?? [];
+    if (dipakai.length === 1) {
+      const tol = dipakai[0].toleransiMm ?? 0;
+      return {
+        y: dasar + tol,
+        label: tol > 0 ? `Waspada ${fmt(dasar + tol, 1)} mm (${fmt(dasar, 0)} + toleransi ${fmt(tol, 1)})` : `Waspada ${fmt(dasar, 0)} mm`,
+        perPrisma: null,
+      };
+    }
+    const adaToleransi = dipakai.some((p) => (p.toleransiMm ?? 0) > 0);
+    return {
+      y: dasar,
+      label: adaToleransi ? `Waspada dasar ${fmt(dasar, 0)} mm` : `Waspada ${fmt(dasar, 0)} mm`,
+      perPrisma: adaToleransi
+        ? dipakai.map((p) => `${p.nama.replace(/_/g, " ")} ${fmt(dasar + (p.toleransiMm ?? 0), 1)}`)
+        : null,
+    };
+  }, [ambang, hasil]);
+
   const semua = () => setPilih(new Set(bisa.map((p) => p.id)));
   const kosongkan = () => setPilih(new Set());
   const alih = (id: string) =>
@@ -725,13 +751,16 @@ export function AnalisaGabungan({
                       {/* Garis ambang hanya digambar pada basis yang memang
                           diukur dari R0 — pada basis "selama" ia akan
                           membandingkan gerak sejendela dengan batas jarak total. */}
-                      {ambang && akhir && (
+                      {garisWaspada && akhir && (
                         <ReferenceLine
-                          y={ambang.geser.normalMax}
+                          y={garisWaspada.y}
+                          // Ambang prisma jauh bisa di atas data tertinggi;
+                          // sumbunya dilebarkan supaya garisnya tetap terlihat.
+                          ifOverflow="extendDomain"
                           stroke="var(--st-waspada)"
                           strokeDasharray="4 4"
                           label={{
-                            value: `Waspada ${fmt(ambang.geser.normalMax, 0)} mm`,
+                            value: garisWaspada.label,
                             position: "insideTopRight",
                             fill: "var(--st-waspada)",
                             fontSize: 11,
@@ -771,6 +800,12 @@ export function AnalisaGabungan({
                     </LineChart>
                   </ResponsiveContainer>
                 </div>
+                {akhir && garisWaspada?.perPrisma && (
+                  <p className="mt-1.5 text-[11.5px] leading-relaxed text-(--ink-3)">
+                    Ambang Waspada tiap prisma (ambang site + toleransi alat menurut jaraknya, mm):{" "}
+                    <span className="font-mono tabular-nums text-(--ink-2)">{garisWaspada.perPrisma.join(" · ")}</span>
+                  </p>
+                )}
                 {tampilRata && seri.tidakLengkap > 0 && (
                   <p className="mt-1.5 text-[11.5px] leading-relaxed text-(--ink-3)">
                     {seri.tidakLengkap} dari {seri.baris.length} titik tidak memuat seluruh prisma

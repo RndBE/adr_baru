@@ -28,6 +28,7 @@ import {
   type AmbangSite,
   type StatusLabel,
 } from "@/lib/ambang";
+import { ambangDenganToleransi } from "@/lib/akurasi-rts";
 
 /** Vektor pergeseran mendatar rata-rata sekelompok prisma. */
 export interface VektorRata {
@@ -372,6 +373,8 @@ export interface PrismaRentang {
   id_prisma: string;
   nama_prisma?: string;
   acuan_sah?: boolean;
+  /** Toleransi alat prisma ini, mm — dari jarak miringnya di R0 (lihat @/lib/akurasi-rts). */
+  toleransi_mm?: number | null;
   titik?: Array<{ t: unknown; dnMm: unknown; deMm: unknown; dzMm: unknown }>;
 }
 
@@ -459,6 +462,12 @@ export function olahRentang(
     const hari = lamaHari(awal.t, akhir.t);
     const lajuMmd = hari === null ? null : gerakMm / hari;
 
+    // Ambang pergeseran prisma ini = ambang site + toleransi alatnya, sama
+    // dengan penilaian alarm. Tanpa toleransi, halaman ini menyebut "Waspada"
+    // pada prisma jauh yang oleh alarm dinilai Normal.
+    const toleransiMm = Math.max(0, Number(p.toleransi_mm) || 0);
+    const ambangPrisma = ambang ? ambangDenganToleransi(ambang, toleransiMm) : null;
+
     ringkas.push({
       id,
       nama,
@@ -471,8 +480,9 @@ export function olahRentang(
       arahTeks: null,
       lajuMmd,
       // Hanya basis "akhir" yang sebanding dengan ambang pergeseran.
-      status: basis === "akhir" && ambang ? statusPergeseran(geserMm, ambang) : null,
+      status: basis === "akhir" && ambangPrisma ? statusPergeseran(geserMm, ambangPrisma) : null,
       statusLaju: ambang && lajuMmd !== null ? statusKecepatan(lajuMmd, ambang) : null,
+      toleransiMm,
       e: null,
       n: null,
       tertembak: true,
