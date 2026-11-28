@@ -73,12 +73,22 @@ export function PrismaGrid({
         const mengukur = p.status === "Running...";
         return (
           <li
-            key={p.name}
+            key={p.slot}
             className="min-w-0 rounded-[12px] bg-white ring-1 ring-(--line)"
           >
             <div className="flex items-center justify-between gap-2 px-3.5 pt-3 pb-2.5">
-              <span className="truncate text-[13.5px] font-semibold text-(--ink)">
-                {p.name}
+              <span className="flex min-w-0 items-baseline gap-1.5">
+                <span className="truncate text-[13.5px] font-semibold text-(--ink)">
+                  {p.name}
+                </span>
+                {p.name !== p.slot && (
+                  <span
+                    title={`Slot RTS ${p.slot}`}
+                    className="shrink-0 font-mono text-[11px] text-(--ink-3)"
+                  >
+                    {p.slot}
+                  </span>
+                )}
               </span>
               <span
                 className={cn(

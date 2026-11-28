@@ -20,6 +20,8 @@ export type TempPrisma = {
   HA: number | null;
   VA: number | null;
   SlopDis: number | null;
+  /** t_prisma.nama_prisma ("DF1", "BS2", …); null bila slotnya tidak terdaftar. */
+  nama_prisma: string | null;
 };
 
 /**
@@ -30,6 +32,9 @@ export type TempPrisma = {
 export type PrismaStatus = "Success" | "Failed" | "Running..." | "Menunggu" | "Belum diukur";
 
 export type PrismaCard = {
+  /** Nomor slot RTS (P1, P2, …). Kunci pencocokan data MQTT `id_prisma`. */
+  slot: string;
+  /** Nama prisma dari Prism Config; sama dengan `slot` bila namanya kosong. */
   name: string;
   status: PrismaStatus;
   y: string;
@@ -37,6 +42,16 @@ export type PrismaCard = {
   z: string;
   waktu?: string;
 };
+
+/**
+ * Judul kartu: nama prisma dari Prism Config (DF1, BS2, …), bukan nomor slot.
+ * Nomor slot tidak berkaitan dengan nama — P4 bisa bernama DF5 — jadi slot
+ * tetap ditampilkan kecil di sebelahnya. Nama kosong jatuh ke nomor slot.
+ */
+export function namaKartu(slot: string, nama: string | null | undefined): string {
+  const n = (nama ?? "").trim();
+  return n !== "" ? n : slot;
+}
 
 /**
  * Prisma yang belum pernah diukur menyimpan '0' di temp_prisma. Menampilkannya

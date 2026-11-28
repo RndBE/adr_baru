@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
+import { nomorSlot } from "@/lib/step-record";
 
 /**
  * GET /api/prisma-data?site=xxx
@@ -18,14 +19,19 @@ import { prisma } from "@/lib/prisma";
  * - N0, E0, Z0 : koordinat referensi
  * - status_get : 1 = success, 0 = failed, 2 = running
  * - HA, VA, SlopDis
+ * - nama_prisma: nama dari t_prisma (Prism Config); null bila slot tidak terdaftar
+ *
+ * Diurutkan menurut nomor slot (P1 … P10).
  */
+type BarisTemp = Record<string, unknown> & { site: string; id_prisma: string };
+
 export async function GET(request: NextRequest) {
   try {
     const site = request.nextUrl.searchParams.get("site");
 
     // Baris terbaru per prisma, di-scope per site.
     const rows = site
-      ? await prisma.$queryRaw<Array<Record<string, unknown>>>`
+      ? await prisma.$queryRaw<BarisTemp[]>`
           SELECT tp.*
           FROM temp_prisma tp
           INNER JOIN (
@@ -39,7 +45,7 @@ export async function GET(request: NextRequest) {
            AND tp.id = latest.max_id
           ORDER BY tp.id_prisma ASC
         `
-      : await prisma.$queryRaw<Array<Record<string, unknown>>>`
+      : await prisma.$queryRaw<BarisTemp[]>`
           SELECT tp.*
           FROM temp_prisma tp
           INNER JOIN (
@@ -53,7 +59,27 @@ export async function GET(request: NextRequest) {
           ORDER BY tp.site ASC, tp.id_prisma ASC
         `;
 
-    return NextResponse.json({ success: true, data: rows });
+    // Nama prisma (DF1, BS2, …) dari Prism Config. Digabung di sini, bukan
+    // lewat JOIN: kolom site/id_prisma di t_prisma (utf8mb4) dan temp_prisma
+    // (utf8mb3) beda collation.
+    const target = await prisma.prismaTarget.findMany({
+      where: site ? { site } : undefined,
+      select: { site: true, id_prisma: true, nama_prisma: true },
+    });
+    const nama = new Map(target.map((t) => [`${t.site}\u0000${t.id_prisma}`, t.nama_prisma]));
+
+    // Urut menurut nomor slot (P1, P2, …, P10), bukan urutan teks yang
+    // menaruh P10 sesudah P1.
+    const data = rows
+      .map((r) => ({ ...r, nama_prisma: nama.get(`${r.site}\u0000${r.id_prisma}`) ?? null }))
+      .sort(
+        (a, b) =>
+          String(a.site).localeCompare(String(b.site)) ||
+          (nomorSlot(String(a.id_prisma)) ?? Infinity) - (nomorSlot(String(b.id_prisma)) ?? Infinity) ||
+          String(a.id_prisma).localeCompare(String(b.id_prisma))
+      );
+
+    return NextResponse.json({ success: true, data });
   } catch (error) {
     console.error("[GET /api/prisma-data]", error);
     return NextResponse.json(

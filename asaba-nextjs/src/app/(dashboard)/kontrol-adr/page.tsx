@@ -42,7 +42,7 @@ import { fmtDate as fmtWaktu, fmtJam, fmtTanggal } from "@/components/monitoring
 import { AttitudeDial } from "@/components/kontrol-adr/attitude-dial";
 import { PrismaGrid } from "@/components/kontrol-adr/prisma-grid";
 import { ProcessSteps, type LangkahProses } from "@/components/kontrol-adr/process-steps";
-import { mapStatus, type PrismaCard, type TempPrisma } from "@/components/kontrol-adr/prisma";
+import { mapStatus, namaKartu, type PrismaCard, type TempPrisma } from "@/components/kontrol-adr/prisma";
 import { UjiSapuanModal, useBatasBaca, useBatasJawabSapuan } from "@/components/kontrol-adr/uji-sapuan-modal";
 import { PemilihWaktu } from "@/components/kontrol-adr/pemilih-waktu";
 import {
@@ -979,7 +979,7 @@ export default function KontrolAdrPage() {
             console.log(`[KontrolADR] ${topic}:`, data.id_prisma, data.N1, data.E1, data.Z1);
             const isFailed = Number(data.N1) === 0 && Number(data.E1) === 0 && Number(data.Z1) === 0;
             setPrismaCards(prev => prev.map(c =>
-              c.name === data.id_prisma
+              c.slot === data.id_prisma
                 ? {
                     ...c,
                     status: isFailed ? "Failed" as const : "Success" as const,
@@ -2343,7 +2343,8 @@ export default function KontrolAdrPage() {
       const json = await res.json();
       if (json.success && Array.isArray(json.data)) {
         const dbCards: PrismaCard[] = (json.data as TempPrisma[]).map((row) => ({
-          name: row.id_prisma,
+          slot: row.id_prisma,
+          name: namaKartu(row.id_prisma, row.nama_prisma),
           // sensor16 = 1 berarti RTS sedang menjalankan sesi. Dipakai langsung
           // (bukan state isControlRunning) supaya nilainya selalu sinkron dengan
           // hardware, termasuk saat halaman baru dimuat ulang.
