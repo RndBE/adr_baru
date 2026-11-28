@@ -672,25 +672,18 @@ export function AnalisaGabungan({
                 </p>
                 {/* Garis rata-rata bisa disembunyikan supaya garis tiap prisma
                     terbaca tanpa tertutup ringkasannya. */}
-                <button
-                  type="button"
-                  role="checkbox"
-                  aria-checked={tampilRata}
-                  onClick={() => setTampilRata((v) => !v)}
+                <label
                   title="Tampilkan atau sembunyikan garis rata-rata prisma terpilih"
-                  className={cn(
-                    "inline-flex h-7 shrink-0 cursor-pointer items-center gap-1.5 rounded-full px-2.5 text-[12px] font-medium outline-none transition-colors focus-visible:ring-2 focus-visible:ring-(--navy)/40",
-                    tampilRata
-                      ? "bg-(--navy) text-white"
-                      : "bg-white text-(--ink-2) ring-1 ring-(--line) hover:text-(--ink)"
-                  )}
+                  className="inline-flex shrink-0 cursor-pointer select-none items-center gap-1.5 text-[12px] font-medium text-(--ink-2) hover:text-(--ink)"
                 >
-                  <span
-                    aria-hidden="true"
-                    className={cn("h-0.5 w-3 rounded-full", tampilRata ? "bg-white" : "bg-(--ink)")}
+                  <input
+                    type="checkbox"
+                    checked={tampilRata}
+                    onChange={(e) => setTampilRata(e.target.checked)}
+                    className="size-3.5 cursor-pointer accent-(--navy)"
                   />
-                  Rata-rata
-                </button>
+                  Tampilkan rata-rata
+                </label>
               </div>
             </div>
             {seri.baris.length === 0 ? (
