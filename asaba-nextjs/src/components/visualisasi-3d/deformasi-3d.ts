@@ -245,6 +245,23 @@ export function gambarScene(
     );
   }
 
+  // Nama tiap prisma, selalu terlihat (sebelumnya hanya muncul saat hover).
+  // Trace tersendiri supaya bisa dimatikan lewat legenda bila scene ramai.
+  // Ditaruh di posisi R0: posisi sesi ini cuma bergeser milimeter darinya,
+  // dan prisma yang gagal ditembak tetap punya label.
+  traces.push({
+    type: "scatter3d",
+    mode: "text",
+    name: "Nama prisma",
+    x: x0,
+    y: y0,
+    z: z0,
+    text: baseline.map((p) => p.name || p.id),
+    textposition: "top center",
+    textfont: { size: 12, color: "#0f172a", family: fontSans.style.fontFamily },
+    hoverinfo: "skip",
+  });
+
   traces.push({
     type: "scatter3d",
     mode: "markers+text",
