@@ -259,6 +259,18 @@ function RtsDashboard({
         onKontrol={() => router.push("/kontrol-adr")}
       />
 
+      {/* Cek orientasi alat dari backsight (src/lib/orientasi-bs.ts). Tidak
+          memicu EWS; memberi tahu bahwa pergeseran sesi ini mungkin ulah alat. */}
+      {deformasi?.cek_bs?.lewat && (
+        <div
+          role="status"
+          className="flex items-start gap-3 rounded-[12px] border border-amber-200 bg-amber-50 px-4 py-3 text-[12.5px] leading-relaxed text-amber-900"
+        >
+          <AlertTriangle className="mt-0.5 size-4 shrink-0 text-amber-600" />
+          <p>{(deformasi.peringatan ?? []).at(-1)}</p>
+        </div>
+      )}
+
       {/* ── Riwayat & hasil ── */}
       <div className="grid grid-cols-1 gap-4 md:gap-5 xl:grid-cols-12">
         <Panel className="rise-in xl:col-span-3 xl:h-[480px]" style={{ animationDelay: "120ms" }}>

@@ -15,6 +15,7 @@ import { HapusPrismaModal } from "@/components/prism-config/hapus-modal";
 import { ModeCariModal } from "@/components/prism-config/mode-cari-modal";
 import { AccessCodeModal } from "@/components/prism-config/access-code-modal";
 import { ArahkanModal } from "@/components/prism-config/arahkan-modal";
+import { OrientasiBsPanel } from "@/components/prism-config/orientasi-bs-panel";
 import type { PrismaSlot, PrismConfigResponse } from "@/components/prism-config/types";
 
 export default function PrismConfigPage() {
@@ -331,6 +332,14 @@ export default function PrismConfigPage() {
                 />
               </div>
             </Panel>
+
+            <OrientasiBsPanel
+              key={`${site}-${data.filter((d) => d.jenis === "bs").map((d) => d.id_prisma).join(",")}`}
+              className="rise-in"
+              style={{ animationDelay: "180ms" }}
+              site={site}
+              terbuka={terbuka}
+            />
           </>
         )}
       </div>

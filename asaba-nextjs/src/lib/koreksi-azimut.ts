@@ -53,9 +53,17 @@
  * `orientasiDeg` (302,351°) diturunkan dari membaca posisi titik di PDF, teliti
  * sekitar ±0,5°. Pada prisma terjauh itu setara ±10 m posisi mutlak. Yang
  * TIDAK terpengaruh sama sekali adalah pengukuran deformasinya: konstanta yang
- * sama diputar ke setiap epoch, jadi selisih antar epoch tetap persis. Begitu
- * ada koordinat backsight hasil survei, perbarui angkanya di `t_site` —
- * tidak ada kode yang perlu disentuh.
+ * sama diputar ke setiap epoch, jadi selisih antar epoch tetap persis.
+ *
+ * ── Sejak 28 November 2026: nol set dari koordinat survei backsight ────────
+ *
+ * Angka di atas milik pemasangan RTS September. Pemasangan ulang 27 Nov
+ * memberi nol set lain (Kolam BPP: 335,946 -> ~135,5 gon, beda ~200 gon).
+ * Nol set sekarang dihitung dari koordinat survei BS di Prism Config
+ * (src/lib/orientasi-bs.ts) dan diterapkan bersama hitung ulang seluruh
+ * riwayat (src/lib/hitung-ulang-koordinat.ts) — jangan ubah
+ * `ha_orientasi_deg` langsung di DB tanpa hitung ulang, atau semua prisma
+ * tampak melompat terhadap R0.
  */
 
 export interface KoreksiAzimut {

@@ -10,6 +10,14 @@ import {
   statusKecepatan,
   type SiteConfig,
 } from "@/lib/sites";
+import { bacaSudut, sudutKosong } from "@/lib/koreksi-azimut";
+import { cekOrientasiBs, pesanCekBs } from "@/lib/orientasi-bs";
+
+/** Tembakan dengan sudut dan jarak sah — syarat dipakai cek orientasi BS. */
+function tembakanSah(row: Record<string, unknown>): boolean {
+  const sd = Number(String(row.sensor7 ?? "").replace(",", "."));
+  return !sudutKosong(row.sensor5) && Number.isFinite(sd) && sd > 0;
+}
 
 /**
  * Peringatan yang harus terlihat operator, ikut di response dan bukan hanya di
@@ -104,6 +112,9 @@ export async function GET(request: NextRequest) {
     `;
 
     const dataPengukuran: Array<Record<string, unknown>> = [];
+    const haBsAcuan = new Map<string, number>();
+    const haBsSesi = new Map<string, number>();
+    const namaBs = new Map<string, string>();
 
     {
       for (const p of prisms) {
@@ -132,6 +143,13 @@ export async function GET(request: NextRequest) {
 
         const current = cekTembak[0];
         const baseline = firstData[0];
+
+        // Backsight: HA-nya dikumpulkan untuk cek orientasi alat (di bawah).
+        if (p.jenis === "bs" && tembakanSah(current) && tembakanSah(baseline)) {
+          haBsAcuan.set(idPrisma, bacaSudut(baseline.sensor5) as number);
+          haBsSesi.set(idPrisma, bacaSudut(current.sensor5) as number);
+          namaBs.set(idPrisma, String(p.nama_prisma ?? idPrisma));
+        }
 
         // sensor8 = EASTING, sensor9 = NORTHING — kebalikan dari
         // PROTOKOL_MQTT_ADR bagian F, dan kebalikan dari cara route lain di app
@@ -336,6 +354,12 @@ export async function GET(request: NextRequest) {
       }
     }
 
+    const faktor = siteConfig.koreksiAzimut?.faktorDerajat ?? 0.9;
+    const cekBs = haBsAcuan.size > 0 ? cekOrientasiBs(haBsAcuan, haBsSesi, faktor) : null;
+    const pesanBs = cekBs
+      ? pesanCekBs(cekBs, faktor === 0.9 ? "gon" : "°", (id) => namaBs.get(id) ?? id)
+      : null;
+
     return NextResponse.json({
       success: true,
       data: {
@@ -357,8 +381,11 @@ export async function GET(request: NextRequest) {
           data_dummy: siteConfig.dataDummy,
           tidak_dikenal: siteConfig.tidakDikenal,
         },
+        // Orientasi alat menurut backsight, sesi ini vs acuan. Tidak memicu EWS
+        // — hanya memberi tahu bahwa pergeseran sesi ini mungkin ulah alat.
+        cek_bs: cekBs,
         // Peringatan yang harus ditampilkan di UI, bukan sekadar log server.
-        peringatan: buildPeringatan(siteConfig),
+        peringatan: [...buildPeringatan(siteConfig), ...(pesanBs ? [pesanBs] : [])],
       },
     });
   } catch (error) {

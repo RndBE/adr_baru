@@ -379,6 +379,19 @@ function HasilPengukuranContent() {
           </div>
         )}
 
+        {/* Cek orientasi alat dari backsight untuk sesi yang dibuka — lihat
+            src/lib/orientasi-bs.ts. Tidak memicu EWS; hanya memberi tahu bahwa
+            pergeseran sesi ini mungkin ulah alat, bukan lereng. */}
+        {deformasi?.cek_bs?.lewat && (
+          <div
+            role="status"
+            className="flex items-start gap-3 rounded-[12px] border border-amber-200 bg-amber-50 px-4 py-3 text-[12.5px] leading-relaxed text-amber-900"
+          >
+            <AlertTriangle className="mt-0.5 size-4 shrink-0 text-amber-600" />
+            <p>{(deformasi.peringatan ?? []).at(-1)}</p>
+          </div>
+        )}
+
         {logsError ? (
           <Panel className="items-center px-6 py-14 text-center">
             <p className="font-display text-[20px] font-bold text-(--ink)">

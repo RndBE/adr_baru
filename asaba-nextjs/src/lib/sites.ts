@@ -101,18 +101,15 @@ export interface SiteConfig {
     faktorDerajat: number;
     orientasiDeg: number;
     /**
-     * Tinggi alat di atas `rts_z`, meter. NOL untuk semua site sekarang.
+     * Tinggi alat di atas `rts_z`, meter — kolom `t_site.tinggi_alat`
+     * (migrasi 029), bawaan 0.
      *
-     * Godaannya mengambilnya dari `config_adr.ts_high`, yang untuk kolam_bpp
-     * berisi 10. Itu salah: `config_adr.coor_z` bernilai 38,813 — sama persis
-     * dengan `t_site.rts_z` — jadi rts_z memang SUDAH elevasi alatnya, bukan
-     * titik tanahnya. Menambahkan 10 lagi membuat keenam prisma mengambang
-     * 9-12 m di atas permukaan kontur hasil survei; tanpa tambahan apa pun
-     * mereka duduk di −0,6 … +1,8 m, rata-rata +0,1 m.
-     *
-     * Dibiarkan sebagai medan supaya modelnya terlihat, bukan tersembunyi
-     * sebagai asumsi. Site yang alatnya memang berdiri di atas titik tanahnya
-     * tinggal diberi kolomnya sendiri saat itu diperlukan.
+     * BUKAN `config_adr.ts_high` (kolam_bpp: 10, angka untuk alat, bukan
+     * untuk rumus ini). Sampai November 2026 rts_z dianggap sudah elevasi
+     * alat; survei lapangan 28 Nov menyatakan 38,813 adalah tinggi PATOK,
+     * dan koordinat survei kedua BS memberi tinggi alat − tinggi prisma BS
+     * ≈ 1,50 m. Hanya menggeser Z semua tembakan sama rata, jadi tidak
+     * mengubah deformasi — asal riwayatnya ikut dihitung ulang.
      */
     tinggiAlat: number;
   } | null;
@@ -194,6 +191,7 @@ type SiteRow = {
   rts_e: number | null;
   rts_n: number | null;
   rts_z: number | null;
+  tinggi_alat?: number | null;
   utm_zone: number;
   utm_north: boolean;
   map_lat: number | null;
@@ -318,7 +316,7 @@ export function toSiteConfig(row: SiteRow): SiteConfig {
         ? {
             faktorDerajat: row.ha_faktor_derajat,
             orientasiDeg: row.ha_orientasi_deg,
-            tinggiAlat: 0,
+            tinggiAlat: Number.isFinite(Number(row.tinggi_alat)) ? Number(row.tinggi_alat) : 0,
           }
         : null,
     rotation: rotasiLengkap

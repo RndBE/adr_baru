@@ -127,6 +127,13 @@ model PrismaTarget {
   /// Lihat migrasi 018.
   mode_cari String @default("as") @db.VarChar(16)
 
+  /// Koordinat survei titik prisma (UTM, meter). Diisi untuk backsight: nol
+  /// set dihitung dari azimut RTS->BS ini. Null = belum disurvei. Lihat
+  /// prisma/migrations/029_koordinat_bs.sql dan src/lib/orientasi-bs.ts.
+  koor_e Float?
+  koor_n Float?
+  koor_h Float?
+
   @@unique([site, id_prisma], name: "uk_site_prisma")
   @@index([site, jenis])
   @@map("t_prisma")
@@ -570,6 +577,11 @@ model Site {
   rts_e Float?
   rts_n Float?
   rts_z Float?
+  /// Tinggi alat di atas rts_z (patok), meter. Lihat migrasi 029.
+  tinggi_alat Float @default(0)
+  /// Waktu alat dipasang terakhir. Hitung ulang riwayat hanya menyentuh sesi
+  /// sejak waktu ini. Null = semua sesi site. Lihat migrasi 029.
+  pemasangan_sejak DateTime? @db.DateTime(0)
 
   // Proyeksi UTM untuk konversi ke lat/lng
   utm_zone  Int     @default(50)
